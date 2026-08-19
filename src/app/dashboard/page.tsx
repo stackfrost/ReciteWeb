@@ -1,126 +1,111 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCiteGuardStore } from '@/lib/store';
+import Toolbar from '@/components/Toolbar';
+import ActivityBar from '@/components/ActivityBar';
 import ManuscriptViewer from '@/components/viewer/ManuscriptViewer';
 import ActionInspector from '@/components/inspector/ActionInspector';
-import Toolbar from '@/components/Toolbar';
-import ExportModal from '@/components/ExportModal';
-import SettingsPanel from '@/components/SettingsPanel';
-import { DEMO_MANUSCRIPT, DEMO_CLAIMS } from '@/lib/demo-data';
-import { Crosshair, Download, Settings } from 'lucide-react';
+import { Terminal } from 'lucide-react';
 
 export default function DashboardPage() {
-  const { 
-    setParsedText, 
-    setClaims, 
-    setDocumentTitle, 
-    isAuditing, 
-    setIsAuditing 
-  } = useCiteGuardStore();
+  const { isAuditing } = useCiteGuardStore();
+  const [leftWidth, setLeftWidth] = useState(60); 
+  const [isDragging, setIsDragging] = useState(false);
 
-  // State to manage Modal visibilities
-  const [isExportOpen, setIsExportOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-
-  // Load demo data on mount so we can test the UI immediately.
-  // In production, this data will be set by the file upload route.
+  // Native Drag Engine
   useEffect(() => {
-    // Prevent overriding if data is already loaded via an actual upload
-    const currentText = useCiteGuardStore.getState().parsedText;
-    if (currentText) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      const newWidth = (e.clientX / window.innerWidth) * 100;
+      if (newWidth >= 25 && newWidth <= 75) setLeftWidth(newWidth);
+    };
 
-    setIsAuditing(true);
-    
-    // Simulate network delay to show off the loading state
-    const timer = setTimeout(() => {
-      setParsedText(DEMO_MANUSCRIPT);
-      setClaims(DEMO_CLAIMS);
-      setDocumentTitle('demo_quantum_spin_liquids.tex');
-      setIsAuditing(false);
-    }, 1500);
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      document.body.style.cursor = 'default';
+    };
 
-    return () => clearTimeout(timer);
-  }, [setParsedText, setClaims, setDocumentTitle, setIsAuditing]);
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
 
   return (
-    <div className="flex flex-col h-screen w-full bg-zinc-950 text-zinc-200 overflow-hidden font-sans">
+    <div className="flex h-screen w-screen bg-zinc-950 text-zinc-200 overflow-hidden font-sans select-none">
       
-      {/* 1. Top Global Header */}
-      <header className="h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur flex items-center justify-between px-4 shrink-0 z-20 relative shadow-sm">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 rounded bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-            <Crosshair className="w-4 h-4 text-emerald-400" />
-          </div>
-          <h1 className="font-bold tracking-widest text-sm uppercase flex items-center space-x-2">
-            <span>ReciteAI</span>
-            <span className="text-zinc-600 font-normal">//</span> 
-            <span className="text-zinc-400 font-mono text-xs">Telemetry Console</span>
-          </h1>
-        </div>
+      {/* 1. Left Activity Bar */}
+      <ActivityBar/>
+
+      <main className="flex flex-col flex-1 min-w-0">
         
-        <div className="flex items-center space-x-4 text-xs font-mono">
-          
-          {/* Configuration Matrix Trigger */}
-          <button 
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
-            title="Configuration Matrix"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
+        {/* 2. Top Action Ribbon */}
+        <Toolbar/>
 
-          <div className="flex items-center space-x-2 px-3 py-1.5 rounded bg-zinc-900 border border-zinc-800">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span className="text-zinc-400">ENGINE: <span className="text-emerald-400">ONLINE</span></span>
-          </div>
+        {/* 3 & 4. Native Resizable Lab Environment */}
+        <div className="flex-1 flex overflow-hidden relative bg-[#050505]">
           
-          <button 
-            onClick={() => setIsExportOpen(true)}
-            className="flex items-center space-x-2 px-4 py-1.5 bg-zinc-200 text-zinc-900 font-bold rounded hover:bg-white transition-colors"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>EXPORT .BIB</span>
-          </button>
-        </div>
-      </header>
-
-      {/* 2. Telemetry & Filter Toolbar */}
-      <Toolbar />
-
-      {/* 3. Main Split-Pane Workspace */}
-      <main className="flex-1 flex overflow-hidden">
-        
-        {/* Left Pane: Manuscript Viewer (60%) */}
-        <section className="w-3/5 h-full relative">
-          <ManuscriptViewer />
-          
-          {/* Overlay Loading State during LLM Auditing */}
-          {isAuditing && (
-            <div className="absolute inset-0 bg-zinc-950/80 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-              <div className="w-64 h-1 bg-zinc-800 rounded-full overflow-hidden mb-4">
-                <div className="h-full bg-emerald-500 animate-pulse" style={{ width: '60%' }}></div>
-              </div>
-              <p className="text-xs font-mono text-emerald-400 tracking-widest animate-pulse">
-                ISOLATING CLAIMS...
-              </p>
+          {/* LEFT PANE */}
+          <div style={{ width: `${leftWidth}%` }} className="flex flex-col relative transition-none bg-zinc-950">
+            <div className="flex-1 overflow-y-auto">
+              <ManuscriptViewer/>
             </div>
-          )}
-        </section>
 
-        {/* Right Pane: Action Inspector (40%) */}
-        <section className="w-2/5 h-full bg-zinc-950 shadow-[-10px_0_20px_rgba(0,0,0,0.2)] z-10 relative border-l border-zinc-800">
-          <ActionInspector />
-        </section>
-        
+            {/* Hardware-style Processing Overlay */}
+            {isAuditing && (
+              <div className="absolute inset-0 bg-zinc-950/90 backdrop-blur-[2px] flex flex-col items-center justify-center z-50">
+                <div className="flex items-center gap-3 text-emerald-500 font-mono text-xs mb-3">
+                  <Terminal className="animate-pulse" size="{14}"/>
+                  <span className="tracking-widest">ISOLATING_CLAIMS...</span>
+                </div>
+                <div className="w-64 h-0.5 bg-zinc-900 overflow-hidden">
+                  <div className="h-full bg-emerald-500/80 animate-pulse" style={{ width: '60%' }}></div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* THE DRAGGER */}
+          <div 
+            onMouseDown={() => setIsDragging(true)}
+            className={`w-[1px] bg-zinc-800 hover:bg-emerald-500 hover:w-[3px] transition-all cursor-col-resize z-10 flex-shrink-0 ${isDragging ? 'bg-emerald-500 w-[3px]' : ''}`}
+          />
+
+          {/* RIGHT PANE */}
+          <div className="flex-1 flex flex-col transition-none bg-zinc-950/50">
+            <div className="flex-1 overflow-y-auto">
+              <ActionInspector/>
+            </div>
+          </div>
+
+          {isDragging && <div className="absolute inset-0 z-50 cursor-col-resize" />}
+        </div>
+
+        {/* 5. Status Bar */}
+        <footer className="h-6 w-full border-t border-zinc-800 bg-zinc-950 flex items-center justify-between px-3 text-[10px] font-mono text-zinc-500 flex-shrink-0">
+          <div className="flex gap-4">
+            <span className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_4px_#10b981]"></div>
+              SYSTEM_ONLINE
+            </span>
+            <span className="text-zinc-600">|</span>
+            <span>LATENCY: {isAuditing ? '42ms' : '--ms'}</span>
+          </div>
+          <div className="flex gap-4 items-center">
+            <span className="text-emerald-500/70">STORAGE: INDEXED_DB</span>
+            <span className="text-zinc-600">|</span>
+            <span>LLM: BYOK_PENDING</span>
+          </div>
+        </footer>
+
       </main>
-
-      {/* 4. Overlay Modals */}
-      <ExportModal isOpen={isExportOpen} onClose={() => setIsExportOpen(false)} />
-      <SettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </div>
   );
 }
