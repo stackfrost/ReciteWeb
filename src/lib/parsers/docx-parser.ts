@@ -81,7 +81,7 @@ export function extractDocxExistingCitations(text: string): {
  */
 export async function parseDocxBuffer(buffer: Buffer | ArrayBuffer): Promise<ParsedDocxDocument> {
   // Convert .docx binary to raw plain text using Mammoth
-  const inputBuffer = buffer instanceof Buffer ? buffer : Buffer.from(buffer);
+  const inputBuffer = buffer instanceof Buffer ? buffer : Buffer.from(new Uint8Array(buffer as ArrayBuffer));
   const result = await mammoth.extractRawText({ buffer: inputBuffer });
   const rawText = result.value || '';
 

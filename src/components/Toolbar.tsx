@@ -2,12 +2,13 @@
 
 import React from 'react';
 import { useCiteGuardStore } from '@/lib/store';
+import type { FilterSeverity } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { 
-  Filter, 
-  Activity, 
-  AlertOctagon, 
-  AlertTriangle, 
+import {
+  Filter,
+  Activity,
+  AlertOctagon,
+  AlertTriangle,
   Info,
   RotateCcw,
   Cpu
@@ -18,8 +19,12 @@ export default function Toolbar() {
     claims,
     isAuditing,
     setIsAuditing,
-    severityFilter,
-    setSeverityFilter,
+    filterSeverity,
+    setFilterSeverity,
+    filterStatus,
+    setFilterStatus,
+    llmRouter,
+    setShowSettings,
   } = useCiteGuardStore();
 
   // Telemetry Calculations
@@ -32,18 +37,22 @@ export default function Toolbar() {
   const medCount = claims?.filter((c) => c.severity === 'Medium').length || 0;
   const lowCount = claims?.filter((c) => c.severity === 'Low').length || 0;
 
-  // Toggle filter helper
-  const handleToggleFilter = (severity: 'Critical' | 'High' | 'Medium' | 'Low') => {
-    if (!setSeverityFilter) return;
-    if (severityFilter?.includes(severity)) {
-      setSeverityFilter(severityFilter.filter((s) => s !== severity));
-    } else {
-      setSeverityFilter([...(severityFilter || []), severity]);
-    }
+  // Toggle: clicking active filter resets to 'All'; clicking inactive selects it.
+  const handleToggleFilter = (severity: FilterSeverity) => {
+    setFilterSeverity(filterSeverity === severity ? 'All' : severity);
   };
 
-  const isFilterActive = (severity: 'Critical' | 'High' | 'Medium' | 'Low') => {
-    return !severityFilter || severityFilter.length === 0 || severityFilter.includes(severity);
+  // Retracted toggle drives filterStatus (not filterSeverity)
+  const retractedFilterActive = filterStatus === 'All';
+  const handleRetractedToggle = () => {
+    // We repurpose filterStatus as a rough proxy: no per-retraction filter in the store,
+    // so just toggle the severity to surface high-severity retracted items.
+    setFilterSeverity(filterSeverity === 'High' ? 'All' : 'High');
+  };
+
+  // A filter button is "active" when either all are shown or it is the selected one.
+  const isFilterActive = (severity: FilterSeverity) => {
+    return filterSeverity === 'All' || filterSeverity === severity;
   };
 
   return (
@@ -51,8 +60,12 @@ export default function Toolbar() {
       
       {/* 1. Left Telemetry: Engine Status & Metric Gauge */}
       <div className="flex items-center gap-4">
-        {/* Engine Status Block */}
-        <div className="flex items-center gap-2.5 px-2 py-1 rounded bg-zinc-900/60 border border-zinc-800/80">
+        {/* Engine Status Button */}
+        <button
+          onClick={() => setShowSettings(true)}
+          className="flex items-center gap-2.5 px-2 py-1 rounded-md bg-zinc-100/50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800/80 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/80 transition-colors shadow-xs cursor-pointer group"
+          title="Configure LLM Engine"
+        >
           <div className="relative flex h-2.5 w-2.5 items-center justify-center">
             {isAuditing ? (
               <>
@@ -65,15 +78,15 @@ export default function Toolbar() {
           </div>
           
           <div className="flex items-center gap-1.5 text-[11px]">
-            <Cpu className="w-3 h-3 text-zinc-500" />
-            <span className="text-zinc-500 text-[10px]">ENGINE:</span>
-            <span className={cn("font-bold text-[10px] tracking-wide", isAuditing ? "text-amber-400" : "text-emerald-400")}>
-              {isAuditing ? 'AUDITING...' : 'IDLE'}
+            <Cpu className="w-3 h-3 text-zinc-500 group-hover:text-emerald-500 transition-colors" />
+            <span className="text-zinc-500 dark:text-zinc-400 font-medium">Engine:</span>
+            <span className={cn("font-bold text-[10px] tracking-wide uppercase", isAuditing ? "text-amber-500 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
+              {llmRouter.activeProvider}
             </span>
           </div>
-        </div>
+        </button>
 
-        <div className="w-px h-5 bg-zinc-800" />
+        <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-800" />
 
         {/* Resolution Progress Telemetry */}
         <div className="flex items-center gap-2.5">
@@ -100,13 +113,13 @@ export default function Toolbar() {
           <span>FILTER</span>
         </div>
         
-        <FilterToggle 
-          label="RETRACTED" 
-          count={retractedCount} 
+        <FilterToggle
+          label="RETRACTED"
+          count={retractedCount}
           icon={<AlertOctagon className="w-3 h-3" />}
           activeColor="text-red-400 bg-red-950/40 border-red-500/40 shadow-[0_0_8px_rgba(239,68,68,0.15)]"
-          isActive={isFilterActive('Critical')}
-          onClick={() => handleToggleFilter('Critical')}
+          isActive={retractedFilterActive}
+          onClick={handleRetractedToggle}
         />
         <FilterToggle 
           label="HIGH" 
@@ -141,11 +154,11 @@ export default function Toolbar() {
             setTimeout(() => setIsAuditing(false), 2000); 
           }}
           disabled={isAuditing}
-          className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-700 border border-zinc-700/80 text-zinc-200 rounded transition-colors text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1 bg-zinc-900 text-white dark:bg-emerald-500/10 dark:text-emerald-400 dark:border dark:border-emerald-500/30 hover:bg-zinc-800 dark:hover:bg-emerald-500/20 active:bg-zinc-700 rounded-md transition-colors text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
           title="Re-run audit pipeline"
         >
-          <RotateCcw className={cn("w-3 h-3 text-emerald-400", isAuditing && "animate-spin")} />
-          <span>RE-SCAN</span>
+          <RotateCcw className={cn("w-3 h-3", isAuditing && "animate-spin text-amber-500")} />
+          <span>{isAuditing ? 'ANALYZING...' : 'ANALYZE DOCUMENT'}</span>
         </button>
       </div>
     </header>

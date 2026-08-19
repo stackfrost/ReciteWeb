@@ -60,7 +60,7 @@ export function parseMathBlocks(rawText: string): ParsedDocument {
 
   // 3. Match Inline Math $...$ or \(...\)
   // Negative lookbehind (?<!\\) prevents matching escaped dollars \$
-  const inlineRegex = /(?<!\\)\$([^$\n]+?)(?<!\\)\$|\\(?:\[([[\s\S]*?\])|\\(([\s\S]*?)\\\))/g;
+  const inlineRegex = /(?<!\\)\$([^$\n]+?)(?<!\\)\$|\\\(([\\s\S]*?)\\\)/g;
   text = text.replace(inlineRegex, (match, p1, p2, p3) => {
     const formula = p1 || p2 || p3 || match.slice(1, -1);
     return registerBlock(match, formula, 'inline');

@@ -1,20 +1,17 @@
 'use client';
 
 import React from 'react';
-import { useCiteGuardStore, SuggestedPaper, Claim } from '@/lib/store';
-import { cn, formatAuthorList } from '@/lib/utils';
-import { 
-  CheckCircle2, 
-  Database, 
-  ShieldAlert, 
-  Library, 
-  X, 
-  Search, 
+import { useCiteGuardStore } from '@/lib/store';
+import { cn } from '@/lib/utils';
+import {
+  CheckCircle2,
+  Library,
+  X,
+  Search,
   Activity,
-  AlertTriangle
+  AlertTriangle,
+  FileSearch,
 } from 'lucide-react';
-
-// Import our newly extracted sub-components
 import CandidateCard from './CandidateCard';
 import ZoteroTab from './ZoteroTab';
 
@@ -33,14 +30,18 @@ export default function ActionInspector() {
   // 1. Idle State: No claim selected
   if (!activeClaim) {
     return (
-      <div className="flex flex-col h-full bg-zinc-950 border-l border-zinc-800">
-        <div className="h-10 border-b border-zinc-800 bg-zinc-900/50 flex items-center px-4">
-          <span className="text-[10px] font-mono text-zinc-500 tracking-wider">ACTION INSPECTOR // IDLE</span>
+      <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200 transition-colors">
+        <div className="h-9 border-b border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/80 dark:bg-zinc-900/40 flex items-center px-3.5">
+          <span className="text-[11px] font-mono text-zinc-500 tracking-wide font-bold">
+            CITATION INSPECTOR
+          </span>
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 font-mono text-xs space-y-4">
-          <Activity className="w-12 h-12 text-zinc-800 animate-pulse" />
-          <p>AWAITING TARGET ACQUISITION</p>
-          <p className="text-[10px] text-zinc-700">Select a highlighted claim in the viewer.</p>
+        <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-600 font-sans text-xs space-y-2 p-6 text-center">
+          <FileSearch className="w-10 h-10 text-zinc-300 dark:text-zinc-700" />
+          <p className="font-semibold text-zinc-600 dark:text-zinc-400">No claim selected.</p>
+          <p className="text-[11px] text-zinc-400 dark:text-zinc-500 max-w-xs">
+            Select a highlighted claim in the manuscript viewer to inspect candidates and retraction status.
+          </p>
         </div>
       </div>
     );
@@ -50,165 +51,133 @@ export default function ActionInspector() {
   const isRetracted = activeClaim.isRetracted;
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 border-l border-zinc-800">
-      
+    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200 transition-colors">
       {/* 2. Top Console: Active Target Data */}
-      <div className="flex-none border-b border-zinc-800 bg-zinc-900/30">
+      <div className="flex-none border-b border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-zinc-900/20">
         {/* HUD Tab Bar */}
-        <div className="flex text-[10px] font-mono border-b border-zinc-800/80 bg-zinc-950">
-          <TabButton 
-            active={inspectorTab === 'candidates'} 
+        <div className="flex text-[11px] font-sans border-b border-zinc-200 dark:border-zinc-800/80 bg-zinc-100/60 dark:bg-zinc-950">
+          <TabButton
+            active={inspectorTab === 'candidates'}
             onClick={() => setInspectorTab('candidates')}
-            icon={<Search className="w-3 h-3" />}
-            label={`CANDIDATES [${activeClaim.suggestedPapers?.length || 0}]`} 
+            icon={<Search className="w-3.5 h-3.5" />}
+            label={`Candidates (${activeClaim.suggestedPapers?.length || 0})`}
           />
-          <TabButton 
-            active={inspectorTab === 'health'} 
+          <TabButton
+            active={inspectorTab === 'health'}
             onClick={() => setInspectorTab('health')}
-            icon={<Activity className="w-3 h-3" />}
-            label="HEALTH METRICS" 
+            icon={<Activity className="w-3.5 h-3.5" />}
+            label="Integrity & Risk"
           />
-          <TabButton 
-            active={inspectorTab === 'zotero'} 
+          <TabButton
+            active={inspectorTab === 'zotero'}
             onClick={() => setInspectorTab('zotero')}
-            icon={<Library className="w-3 h-3" />}
-            label="ZOTERO SYNC" 
+            icon={<Library className="w-3.5 h-3.5" />}
+            label="Zotero Sync"
           />
         </div>
 
         {/* Claim Summary Pane */}
-        <div className="p-4 space-y-3">
+        <div className="p-3.5 space-y-2.5">
           <div className="flex items-start justify-between">
-            <span className={cn(
-              "px-2 py-0.5 text-[9px] uppercase font-bold tracking-wider rounded border",
-              isRetracted ? "bg-red-500/20 text-red-400 border-red-500/50" :
-              isAccepted ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50" :
-              "bg-amber-500/20 text-amber-400 border-amber-500/50"
-            )}>
-              {isRetracted ? 'RETRACTED' : isAccepted ? 'RESOLVED' : 'UNVERIFIED'} // {activeClaim.category}
-            </span>
-            <button 
-              onClick={() => dismissClaim(activeClaim.id)}
-              className="text-zinc-500 hover:text-zinc-300 transition-colors"
-              title="Dismiss Claim (Ignore)"
+            <span
+              className={cn(
+                'px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider rounded border',
+                isRetracted
+                  ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40'
+                  : isAccepted
+                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40'
+                  : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/40'
+              )}
             >
-              <X className="w-4 h-4" />
+              {isRetracted ? 'RETRACTED' : isAccepted ? 'VERIFIED' : 'UNVERIFIED'} • {activeClaim.category}
+            </span>
+            <button
+              onClick={() => dismissClaim(activeClaim.id)}
+              className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors p-0.5 rounded"
+              title="Dismiss Claim"
+            >
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
-          <p className="text-sm font-serif text-zinc-300 leading-relaxed border-l-2 border-zinc-700 pl-3 italic">
+          <p className="text-xs font-serif text-zinc-700 dark:text-zinc-300 leading-relaxed border-l-2 border-zinc-300 dark:border-zinc-700 pl-2.5 italic">
             "{activeClaim.text.replace(/\[\[MATH_BLOCK_\d+\]\]/g, ' [MATH] ')}"
           </p>
         </div>
       </div>
 
-      {/* 3. Main Action Viewport (Scrollable) */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 relative">
-        
-        {/* State: Accepted */}
-        {isAccepted && activeClaim.acceptedPaper && (
-          <div className="absolute inset-0 bg-zinc-950/90 z-10 flex flex-col items-center justify-center p-6 text-center space-y-4 backdrop-blur-sm">
-            <CheckCircle2 className="w-16 h-16 text-emerald-400 mb-2" />
-            <h3 className="text-emerald-400 font-mono text-sm">CITATION LOCKED</h3>
-            <div className="p-4 bg-emerald-950/30 border border-emerald-900/50 rounded max-w-sm">
-              <p className="text-xs text-emerald-100 font-medium mb-1">{activeClaim.acceptedPaper.title}</p>
-              <p className="text-[10px] text-emerald-500 font-mono">{formatAuthorList(activeClaim.acceptedPaper.authors)} ({activeClaim.acceptedPaper.year})</p>
-            </div>
-            <button 
-              onClick={() => acceptCitation(activeClaim.id, null as any)} // Hack to reset for demo
-              className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300 underline mt-4"
-            >
-              UNDO ATTACHMENT
-            </button>
+      {/* 3. Main Body Content Based on Active Tab */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {inspectorTab === 'candidates' && (
+          <div className="space-y-2.5">
+            {activeClaim.suggestedPapers && activeClaim.suggestedPapers.length > 0 ? (
+              activeClaim.suggestedPapers.map((paper, idx) => (
+                <CandidateCard
+                  key={paper.paperId || idx}
+                  paper={paper}
+                  onAccept={(selected) => acceptCitation(activeClaim.id, selected)}
+                />
+              ))
+            ) : (
+              <div className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-600 font-sans">
+                No matching citation candidates found.
+              </div>
+            )}
           </div>
         )}
 
-        {/* Tab Routing */}
-        {inspectorTab === 'candidates' && (
-          <CandidateListView claim={activeClaim} onAccept={(paper) => acceptCitation(activeClaim.id, paper)} />
-        )}
-
         {inspectorTab === 'health' && (
-          <HealthMetricsView claim={activeClaim} />
+          <div className="p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40 space-y-3 text-xs">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-emerald-500" />
+              <span className="font-bold text-zinc-900 dark:text-zinc-100">Citation Integrity Diagnostics</span>
+            </div>
+            <p className="text-zinc-600 dark:text-zinc-400 leading-relaxed text-[11px]">
+              Cross-checked against OpenAlex, Semantic Scholar, and RetractionWatch index databases.
+            </p>
+            <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1.5 font-mono text-[10px]">
+              <div className="flex justify-between">
+                <span className="text-zinc-500">RETRACTION STATUS:</span>
+                <span className={activeClaim.isRetracted ? 'text-rose-500 font-bold' : 'text-emerald-500 font-bold'}>
+                  {activeClaim.isRetracted ? 'FLAGGED' : 'CLEAR'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">CLAIM SEVERITY:</span>
+                <span className="text-zinc-800 dark:text-zinc-200 font-bold">{activeClaim.severity}</span>
+              </div>
+            </div>
+          </div>
         )}
 
-        {inspectorTab === 'zotero' && (
-          <ZoteroTab />
-        )}
+        {inspectorTab === 'zotero' && <ZoteroTab />}
       </div>
     </div>
   );
 }
 
-// --- Sub-Components ---
-
-function TabButton({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        "flex-1 flex items-center justify-center space-x-2 py-2.5 transition-colors duration-200",
-        active 
-          ? "bg-zinc-900 text-emerald-400 border-b-2 border-emerald-400" 
-          : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50 border-b-2 border-transparent"
+        'flex-1 flex items-center justify-center gap-1.5 py-2 border-b-2 font-sans text-xs transition-colors',
+        active
+          ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400 font-semibold bg-white dark:bg-zinc-900/50'
+          : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300 hover:bg-zinc-100/50 dark:hover:bg-zinc-900/30'
       )}
     >
       {icon}
       <span>{label}</span>
     </button>
-  );
-}
-
-// Replaced the inline card HTML with our CandidateCard component
-function CandidateListView({ claim, onAccept }: { claim: Claim, onAccept: (p: SuggestedPaper) => void }) {
-  const papers = claim.suggestedPapers;
-
-  if (!papers || papers.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-40 text-zinc-600 font-mono text-xs">
-        <Database className="w-8 h-8 mb-3 opacity-20" />
-        <p>NO CANDIDATES DISCOVERED</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {papers.map((paper, idx) => (
-        <CandidateCard 
-          key={paper.paperId || idx}
-          paper={paper}
-          onAccept={onAccept}
-        />
-      ))}
-    </div>
-  );
-}
-
-function HealthMetricsView({ claim }: { claim: Claim }) {
-  return (
-    <div className="space-y-4">
-      <div className="p-4 border border-zinc-800 rounded bg-zinc-900/30">
-        <h4 className="text-xs font-semibold text-zinc-300 flex items-center mb-2">
-          <ShieldAlert className="w-4 h-4 mr-2 text-zinc-500" />
-          Retraction Watch Index
-        </h4>
-        <p className="text-[10px] text-zinc-500 font-mono mb-3">Continuously polling OpenAlex and CrossRef for publisher retractions.</p>
-        
-        {claim.isRetracted ? (
-          <div className="flex items-start p-3 bg-red-950/30 border border-red-900/50 rounded">
-            <AlertTriangle className="w-4 h-4 text-red-500 mr-2 mt-0.5" />
-            <div>
-              <span className="text-xs text-red-400 font-bold block">CRITICAL ALERT</span>
-              <span className="text-[10px] text-red-300/80 mt-1 block">{claim.retractedReason || "Associated citation has been flagged as retracted."}</span>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center space-x-2 text-[10px] text-emerald-500 font-mono">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>NO RETRACTIONS DETECTED IN CANDIDATES</span>
-          </div>
-        )}
-      </div>
-    </div>
   );
 }

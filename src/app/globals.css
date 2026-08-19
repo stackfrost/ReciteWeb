@@ -8,8 +8,17 @@
 
 @layer base {
   :root {
+    --background: #f8fafc;
+    --foreground: #09090b;
+    --card-bg: #ffffff;
+    --border-color: #e4e4e7;
+  }
+
+  .dark {
     --background: #09090b;
     --foreground: #e4e4e7;
+    --card-bg: #0c0c0e;
+    --border-color: #27272a;
   }
 
   html, body {
@@ -20,11 +29,12 @@
     overflow: hidden; 
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   ::selection {
-    background-color: rgba(16, 185, 129, 0.3);
-    color: #a7f3d0;
+    background-color: rgba(16, 185, 129, 0.25);
+    color: inherit;
   }
 }
 
@@ -34,16 +44,16 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: rgba(160, 160, 160, 0.25);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: rgba(160, 160, 160, 0.45);
 }
 
 ::-webkit-scrollbar-corner {
