@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useCiteGuardStore } from '@/lib/store';
+import { useReciteStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { Download, FileText, X, AlertTriangle, Database, CheckCircle2 } from 'lucide-react';
 
@@ -11,7 +11,7 @@ interface ExportModalProps {
 }
 
 export default function ExportModal({ isOpen, onClose }: ExportModalProps) {
-  const { claims, documentTitle } = useCiteGuardStore();
+  const { claims, documentTitle } = useReciteStore();
   const [isExporting, setIsExporting] = useState(false);
 
   if (!isOpen) return null;

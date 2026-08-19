@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useCiteGuardStore, LLMProvider } from '@/lib/store';
+import { useReciteStore, LLMProvider } from '@/lib/store';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
-import { DEMO_MANUSCRIPT, DEMO_CLAIMS } from '@/lib/demo-data';
+import { DEMO_MANUSCRIPT, DEMO_CLAIMS, DEMO_BIBTEX } from '@/lib/demo-data';
 import { useTheme } from './ThemeProvider';
 import {
   FolderOpen,
@@ -26,6 +26,7 @@ import {
   Command,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { FileSystemService } from '@/services/file-system';
 
 type MenuCategory = 'File' | 'Edit' | 'View' | 'Engine' | 'Terminal' | 'Help';
 
@@ -55,11 +56,12 @@ export default function MenuBar() {
     license,
     setTelemetry,
     documentTitle,
-  } = useCiteGuardStore();
+    runAudit,
+    mountBibTex,
+  } = useReciteStore();
 
   const { resolvedTheme, toggleTheme } = useTheme();
   const [activeMenu, setActiveMenu] = useState<MenuCategory | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const menuBarRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on outside click or Escape
@@ -82,32 +84,31 @@ export default function MenuBar() {
     };
   }, []);
 
-  const handleMountClick = () => {
+  const handleMountClick = async () => {
     setActiveMenu(null);
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setWorkspaceStatus('MOUNTING');
-    const text = await file.text();
-    const { text: parsed, mathBlocks } = parseMathBlocks(text);
-
-    setRawText(text);
-    setParsedText(parsed);
-    setMathBlocks(mathBlocks);
-    setDocumentTitle(file.name);
-    setFileFormat(file.name.endsWith('.docx') ? 'docx' : file.name.endsWith('.txt') ? 'txt' : 'tex');
-    mountWorkspace(file.name, file.size);
-    setWorkspaceStatus('AST_PARSING');
-
-    setTimeout(() => {
-      setWorkspaceStatus('AST_PARSER_IDLE');
-    }, 200);
-
-    e.target.value = '';
+    try {
+      const { text, fileHandle, fileName, fileSize } = await FileSystemService.mountFile();
+      setWorkspaceStatus('MOUNTING');
+      
+      const { text: parsed, mathBlocks } = parseMathBlocks(text);
+      setRawText(text);
+      setParsedText(parsed);
+      setMathBlocks(mathBlocks);
+      setDocumentTitle(fileName);
+      setFileFormat(fileName.endsWith('.docx') ? 'docx' : fileName.endsWith('.txt') ? 'txt' : 'tex');
+      
+      mountWorkspace(fileName, fileSize, fileHandle);
+      setWorkspaceStatus('AST_PARSING');
+      
+      setTimeout(() => {
+        setWorkspaceStatus('AST_PARSER_IDLE');
+      }, 200);
+    } catch (err: any) {
+      if (err.message !== 'USER_ABORTED') {
+        const { addToast } = useReciteStore.getState();
+        addToast(`Failed to open document: ${err.message}`, 'error');
+      }
+    }
   };
 
   const handleLoadDemo = () => {
@@ -122,19 +123,13 @@ export default function MenuBar() {
     setDocumentTitle('Quantum Spin Dynamics (Draft).tex');
     setFileFormat('tex');
     mountWorkspace('Quantum Spin Dynamics (Draft).tex', 14200);
+    mountBibTex('quantum_references.bib', DEMO_BIBTEX);
     setWorkspaceStatus('MOUNTED');
   };
 
   const handleRunAnalysis = () => {
     setActiveMenu(null);
-    setIsAuditing(true);
-    setWorkspaceStatus('PREFLIGHT_RUNNING');
-    const t0 = performance.now();
-    setTimeout(() => {
-      setTelemetry({ apiLatencyMs: Math.round(performance.now() - t0) });
-      setIsAuditing(false);
-      setWorkspaceStatus('PREFLIGHT_COMPLETE');
-    }, 1200);
+    runAudit();
   };
 
   const handleResetFilters = () => {
@@ -156,15 +151,6 @@ export default function MenuBar() {
       ref={menuBarRef}
       className="h-8 w-full bg-zinc-100/95 dark:bg-zinc-950/90 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between px-3 text-[12px] font-sans select-none flex-shrink-0 z-50 transition-colors"
     >
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        accept=".tex,.latex,.docx,.txt,.md"
-        onChange={handleFileChange}
-      />
-
       {/* Left OS Frame & Menus */}
       <div className="flex items-center">
         {/* macOS Traffic Lights */}
@@ -422,8 +408,15 @@ export default function MenuBar() {
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm flex-shrink-0" />
           {isMounted ? documentTitle : 'No Document Loaded'}
         </span>
-        <span className="text-zinc-400 dark:text-zinc-600 hidden sm:inline">
-          {license.licenseState === 'VALID' ? 'LICENSE: VALID' : 'LICENSE: PENDING'}
+        <span className={cn(
+          "hidden sm:inline px-1.5 py-0.5 rounded",
+          license.licenseState === 'VALID'
+            ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/30'
+            : license.licenseState === 'PENDING_SYNC'
+            ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30'
+            : 'text-rose-500 bg-rose-500/10 border border-rose-500/30'
+        )}>
+          LICENSE: {license.licenseState}
         </span>
       </div>
     </header>

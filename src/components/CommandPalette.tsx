@@ -19,11 +19,12 @@ import {
   HelpCircle,
   Command,
 } from 'lucide-react';
-import { useCiteGuardStore } from '@/lib/store';
+import { useReciteStore } from '@/lib/store';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
-import { DEMO_MANUSCRIPT, DEMO_CLAIMS } from '@/lib/demo-data';
+import { DEMO_MANUSCRIPT, DEMO_CLAIMS, DEMO_BIBTEX } from '@/lib/demo-data';
 import { useTheme } from './ThemeProvider';
 import { cn } from '@/lib/utils';
+import { FileSystemService } from '@/services/file-system';
 
 interface CommandItem {
   id: string;
@@ -47,7 +48,6 @@ export default function CommandPalette({
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { resolvedTheme, toggleTheme } = useTheme();
   const {
@@ -71,7 +71,9 @@ export default function CommandPalette({
     setFilterCategory,
     setFilterStatus,
     setTelemetry,
-  } = useCiteGuardStore();
+    runAudit,
+    mountBibTex,
+  } = useReciteStore();
 
   const isControlled = propIsOpen !== undefined;
   const isOpen = isControlled ? propIsOpen : internalOpen;
@@ -115,28 +117,32 @@ export default function CommandPalette({
 
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setWorkspaceStatus('MOUNTING');
-    const text = await file.text();
-    const { text: parsed, mathBlocks } = parseMathBlocks(text);
-
-    setRawText(text);
-    setParsedText(parsed);
-    setMathBlocks(mathBlocks);
-    setDocumentTitle(file.name);
-    setFileFormat(file.name.endsWith('.docx') ? 'docx' : file.name.endsWith('.txt') ? 'txt' : 'tex');
-    mountWorkspace(file.name, file.size);
-    setWorkspaceStatus('AST_PARSING');
-
-    setTimeout(() => {
-      setWorkspaceStatus('AST_PARSER_IDLE');
-    }, 200);
-
-    e.target.value = '';
-    handleClose();
+  const handleMountClick = async () => {
+    try {
+      const { text, fileHandle, fileName, fileSize } = await FileSystemService.mountFile();
+      setWorkspaceStatus('MOUNTING');
+      
+      const { text: parsed, mathBlocks } = parseMathBlocks(text);
+      setRawText(text);
+      setParsedText(parsed);
+      setMathBlocks(mathBlocks);
+      setDocumentTitle(fileName);
+      setFileFormat(fileName.endsWith('.docx') ? 'docx' : fileName.endsWith('.txt') ? 'txt' : 'tex');
+      
+      mountWorkspace(fileName, fileSize, fileHandle);
+      setWorkspaceStatus('AST_PARSING');
+      
+      setTimeout(() => {
+        setWorkspaceStatus('AST_PARSER_IDLE');
+      }, 200);
+      
+      handleClose();
+    } catch (err: any) {
+      if (err.message !== 'USER_ABORTED') {
+        const { addToast } = useReciteStore.getState();
+        addToast(`Failed to open document: ${err.message}`, 'error');
+      }
+    }
   };
 
   const handleLoadDemo = () => {
@@ -150,19 +156,13 @@ export default function CommandPalette({
     setDocumentTitle('Quantum Spin Dynamics (Draft).tex');
     setFileFormat('tex');
     mountWorkspace('Quantum Spin Dynamics (Draft).tex', 14200);
+    mountBibTex('quantum_references.bib', DEMO_BIBTEX);
     setWorkspaceStatus('MOUNTED');
     handleClose();
   };
 
   const handleRunAnalysis = () => {
-    setIsAuditing(true);
-    setWorkspaceStatus('PREFLIGHT_RUNNING');
-    const t0 = performance.now();
-    setTimeout(() => {
-      setTelemetry({ apiLatencyMs: Math.round(performance.now() - t0) });
-      setIsAuditing(false);
-      setWorkspaceStatus('PREFLIGHT_COMPLETE');
-    }, 1200);
+    runAudit();
     handleClose();
   };
 
@@ -185,9 +185,7 @@ export default function CommandPalette({
         subtitle: 'Load a local LaTeX (.tex), Word (.docx), or text file',
         icon: <FolderOpen className="w-4 h-4 text-blue-500" />,
         shortcut: 'Ctrl+O',
-        action: () => {
-          fileInputRef.current?.click();
-        },
+        action: handleMountClick,
       },
       {
         id: 'doc-sample',
@@ -373,15 +371,6 @@ export default function CommandPalette({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 p-4 bg-zinc-950/60 backdrop-blur-sm animate-in fade-in duration-100">
-      {/* Hidden file input for command palette */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        accept=".tex,.latex,.docx,.txt,.md"
-        onChange={handleFileChange}
-      />
-
       {/* Palette Container */}
       <div className="relative w-[600px] max-w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xl overflow-hidden flex flex-col font-sans select-none animate-in zoom-in-95 duration-100">
         {/* Search Header */}

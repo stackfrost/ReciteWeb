@@ -17,7 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useCiteGuardStore, LLMProvider, LicenseState } from '@/lib/store';
+import { useReciteStore, LLMProvider, LicenseState } from '@/lib/store';
 
 interface SettingsWindowProps {
   isOpen?: boolean;
@@ -37,13 +37,26 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
     setLLMApiKey,
     storage,
     telemetry,
-  } = useCiteGuardStore();
+    openConfirm,
+    addToast,
+  } = useReciteStore();
 
   const isOpen = propIsOpen !== undefined ? propIsOpen : showSettings;
   const handleClose = () => {
     if (propOnClose) propOnClose();
     setShowSettings(false);
   };
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        e.preventDefault();
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('engine');
   const [showKey, setShowKey] = useState<Record<LLMProvider, boolean>>({
@@ -87,10 +100,10 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
 
   const licColor =
     license.licenseState === 'VALID'
-      ? 'text-emerald-700 dark:text-emerald-400 border-emerald-500/40 bg-emerald-500/10'
+      ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/30'
       : license.licenseState === 'PENDING_SYNC'
-      ? 'text-amber-700 dark:text-amber-400 border-amber-500/40 bg-amber-500/10'
-      : 'text-rose-700 dark:text-rose-400 border-rose-500/40 bg-rose-500/10';
+      ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30'
+      : 'text-rose-500 bg-rose-500/10 border border-rose-500/30';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-sm animate-in fade-in duration-100 font-sans">
@@ -406,7 +419,13 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                   </div>
                   <button
                     onClick={() => {
-                      alert('IndexedDB cache purged.');
+                      openConfirm(
+                        'Purge Local Database?',
+                        'This will delete all locally cached manuscript states and reset IndexedDB.',
+                        () => {
+                          addToast('Local cache purged successfully', 'success');
+                        }
+                      );
                     }}
                     className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded text-xs transition-colors font-medium"
                   >

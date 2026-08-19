@@ -2,10 +2,21 @@
 
 import React from 'react';
 import { Shield, X, Lock, CheckCircle2 } from 'lucide-react';
-import { useCiteGuardStore } from '@/lib/store';
+import { useReciteStore } from '@/lib/store';
 
 export default function LegalWindow() {
-  const { showLegalWindow, setShowLegalWindow } = useCiteGuardStore();
+  const { showLegalWindow, setShowLegalWindow } = useReciteStore();
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showLegalWindow) {
+        e.preventDefault();
+        setShowLegalWindow(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showLegalWindow, setShowLegalWindow]);
 
   if (!showLegalWindow) return null;
 

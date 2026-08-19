@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useCiteGuardStore } from '@/lib/store';
+import { useReciteStore } from '@/lib/store';
 import type { FilterSeverity } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import {
@@ -25,7 +25,8 @@ export default function Toolbar() {
     setFilterStatus,
     llmRouter,
     setShowSettings,
-  } = useCiteGuardStore();
+    runAudit,
+  } = useReciteStore();
 
   // Telemetry Calculations
   const totalClaims = claims?.length || 0;
@@ -63,27 +64,11 @@ export default function Toolbar() {
         {/* Engine Status Button */}
         <button
           onClick={() => setShowSettings(true)}
-          className="flex items-center gap-2.5 px-2 py-1 rounded-md bg-zinc-100/50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800/80 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/80 transition-colors shadow-xs cursor-pointer group"
-          title="Configure LLM Engine"
+          className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-md transition-colors"
+          title="Configure Inference Engine & API Keys"
         >
-          <div className="relative flex h-2.5 w-2.5 items-center justify-center">
-            {isAuditing ? (
-              <>
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-400" />
-              </>
-            ) : (
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.9)]" />
-            )}
-          </div>
-          
-          <div className="flex items-center gap-1.5 text-[11px]">
-            <Cpu className="w-3 h-3 text-zinc-500 group-hover:text-emerald-500 transition-colors" />
-            <span className="text-zinc-500 dark:text-zinc-400 font-medium">Engine:</span>
-            <span className={cn("font-bold text-[10px] tracking-wide uppercase", isAuditing ? "text-amber-500 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
-              {llmRouter.activeProvider}
-            </span>
-          </div>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.9)]"></span>
+          <span>ENGINE: {llmRouter.activeProvider.toUpperCase()}</span>
         </button>
 
         <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-800" />
@@ -149,10 +134,7 @@ export default function Toolbar() {
       {/* 3. Right: Re-Scan / Master Action */}
       <div className="flex items-center gap-2">
         <button 
-          onClick={() => {
-            setIsAuditing(true);
-            setTimeout(() => setIsAuditing(false), 2000); 
-          }}
+          onClick={runAudit}
           disabled={isAuditing}
           className="flex items-center gap-1.5 px-3 py-1 bg-zinc-900 text-white dark:bg-emerald-500/10 dark:text-emerald-400 dark:border dark:border-emerald-500/30 hover:bg-zinc-800 dark:hover:bg-emerald-500/20 active:bg-zinc-700 rounded-md transition-colors text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
           title="Re-run audit pipeline"

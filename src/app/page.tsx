@@ -21,7 +21,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useCiteGuardStore, LLMProvider, WorkspaceStatus } from '@/lib/store';
+import { useReciteStore, LLMProvider, WorkspaceStatus } from '@/lib/store';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
 import { DEMO_MANUSCRIPT, DEMO_CLAIMS } from '@/lib/demo-data';
 import { ThemeProvider } from '@/components/ThemeProvider';
@@ -31,8 +31,11 @@ import CommandPalette from '@/components/CommandPalette';
 import SettingsWindow from '@/components/SettingsWindow';
 import ExportModal from '@/components/ExportModal';
 import LegalWindow from '@/components/LegalWindow';
+import ConfirmModal from '@/components/ConfirmModal';
+import ToastContainer from '@/components/ToastContainer';
 import ManuscriptViewer from '@/components/viewer/ManuscriptViewer';
 import ActionInspector from '@/components/inspector/ActionInspector';
+import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § CONSTANTS
@@ -52,7 +55,7 @@ const LLM_LABELS: Record<LLMProvider, string> = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function StatusBar() {
-  const { telemetry, workspace, license, llmRouter, setTelemetry, setShowSettings } = useCiteGuardStore();
+  const { telemetry, workspace, license, llmRouter, setTelemetry, setShowSettings } = useReciteStore();
 
   useEffect(() => {
     const onOnline = () => setTelemetry({ isOnline: true });
@@ -96,10 +99,10 @@ function StatusBar() {
 
   const licColor =
     lic === 'VALID'
-      ? 'text-emerald-600 dark:text-emerald-400'
+      ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.5 rounded'
       : lic === 'PENDING_SYNC'
-      ? 'text-amber-600 dark:text-amber-400'
-      : 'text-red-600 dark:text-red-400';
+      ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded'
+      : 'text-rose-500 bg-rose-500/10 border border-rose-500/30 px-1.5 py-0.5 rounded';
 
   return (
     <footer
@@ -198,7 +201,7 @@ function CondensedActionRibbon() {
     setDocumentTitle,
     setFileFormat,
     setShowSettings,
-  } = useCiteGuardStore();
+  } = useReciteStore();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [llmMenuOpen, setLlmMenuOpen] = useState(false);
@@ -362,52 +365,15 @@ function CondensedActionRibbon() {
 
       {/* Right: LLM Provider Dropdown & Main Analyze Button */}
       <div className="flex items-center gap-2">
-        {/* LLM Routing Dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => setLlmMenuOpen((v) => !v)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md font-sans text-xs font-medium border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all shadow-xs"
-          >
-            <Cpu size={12} className="text-emerald-500" />
-            <span>{LLM_LABELS[llmRouter.activeProvider]}</span>
-            <ChevronDown size={10} className={cn('transition-transform', llmMenuOpen && 'rotate-180')} />
-          </button>
-
-          {llmMenuOpen && (
-            <div className="absolute top-full right-0 mt-1 z-50 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-2xl w-44 p-1 font-sans text-xs animate-in fade-in duration-100">
-              <div className="px-2 py-1 text-[10px] font-mono text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-semibold">
-                LLM Routing
-              </div>
-              {providers.map((p) => (
-                <button
-                  key={p}
-                  onClick={() => {
-                    setLLMProvider(p);
-                    setLlmMenuOpen(false);
-                  }}
-                  className={cn(
-                    'w-full text-left px-2.5 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-between transition-colors',
-                    p === llmRouter.activeProvider ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 font-bold' : 'text-zinc-700 dark:text-zinc-300'
-                  )}
-                >
-                  <span>{LLM_LABELS[p]}</span>
-                  {p === llmRouter.activeProvider && <CheckCircle2 size={12} />}
-                </button>
-              ))}
-              <div className="border-b border-zinc-100 dark:border-zinc-800 my-1" />
-              <button
-                onClick={() => {
-                  setLlmMenuOpen(false);
-                  setShowSettings(true);
-                }}
-                className="w-full text-left px-2.5 py-1 text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded flex items-center gap-1.5"
-              >
-                <Sliders size={11} />
-                <span>Configure Keys...</span>
-              </button>
-            </div>
-          )}
-        </div>
+        {/* LLM Routing Button */}
+        <button
+          onClick={() => setShowSettings(true)}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-md transition-colors"
+          title="Configure Inference Engine & API Keys"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.9)]"></span>
+          <span>ENGINE: {llmRouter.activeProvider.toUpperCase()}</span>
+        </button>
 
         {/* Primary Action Button */}
         <button
@@ -551,7 +517,7 @@ function IDEWorkbench() {
     setDocumentTitle,
     setFileFormat,
     setWorkspaceStatus,
-  } = useCiteGuardStore();
+  } = useReciteStore();
 
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -700,9 +666,12 @@ function IDEWorkbench() {
       <StatusBar />
 
       {/* Global Modals & Command Palette */}
+      <KeyboardShortcuts />
       <CommandPalette />
       <SettingsWindow />
       <LegalWindow />
+      <ConfirmModal />
+      <ToastContainer />
       <ExportModal
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}

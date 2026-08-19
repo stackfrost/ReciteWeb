@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useCiteGuardStore } from '@/lib/store';
+import { useReciteStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import {
   CheckCircle2,
@@ -23,7 +23,7 @@ export default function ActionInspector() {
     setInspectorTab,
     acceptCitation,
     dismissClaim,
-  } = useCiteGuardStore();
+  } = useReciteStore();
 
   const activeClaim = filteredClaims[activeClaimIndex] || null;
 

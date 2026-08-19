@@ -18,12 +18,16 @@ import {
   Activity,
   CheckCircle2,
   Layers,
+  Database,
+  Link2,
 } from 'lucide-react';
-import { useCiteGuardStore } from '@/lib/store';
+import { useReciteStore } from '@/lib/store';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
-import { DEMO_MANUSCRIPT, DEMO_CLAIMS } from '@/lib/demo-data';
+import { DEMO_MANUSCRIPT, DEMO_CLAIMS, DEMO_BIBTEX } from '@/lib/demo-data';
 import { useTheme } from './ThemeProvider';
 import { cn } from '@/lib/utils';
+import { FileSystemService } from '@/services/file-system';
+import { BibTeXParser } from '@/services/bibtex-parser';
 
 export default function Sidebar() {
   const {
@@ -45,33 +49,39 @@ export default function Sidebar() {
     license,
     activeClaimIndex,
     jumpToClaim,
-  } = useCiteGuardStore();
+    bibtexContent,
+    bibtexFileName,
+    mountBibTex,
+    unmountBibTex,
+  } = useReciteStore();
 
   const { resolvedTheme, toggleTheme } = useTheme();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setWorkspaceStatus('MOUNTING');
-    const text = await file.text();
-    const { text: parsed, mathBlocks } = parseMathBlocks(text);
-
-    setRawText(text);
-    setParsedText(parsed);
-    setMathBlocks(mathBlocks);
-    setDocumentTitle(file.name);
-    setFileFormat(file.name.endsWith('.docx') ? 'docx' : file.name.endsWith('.txt') ? 'txt' : 'tex');
-    mountWorkspace(file.name, file.size);
-    setWorkspaceStatus('AST_PARSING');
-
-    setTimeout(() => {
-      setWorkspaceStatus('AST_PARSER_IDLE');
-    }, 200);
-
-    e.target.value = '';
+  const handleMountClick = async () => {
+    try {
+      const { text, fileHandle, fileName, fileSize } = await FileSystemService.mountFile();
+      setWorkspaceStatus('MOUNTING');
+      
+      const { text: parsed, mathBlocks } = parseMathBlocks(text);
+      setRawText(text);
+      setParsedText(parsed);
+      setMathBlocks(mathBlocks);
+      setDocumentTitle(fileName);
+      setFileFormat(fileName.endsWith('.docx') ? 'docx' : fileName.endsWith('.txt') ? 'txt' : 'tex');
+      
+      mountWorkspace(fileName, fileSize, fileHandle);
+      setWorkspaceStatus('AST_PARSING');
+      
+      setTimeout(() => {
+        setWorkspaceStatus('AST_PARSER_IDLE');
+      }, 200);
+    } catch (err: any) {
+      if (err.message !== 'USER_ABORTED') {
+        const { addToast } = useReciteStore.getState();
+        addToast(`Failed to open document: ${err.message}`, 'error');
+      }
+    }
   };
 
   const handleLoadDemo = () => {
@@ -85,15 +95,35 @@ export default function Sidebar() {
     setDocumentTitle('Quantum Spin Dynamics (Draft).tex');
     setFileFormat('tex');
     mountWorkspace('Quantum Spin Dynamics (Draft).tex', 14200);
+    mountBibTex('quantum_references.bib', DEMO_BIBTEX);
     setWorkspaceStatus('MOUNTED');
   };
 
+  const handleMountBibClick = async () => {
+    try {
+      const { text, fileName } = await FileSystemService.mountBibFile();
+      mountBibTex(fileName, text);
+      const { addToast } = useReciteStore.getState();
+      addToast(`Attached BibTeX database: ${fileName}`, 'success');
+    } catch (err: any) {
+      if (err.message !== 'USER_ABORTED') {
+        const { addToast } = useReciteStore.getState();
+        addToast(`Failed to open .bib file: ${err.message}`, 'error');
+      }
+    }
+  };
+
+  const parsedBibEntries = React.useMemo(() => {
+    if (!bibtexContent) return new Map();
+    return BibTeXParser.parse(bibtexContent);
+  }, [bibtexContent]);
+
   const licColor =
     license.licenseState === 'VALID'
-      ? 'text-emerald-500'
+      ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/30'
       : license.licenseState === 'PENDING_SYNC'
-      ? 'text-amber-500'
-      : 'text-red-500';
+      ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30'
+      : 'text-rose-500 bg-rose-500/10 border border-rose-500/30';
 
   // Sections outline for the loaded document
   const sections = [
@@ -106,15 +136,6 @@ export default function Sidebar() {
 
   return (
     <div className="flex h-full flex-shrink-0 z-20 select-none">
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        accept=".tex,.latex,.docx,.txt,.md"
-        onChange={handleFileChange}
-      />
-
       {/* 1. Activity Rail (48px fixed) */}
       <aside className="w-12 h-full bg-zinc-100/90 dark:bg-zinc-950/90 backdrop-blur-md border-r border-zinc-200 dark:border-zinc-800/80 flex flex-col items-center py-2.5 justify-between flex-shrink-0">
         {/* Top Icons */}
@@ -130,7 +151,7 @@ export default function Sidebar() {
           <RailButton
             active={false}
             onClick={() => setShowSettings(true)}
-            icon={<Shield size={19} strokeWidth={1.5} className={licColor} />}
+            icon={<div className={cn("p-1 rounded", licColor)}><Shield size={19} strokeWidth={1.5} /></div>}
             title={`Seat License: ${license.licenseState}`}
           />
 
@@ -215,6 +236,62 @@ export default function Sidebar() {
                 </div>
               </div>
 
+              {/* Database Link Section */}
+              <div className="p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-950/60 shadow-sm space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-bold">
+                    <Database size={12} className="text-zinc-500" />
+                    <span>DATABASE_LINK</span>
+                  </div>
+                  {bibtexContent ? (
+                    <span className="px-1.5 py-0.2 text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 rounded flex items-center gap-1">
+                      <CheckCircle2 size={10} />
+                      LINKED
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.2 text-[9px] font-mono text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-900 rounded border border-zinc-200 dark:border-zinc-800">
+                      UNATTACHED
+                    </span>
+                  )}
+                </div>
+
+                {bibtexContent ? (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-800 dark:text-zinc-200">
+                        {bibtexFileName || 'references.bib'}
+                      </div>
+                      <div className="text-[10px] font-mono text-zinc-500">
+                        {parsedBibEntries.size} entries
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={handleMountBibClick}
+                        className="flex-1 py-1 px-2 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded text-[10px] font-mono font-semibold transition-colors flex items-center justify-center gap-1 border border-zinc-200 dark:border-zinc-800 cursor-pointer"
+                      >
+                        Replace .bib
+                      </button>
+                      <button
+                        onClick={unmountBibTex}
+                        className="py-1 px-2 text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 rounded text-[10px] font-mono transition-colors cursor-pointer"
+                        title="Detach .bib Database"
+                      >
+                        Detach
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleMountBibClick}
+                    className="w-full py-1.5 px-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 rounded-md font-mono text-[11px] font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Database size={13} />
+                    <span>Attach .bib Database</span>
+                  </button>
+                )}
+              </div>
+
               {/* Sections / Outline */}
               <div className="space-y-1">
                 <div className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-bold">
@@ -253,7 +330,7 @@ export default function Sidebar() {
               </div>
               <div className="space-y-1.5 pt-1">
                 <button
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={handleMountClick}
                   className="w-full py-1.5 px-3 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-md font-mono text-[11px] font-bold transition-colors shadow-sm"
                 >
                   Open Document...

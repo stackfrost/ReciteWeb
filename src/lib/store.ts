@@ -1,5 +1,9 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { MathBlock } from './parsers/math-parser';
+import { LLMOrchestrator } from '@/services/llm-orchestrator';
+import { LaTeXParser } from '@/services/latex-parser';
+import { BibTeXParser } from '@/services/bibtex-parser';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § TYPES — Domain
@@ -13,6 +17,19 @@ export type ClaimCategory =
 
 export type ClaimSeverity = 'High' | 'Medium' | 'Low';
 export type ClaimStatus = 'pending' | 'accepted' | 'dismissed';
+
+export interface Toast {
+  id: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+}
+
+export interface ConfirmDialog {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void;
+}
 
 export interface SuggestedPaper {
   title: string;
@@ -140,6 +157,7 @@ export interface WorkspaceState {
   fileName: string | null;
   fileSizeBytes: number | null;
   mountedAt: string | null;
+  fileHandle: any | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,13 +176,15 @@ export interface NetworkTelemetry {
 // § FULL STORE INTERFACE
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface CiteGuardState {
+interface ReciteState {
   // ── Document ──────────────────────────────────────────────────────────────
   rawText: string;
   parsedText: string;
   mathBlocks: Map<string, MathBlock>;
   documentTitle: string;
   fileFormat: 'tex' | 'docx' | 'txt';
+  bibtexContent: string | null;
+  bibtexFileName: string | null;
 
   // ── Claims ────────────────────────────────────────────────────────────────
   claims: Claim[];
@@ -190,6 +210,10 @@ interface CiteGuardState {
   // ── Stats ─────────────────────────────────────────────────────────────────
   stats: Stats;
 
+  // ── Global Modals & Notifications ─────────────────────────────────────────
+  toasts: Toast[];
+  confirmDialog: ConfirmDialog | null;
+
   // ── Enterprise Chassis ────────────────────────────────────────────────────
   license: LicenseSeat;
   storage: StorageAdapter;
@@ -203,6 +227,9 @@ interface CiteGuardState {
   setMathBlocks: (blocks: Map<string, MathBlock>) => void;
   setDocumentTitle: (title: string) => void;
   setFileFormat: (format: 'tex' | 'docx' | 'txt') => void;
+  setBibtexContent: (content: string | null, fileName?: string | null) => void;
+  mountBibTex: (fileName: string, content: string) => void;
+  unmountBibTex: () => void;
 
   // ── Claims Actions ────────────────────────────────────────────────────────
   setClaims: (claims: Claim[]) => void;
@@ -234,18 +261,27 @@ interface CiteGuardState {
   markAsRetracted: (claimId: string, reason: string) => void;
   dismissClaim: (claimId: string) => void;
 
+  // ── Global Modals & Notifications Actions ───────────────────────────────
+  addToast: (message: string, type: Toast['type']) => void;
+  removeToast: (id: string) => void;
+  openConfirm: (title: string, message: string, onConfirm: () => void) => void;
+  closeConfirm: () => void;
+
   // ── Enterprise Chassis Actions ────────────────────────────────────────────
   setLicenseState: (state: LicenseState) => void;
   setLLMProvider: (provider: LLMProvider) => void;
   setLLMApiKey: (provider: LLMProvider, key: string) => void;
   setLLMModel: (provider: LLMProvider, model: string) => void;
   setWorkspaceStatus: (status: WorkspaceStatus) => void;
-  mountWorkspace: (fileName: string, sizeBytes: number) => void;
+  mountWorkspace: (fileName: string, sizeBytes: number, fileHandle?: any) => void;
   unmountWorkspace: () => void;
   setTelemetry: (patch: Partial<NetworkTelemetry>) => void;
 
   // ── Reset ─────────────────────────────────────────────────────────────────
   reset: () => void;
+  
+  // ── Async Actions ─────────────────────────────────────────────────────────
+  runAudit: () => Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -280,6 +316,8 @@ const initialState = {
   mathBlocks: new Map<string, MathBlock>(),
   documentTitle: 'Untitled Manuscript',
   fileFormat: 'tex' as const,
+  bibtexContent: null as string | null,
+  bibtexFileName: null as string | null,
   claims: [] as Claim[],
   activeClaimIndex: -1,
   filteredClaims: [] as Claim[],
@@ -318,26 +356,34 @@ const initialState = {
     fileName: null as string | null,
     fileSizeBytes: null as number | null,
     mountedAt: null as string | null,
+    fileHandle: null as any | null,
   },
   telemetry: {
     isOnline: true,
     apiLatencyMs: null as number | null,
     memUsedMB: null as number | null,
   },
+  toasts: [] as Toast[],
+  confirmDialog: null as ConfirmDialog | null,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § STORE
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const useCiteGuardStore = create<CiteGuardState>((set, get) => ({
-  ...initialState,
+export const useReciteStore = create<ReciteState>()(
+  persist(
+    (set, get) => ({
+      ...initialState,
 
   setRawText: (text) => set({ rawText: text }),
   setParsedText: (text) => set({ parsedText: text }),
   setMathBlocks: (blocks) => set({ mathBlocks: blocks }),
   setDocumentTitle: (title) => set({ documentTitle: title }),
   setFileFormat: (format) => set({ fileFormat: format }),
+  setBibtexContent: (content, fileName = null) => set({ bibtexContent: content, bibtexFileName: fileName }),
+  mountBibTex: (fileName, content) => set({ bibtexFileName: fileName, bibtexContent: content }),
+  unmountBibTex: () => set({ bibtexFileName: null, bibtexContent: null }),
 
   setClaims: (claims) => {
     const stats = computeStats(claims);
@@ -411,6 +457,18 @@ export const useCiteGuardStore = create<CiteGuardState>((set, get) => ({
     get().applyFilters();
   },
 
+  // ── Global Modals & Notifications Actions ───────────────────────────────
+  addToast: (message, type) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    set((s) => ({ toasts: [...s.toasts, { id, message, type }] }));
+  },
+  removeToast: (id) =>
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  openConfirm: (title, message, onConfirm) =>
+    set({ confirmDialog: { isOpen: true, title, message, onConfirm } }),
+  closeConfirm: () =>
+    set({ confirmDialog: null }),
+
   // ── Enterprise Chassis Actions ────────────────────────────────────────────
   setLicenseState: (state) =>
     set((s) => ({ license: { ...s.license, licenseState: state } })),
@@ -443,19 +501,20 @@ export const useCiteGuardStore = create<CiteGuardState>((set, get) => ({
   setWorkspaceStatus: (status) =>
     set((s) => ({ workspace: { ...s.workspace, status } })),
 
-  mountWorkspace: (fileName, sizeBytes) =>
+  mountWorkspace: (fileName, sizeBytes, fileHandle) =>
     set({
       workspace: {
         status: 'MOUNTED',
         fileName,
         fileSizeBytes: sizeBytes,
         mountedAt: new Date().toISOString(),
+        fileHandle: fileHandle || null,
       },
     }),
 
   unmountWorkspace: () =>
     set({
-      workspace: { status: 'NO_WORKSPACE_MOUNTED', fileName: null, fileSizeBytes: null, mountedAt: null },
+      workspace: { status: 'NO_WORKSPACE_MOUNTED', fileName: null, fileSizeBytes: null, mountedAt: null, fileHandle: null },
       rawText: '',
       parsedText: '',
       claims: [],
@@ -468,4 +527,62 @@ export const useCiteGuardStore = create<CiteGuardState>((set, get) => ({
     set((s) => ({ telemetry: { ...s.telemetry, ...patch } })),
 
   reset: () => set(initialState),
-}));
+
+  runAudit: async () => {
+    const { workspace, rawText, bibtexContent, llmRouter, setWorkspaceStatus, setIsAuditing, addToast } = get();
+    if (workspace.status === 'NO_WORKSPACE_MOUNTED') return;
+
+    setWorkspaceStatus('PREFLIGHT_RUNNING');
+    setIsAuditing(true);
+
+    try {
+      const { activeProvider, providerMatrix } = llmRouter;
+      const apiKey = providerMatrix[activeProvider]?.apiKey || '';
+      
+      const extractedClaims = LaTeXParser.scanDocument(rawText);
+      const bibtexMap = BibTeXParser.parse(bibtexContent || '');
+
+      const auditClaims = await LLMOrchestrator.executePreFlightAudit(
+        extractedClaims,
+        bibtexMap,
+        activeProvider,
+        apiKey
+      );
+
+      // Map AuditClaim to internal Claim structure
+      const mappedClaims: Claim[] = auditClaims.map((ac, idx) => ({
+        id: ac.id,
+        text: ac.text,
+        category: 'Literature Claim',
+        severity: ac.severity as 'High' | 'Medium' | 'Low',
+        status: 'pending',
+        startIndex: 0,
+        endIndex: ac.text.length,
+      }));
+
+      set({ claims: mappedClaims, filteredClaims: mappedClaims, activeClaimIndex: 0 });
+      setWorkspaceStatus('PREFLIGHT_COMPLETE');
+      addToast('Audit completed successfully', 'success');
+    } catch (err: any) {
+      setWorkspaceStatus('ERROR');
+      addToast(`Audit failed: ${err.message}`, 'error');
+    } finally {
+      setIsAuditing(false);
+    }
+  },
+}),
+    {
+      name: 'recite-enterprise-store',
+      partialize: (state) => ({
+        license: state.license,
+        llmRouter: state.llmRouter,
+        storage: state.storage,
+        filterCategory: state.filterCategory,
+        filterSeverity: state.filterSeverity,
+        filterStatus: state.filterStatus,
+        sidebarCollapsed: state.sidebarCollapsed,
+        inspectorTab: state.inspectorTab,
+      }),
+    }
+  )
+);

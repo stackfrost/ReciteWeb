@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Files, Library, Settings, Download, Shield } from 'lucide-react';
-import { useCiteGuardStore } from '@/lib/store';
+import { useReciteStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 export default function ActivityBar() {
@@ -13,7 +13,7 @@ export default function ActivityBar() {
     setShowExportModal,
     license,
     workspace,
-  } = useCiteGuardStore();
+  } = useReciteStore();
 
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
 
