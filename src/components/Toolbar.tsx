@@ -1,189 +1,256 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo, useRef } from 'react';
 import { useReciteStore } from '@/lib/store';
-import type { FilterSeverity } from '@/lib/store';
+import type { FilterSeverity, LLMProvider } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import {
-  Filter,
-  Activity,
-  AlertOctagon,
-  AlertTriangle,
-  Info,
   RotateCcw,
-  Cpu
+  Play,
+  FolderOpen,
+  Cpu,
+  Link2,
 } from 'lucide-react';
+import { LaTeXParser } from '@/services/latex-parser';
+import { BibTeXParser } from '@/services/bibtex-parser';
+import { parseMathBlocks } from '@/lib/parsers/math-parser';
+
+const PROVIDER_NAMES: Record<LLMProvider, string> = {
+  anthropic:  'Claude',
+  openai:     'OpenAI',
+  google:     'Gemini',
+  openrouter: 'OpenRouter',
+  ollama:     'Ollama',
+};
 
 export default function Toolbar() {
   const {
     claims,
+    rawText,
+    parsedText,
+    bibtexContent,
+    workspace,
     isAuditing,
-    setIsAuditing,
+    auditProgress,
     filterSeverity,
     setFilterSeverity,
-    filterStatus,
-    setFilterStatus,
     llmRouter,
     setShowSettings,
     runAudit,
+    setWorkspaceStatus,
+    setRawText,
+    setParsedText,
+    setMathBlocks,
+    setClaims,
+    setDocumentTitle,
+    setFileFormat,
+    mountWorkspace,
+    unmountWorkspace,
   } = useReciteStore();
 
-  // Telemetry Calculations
-  const totalClaims = claims?.length || 0;
-  const resolvedClaims = claims?.filter((c) => c.status === 'accepted').length || 0;
-  const completionPercentage = totalClaims === 0 ? 0 : Math.round((resolvedClaims / totalClaims) * 100);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
 
-  const retractedCount = claims?.filter((c) => c.isRetracted).length || 0;
-  const highCount = claims?.filter((c) => c.severity === 'High').length || 0;
+  // ── Diagnostics Counts ─────────────────────────────────────────────────────
+  const totalClaims = claims?.length || 0;
+  const criticalCount = claims?.filter((c) => c.severity === 'High' || c.severity === 'Critical').length || 0;
   const medCount = claims?.filter((c) => c.severity === 'Medium').length || 0;
   const lowCount = claims?.filter((c) => c.severity === 'Low').length || 0;
 
-  // Toggle: clicking active filter resets to 'All'; clicking inactive selects it.
+  // ── Bound References Calculation ───────────────────────────────────────────
+  const { boundRefsCount, totalCitationsCount } = useMemo(() => {
+    const text = rawText || parsedText || '';
+    if (!text) return { boundRefsCount: 0, totalCitationsCount: 0 };
+
+    const citeKeys = LaTeXParser.findCitations(text);
+    const bibMap = BibTeXParser.parse(bibtexContent || '');
+    const bound = citeKeys.filter((k) => bibMap.has(k)).length;
+
+    return {
+      boundRefsCount: bound,
+      totalCitationsCount: citeKeys.length,
+    };
+  }, [rawText, parsedText, bibtexContent]);
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
   const handleToggleFilter = (severity: FilterSeverity) => {
     setFilterSeverity(filterSeverity === severity ? 'All' : severity);
   };
 
-  // Retracted toggle drives filterStatus (not filterSeverity)
-  const retractedFilterActive = filterStatus === 'All';
-  const handleRetractedToggle = () => {
-    // We repurpose filterStatus as a rough proxy: no per-retraction filter in the store,
-    // so just toggle the severity to surface high-severity retracted items.
-    setFilterSeverity(filterSeverity === 'High' ? 'All' : 'High');
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setWorkspaceStatus('MOUNTING');
+    const text = await file.text();
+    const { text: parsed, mathBlocks } = parseMathBlocks(text);
+
+    setRawText(text);
+    setParsedText(parsed);
+    setMathBlocks(mathBlocks);
+    setDocumentTitle(file.name);
+    setFileFormat(file.name.endsWith('.docx') ? 'docx' : file.name.endsWith('.txt') ? 'txt' : 'tex');
+    mountWorkspace(file.name, file.size);
+    setWorkspaceStatus('AST_PARSING');
+
+    setTimeout(() => {
+      setWorkspaceStatus('AST_PARSER_IDLE');
+    }, 200);
+
+    e.target.value = '';
   };
 
-  // A filter button is "active" when either all are shown or it is the selected one.
-  const isFilterActive = (severity: FilterSeverity) => {
-    return filterSeverity === 'All' || filterSeverity === severity;
-  };
+  const engineName = PROVIDER_NAMES[llmRouter.activeProvider] || llmRouter.activeProvider;
 
   return (
-    <header className="h-11 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur flex items-center justify-between px-3 select-none shrink-0 overflow-x-auto overflow-y-hidden font-mono text-xs">
-      
-      {/* 1. Left Telemetry: Engine Status & Metric Gauge */}
-      <div className="flex items-center gap-4">
-        {/* Engine Status Button */}
+    <header className="h-10 w-full border-b border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur flex items-center justify-between px-3 select-none flex-shrink-0 font-sans text-xs z-30 transition-colors">
+      {/* Hidden File Input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        accept=".tex,.latex,.docx,.txt,.md"
+        onChange={handleFileSelect}
+      />
+
+      {/* ── LEFT SECTION: Primary Action & Document I/O ─────────────────────── */}
+      <div className="flex items-center gap-2">
+        {/* Primary Run Audit Button */}
         <button
-          onClick={() => setShowSettings(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-md transition-colors"
-          title="Configure Inference Engine & API Keys"
+          id="btn-analyze-document"
+          onClick={runAudit}
+          disabled={!isMounted || isAuditing}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors shadow-xs cursor-pointer',
+            !isMounted
+              ? 'bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 border border-zinc-200 dark:border-zinc-800 cursor-not-allowed'
+              : isAuditing
+              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+              : 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white'
+          )}
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.9)]"></span>
-          <span>ENGINE: {llmRouter.activeProvider.toUpperCase()}</span>
+          {isAuditing ? (
+            <>
+              <RotateCcw size={12} className="animate-spin text-amber-500" />
+              <span>Auditing Manuscript...</span>
+            </>
+          ) : (
+            <>
+              <Play size={12} fill="currentColor" />
+              <span>Run Audit</span>
+              <kbd className="hidden sm:inline px-1 py-0.2 text-[10px] font-mono bg-black/20 text-white/90 rounded">
+                Ctrl+↵
+              </kbd>
+            </>
+          )}
         </button>
 
-        <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-800" />
+        <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-800 mx-1" />
 
-        {/* Resolution Progress Telemetry */}
-        <div className="flex items-center gap-2.5">
-          <Activity className="w-3.5 h-3.5 text-zinc-500" />
-          <div className="flex items-center gap-2 text-[11px]">
-            <span className="text-zinc-500 text-[10px]">RESOLVED:</span>
-            <div className="w-20 h-1.5 bg-zinc-900 rounded-sm overflow-hidden border border-zinc-800">
-              <div 
-                className="h-full bg-emerald-500 transition-all duration-300" 
-                style={{ width: `${completionPercentage}%` }} 
-              />
-            </div>
-            <span className="text-zinc-300 text-[10px] tabular-nums">
-              {resolvedClaims}/{totalClaims} ({completionPercentage}%)
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Center: Interactive Severity Filter Array */}
-      <div className="hidden lg:flex items-center gap-1.5 bg-zinc-900/40 p-0.5 rounded border border-zinc-800/80">
-        <div className="flex items-center px-1.5 text-zinc-500 text-[10px]">
-          <Filter className="w-3 h-3 mr-1" />
-          <span>FILTER</span>
-        </div>
-        
-        <FilterToggle
-          label="RETRACTED"
-          count={retractedCount}
-          icon={<AlertOctagon className="w-3 h-3" />}
-          activeColor="text-red-400 bg-red-950/40 border-red-500/40 shadow-[0_0_8px_rgba(239,68,68,0.15)]"
-          isActive={retractedFilterActive}
-          onClick={handleRetractedToggle}
-        />
-        <FilterToggle 
-          label="HIGH" 
-          count={highCount} 
-          icon={<AlertTriangle className="w-3 h-3" />}
-          activeColor="text-rose-400 bg-rose-950/40 border-rose-500/40"
-          isActive={isFilterActive('High')}
-          onClick={() => handleToggleFilter('High')}
-        />
-        <FilterToggle 
-          label="MED" 
-          count={medCount} 
-          activeColor="text-amber-400 bg-amber-950/40 border-amber-500/40"
-          isActive={isFilterActive('Medium')}
-          onClick={() => handleToggleFilter('Medium')}
-        />
-        <FilterToggle 
-          label="LOW" 
-          count={lowCount} 
-          icon={<Info className="w-3 h-3" />}
-          activeColor="text-sky-400 bg-sky-950/40 border-sky-500/40"
-          isActive={isFilterActive('Low')}
-          onClick={() => handleToggleFilter('Low')}
-        />
-      </div>
-
-      {/* 3. Right: Re-Scan / Master Action */}
-      <div className="flex items-center gap-2">
-        <button 
-          onClick={runAudit}
-          disabled={isAuditing}
-          className="flex items-center gap-1.5 px-3 py-1 bg-zinc-900 text-white dark:bg-emerald-500/10 dark:text-emerald-400 dark:border dark:border-emerald-500/30 hover:bg-zinc-800 dark:hover:bg-emerald-500/20 active:bg-zinc-700 rounded-md transition-colors text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
-          title="Re-run audit pipeline"
+        {/* File Open / Switcher */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          title="Open Manuscript File (Ctrl+O)"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
         >
-          <RotateCcw className={cn("w-3 h-3", isAuditing && "animate-spin text-amber-500")} />
-          <span>{isAuditing ? 'ANALYZING...' : 'ANALYZE DOCUMENT'}</span>
+          <FolderOpen size={13} className="text-zinc-500" />
+          <span className="truncate max-w-[180px]">
+            {isMounted ? workspace.fileName || 'Document' : 'Open File...'}
+          </span>
+        </button>
+
+        {isMounted && (
+          <button
+            onClick={unmountWorkspace}
+            title="Close document (Ctrl+W)"
+            className="px-2 py-1 text-zinc-400 hover:text-rose-500 transition-colors cursor-pointer"
+          >
+            Close
+          </button>
+        )}
+      </div>
+
+      {/* ── MIDDLE SECTION: Diagnostics Summary ─────────────────────────────── */}
+      <div className="hidden md:flex items-center gap-2 text-zinc-500 dark:text-zinc-400 text-xs">
+        {auditProgress ? (
+          <span className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-medium animate-pulse">
+            <RotateCcw size={11} className="animate-spin" />
+            {auditProgress}
+          </span>
+        ) : (
+          <>
+            <span className="text-zinc-700 dark:text-zinc-300 font-medium">
+              {totalClaims} {totalClaims === 1 ? 'issue' : 'issues'}
+            </span>
+            <span>·</span>
+
+            {/* Critical Filter Pill */}
+            <button
+              onClick={() => handleToggleFilter('High')}
+              className={cn(
+                'flex items-center gap-1 px-2 py-0.5 rounded transition-colors cursor-pointer',
+                filterSeverity === 'High'
+                  ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 font-medium'
+                  : 'hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-400'
+              )}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+              <span>{criticalCount} Critical</span>
+            </button>
+
+            {/* Medium Filter Pill */}
+            <button
+              onClick={() => handleToggleFilter('Medium')}
+              className={cn(
+                'flex items-center gap-1 px-2 py-0.5 rounded transition-colors cursor-pointer',
+                filterSeverity === 'Medium'
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium'
+                  : 'hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-400'
+              )}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span>{medCount} Medium</span>
+            </button>
+
+            {/* Low Filter Pill */}
+            <button
+              onClick={() => handleToggleFilter('Low')}
+              className={cn(
+                'flex items-center gap-1 px-2 py-0.5 rounded transition-colors cursor-pointer',
+                filterSeverity === 'Low'
+                  ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400 font-medium'
+                  : 'hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-400'
+              )}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+              <span>{lowCount} Low</span>
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* ── RIGHT SECTION: Telemetry & Engine Pill ──────────────────────────── */}
+      <div className="flex items-center gap-3 text-zinc-500 dark:text-zinc-400">
+        {/* Linked references count */}
+        <span className="hidden lg:flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+          <Link2 size={12} className="text-zinc-400" />
+          <span>
+            <strong className="text-zinc-800 dark:text-zinc-200 font-medium">{boundRefsCount}/{totalCitationsCount}</strong> references linked
+          </span>
+        </span>
+
+        <span className="hidden lg:inline text-zinc-300 dark:text-zinc-800">|</span>
+
+        {/* Flat Engine Pill */}
+        <button
+          onClick={() => setShowSettings(true)}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
+          title="Configure LLM Inference Engine & API Keys"
+        >
+          <Cpu size={12} className="text-zinc-400" />
+          <span>Engine: <strong className="text-zinc-900 dark:text-zinc-100 font-medium">{engineName} (BYOK)</strong></span>
         </button>
       </div>
     </header>
-  );
-}
-
-// --- Sub-Component: Filter Toggle Button ---
-
-interface FilterToggleProps {
-  label: string;
-  count: number;
-  icon?: React.ReactNode;
-  activeColor: string;
-  isActive: boolean;
-  onClick: () => void;
-}
-
-function FilterToggle({ 
-  label, 
-  count, 
-  icon,
-  activeColor, 
-  isActive, 
-  onClick 
-}: FilterToggleProps) {
-  return (
-    <button 
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-1.5 px-2 py-0.5 border rounded text-[10px] font-mono tracking-wider transition-all cursor-pointer",
-        isActive 
-          ? activeColor 
-          : "text-zinc-600 bg-zinc-950/40 border-zinc-800/60 opacity-60 hover:opacity-100 hover:border-zinc-700"
-      )}
-    >
-      {icon}
-      <span>{label}</span>
-      <span className={cn(
-        "px-1 py-0.2 bg-zinc-950 rounded text-[9px] tabular-nums",
-        isActive ? "text-zinc-200" : "text-zinc-600"
-      )}>
-        {count}
-      </span>
-    </button>
   );
 }

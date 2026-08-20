@@ -5,6 +5,8 @@ import { LLMOrchestrator } from '@/services/llm-orchestrator';
 import { LaTeXParser } from '@/services/latex-parser';
 import { BibTeXParser } from '@/services/bibtex-parser';
 import { FileSystemService } from '@/services/file-system';
+import { LicenseManager } from '@/services/license-manager';
+import { type LLMProvider, getDefaultModel } from './models';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § TYPES — Domain
@@ -92,25 +94,14 @@ interface Stats {
 // § A. DRM / LICENSE MANAGER
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * LicenseState — cryptographically signed seat token.
- * VALID        : token verified, offline grace period active (≤30 days).
- * EXPIRED      : grace window elapsed, requires re-sync with license server.
- * PENDING_SYNC : token issued but awaiting online verification.
- */
-export type LicenseState = 'VALID' | 'EXPIRED' | 'PENDING_SYNC';
+export type LicenseStatus = 'ACTIVE' | 'EXPIRED' | 'UNVERIFIED';
 
-export interface LicenseSeat {
-  licenseState: LicenseState;
-  /** ISO timestamp of last successful license server sync */
-  lastSyncAt: string | null;
-  /** ISO timestamp of token expiry */
-  expiresAt: string | null;
-  /** Org/Seat identifier from B2B purchase */
-  seatId: string | null;
-  /** Remaining offline grace period in days */
-  offlineGraceDaysRemaining: number;
+export interface LicenseState {
+  key: string | null;
+  status: LicenseStatus;
+  lastChecked: number;
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § B. STORAGE ADAPTER (local-first, cloud-ready)
@@ -138,13 +129,19 @@ export interface StorageAdapter {
 // ─────────────────────────────────────────────────────────────────────────────
 // § C. MULTI-VENDOR LLM ROUTER (BYOK)
 // ─────────────────────────────────────────────────────────────────────────────
-
-export type LLMProvider = 'openai' | 'anthropic' | 'deepseek' | 'gemini';
+// LLMProvider is defined and exported from @/lib/models to keep
+// the model registry as the single source of truth.
+export type { LLMProvider } from './models';
 
 export interface LLMProviderConfig {
   provider: LLMProvider;
   model: string;
-  /** BYOK — stored in localStorage (never transmitted to ReciteAI servers) */
+  /**
+   * BYOK — stored in session memory ONLY.
+   * API keys are explicitly excluded from IndexedDB/localStorage persistence
+   * via the `partialize` function at the bottom of this file.
+   * They MUST NOT be written to any remote sync payload.
+   */
   apiKey: string | null;
   enabled: boolean;
 }
@@ -231,6 +228,9 @@ interface ReciteState {
   inspectorTab: 'candidates' | 'health' | 'zotero';
   activeActivityView: 'explorer' | 'license' | 'settings' | null;
 
+  // ── Audit Progress ─────────────────────────────────────────────────────
+  auditProgress: string | null;
+
   // ── Security ──────────────────────────────────────────────────────────────
   /** True once the Stronghold vault has been unlocked for this session. */
   isVaultUnlocked: boolean;
@@ -243,7 +243,7 @@ interface ReciteState {
   confirmDialog: ConfirmDialog | null;
 
   // ── Enterprise Chassis ────────────────────────────────────────────────────
-  license: LicenseSeat;
+  license: LicenseState;
   storage: StorageAdapter;
   llmRouter: LLMRouter;
   workspace: WorkspaceState;
@@ -285,6 +285,7 @@ interface ReciteState {
   toggleSidebar: () => void;
   setActiveActivityView: (view: 'explorer' | 'license' | 'settings' | null) => void;
   setVaultUnlocked: (value: boolean) => void;
+  setAuditProgress: (msg: string | null) => void;
 
   // ── Claim Mutations ───────────────────────────────────────────────────────
   addSuggestedPapers: (claimId: string, papers: SuggestedPaper[]) => void;
@@ -300,7 +301,10 @@ interface ReciteState {
   closeConfirm: () => void;
 
   // ── Enterprise Chassis Actions ────────────────────────────────────────────
-  setLicenseState: (state: LicenseState) => void;
+  setLicenseStatus: (status: LicenseStatus) => void;
+  updateLicense: (patch: Partial<LicenseState>) => void;
+  activateLicense: (key: string) => Promise<void>;
+  checkLicenseHeartbeat: () => Promise<void>;
   setLLMProvider: (provider: LLMProvider) => void;
   setLLMApiKey: (provider: LLMProvider, key: string) => void;
   setLLMModel: (provider: LLMProvider, model: string) => void;
@@ -338,10 +342,11 @@ function computeStats(claims: Claim[]): Stats {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_PROVIDER_MATRIX: Record<LLMProvider, LLMProviderConfig> = {
-  openai:    { provider: 'openai',    model: 'gpt-4o',           apiKey: null, enabled: false },
-  anthropic: { provider: 'anthropic', model: 'claude-opus-4-5',  apiKey: null, enabled: false },
-  deepseek:  { provider: 'deepseek',  model: 'deepseek-chat',    apiKey: null, enabled: false },
-  gemini:    { provider: 'gemini',    model: 'gemini-2.0-flash', apiKey: null, enabled: false },
+  anthropic:  { provider: 'anthropic',  model: getDefaultModel('anthropic'),  apiKey: null, enabled: false },
+  openai:     { provider: 'openai',     model: getDefaultModel('openai'),     apiKey: null, enabled: false },
+  google:     { provider: 'google',     model: getDefaultModel('google'),     apiKey: null, enabled: false },
+  openrouter: { provider: 'openrouter', model: getDefaultModel('openrouter'), apiKey: null, enabled: false },
+  ollama:     { provider: 'ollama',     model: getDefaultModel('ollama'),     apiKey: null, enabled: true  },
 };
 
 const initialState = {
@@ -371,14 +376,13 @@ const initialState = {
   inspectorTab: 'candidates' as const,
   activeActivityView: null as 'explorer' | 'license' | 'settings' | null,
   isVaultUnlocked: false,
+  auditProgress: null as string | null,
   stats: { totalClaims: 0, highSeverity: 0, mediumSeverity: 0, lowSeverity: 0, retractedFound: 0, acceptedCount: 0 },
   license: {
-    licenseState: 'VALID' as LicenseState,
-    lastSyncAt: null as string | null,
-    expiresAt: null as string | null,
-    seatId: 'DEV-SEAT-001' as string | null,
-    offlineGraceDaysRemaining: 30,
-  },
+    key: null,
+    status: 'UNVERIFIED' as LicenseStatus,
+    lastChecked: 0,
+  } as LicenseState,
   storage: {
     backend: 'IDB_LOCAL' as StorageBackend,
     localAdapter: 'IDB_KEYVAL' as const,
@@ -386,7 +390,7 @@ const initialState = {
     maxWorkspaceSizeMB: 25,
   },
   llmRouter: {
-    activeProvider: 'gemini' as LLMProvider,
+    activeProvider: 'anthropic' as LLMProvider,
     providerMatrix: DEFAULT_PROVIDER_MATRIX,
   },
   workspace: {
@@ -731,8 +735,29 @@ export const useReciteStore = create<ReciteState>()(
     set({ confirmDialog: null }),
 
   // ── Enterprise Chassis Actions ────────────────────────────────────────────
-  setLicenseState: (state) =>
-    set((s) => ({ license: { ...s.license, licenseState: state } })),
+  setLicenseStatus: (status) =>
+    set((s) => ({ license: { ...s.license, status } })),
+  updateLicense: (patch) =>
+    set((s) => ({ license: { ...s.license, ...patch } })),
+  activateLicense: async (key) => {
+    try {
+      const refreshed = await LicenseManager.verifyLicenseWithServer(key);
+      set({ license: refreshed });
+      get().addToast('License successfully verified and activated.', 'success');
+    } catch (err: any) {
+      get().addToast(`License verification failed: ${err.message}`, 'error');
+    }
+  },
+  checkLicenseHeartbeat: async () => {
+    const { license } = get();
+    const updated = await LicenseManager.checkHeartbeat(license);
+    if (updated) {
+      set({ license: updated });
+      if (updated.status === 'UNVERIFIED') {
+        get().addToast('License offline grace period expired. Please connect to the internet to verify your seat.', 'warning');
+      }
+    }
+  },
 
   setLLMProvider: (provider) =>
     set((s) => ({ llmRouter: { ...s.llmRouter, activeProvider: provider } })),
@@ -822,12 +847,15 @@ export const useReciteStore = create<ReciteState>()(
 
   reset: () => set(initialState),
 
+  setAuditProgress: (msg) => set({ auditProgress: msg }),
+
   runAudit: async () => {
-    const { workspace, rawText, bibtexContent, llmRouter, setWorkspaceStatus, setIsAuditing, setClaims, setTelemetry, addToast } = get();
+    const { workspace, rawText, bibtexContent, llmRouter, setWorkspaceStatus, setIsAuditing, setClaims, setTelemetry, addToast, setAuditProgress } = get();
     if (workspace.status === 'NO_WORKSPACE_MOUNTED') return;
 
     setWorkspaceStatus('PREFLIGHT_RUNNING');
     setIsAuditing(true);
+    setAuditProgress('Preparing audit...');
 
     try {
       const { activeProvider, providerMatrix } = llmRouter;
@@ -848,7 +876,8 @@ export const useReciteStore = create<ReciteState>()(
         bibtexMap,
         activeProvider,
         apiKey,
-        model
+        model,
+        (msg: string) => setAuditProgress(msg)
       );
 
       // Update API latency telemetry
@@ -877,6 +906,7 @@ export const useReciteStore = create<ReciteState>()(
       addToast(`Audit failed: ${err.message}`, 'error');
     } finally {
       setIsAuditing(false);
+      setAuditProgress(null);
     }
   },
 }),

@@ -14,10 +14,17 @@ import {
   Lock,
   Eye,
   EyeOff,
+  ChevronDown,
   Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useReciteStore, LLMProvider, LicenseState } from '@/lib/store';
+import { useReciteStore, type LLMProvider, type LicenseStatus } from '@/lib/store';
+import {
+  MODEL_REGISTRY,
+  getModelsForProvider,
+  getDefaultModel,
+  type ProviderDescriptor,
+} from '@/lib/models';
 
 interface SettingsWindowProps {
   isOpen?: boolean;
@@ -31,10 +38,12 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
     showSettings,
     setShowSettings,
     license,
-    setLicenseState,
+    setLicenseStatus,
+    activateLicense,
     llmRouter,
     setLLMProvider,
     setLLMApiKey,
+    setLLMModel,
     storage,
     telemetry,
     openConfirm,
@@ -59,51 +68,88 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
   }, [isOpen]);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('engine');
-  const [showKey, setShowKey] = useState<Record<LLMProvider, boolean>>({
-    openai: false,
-    anthropic: false,
-    deepseek: false,
-    gemini: false,
-  });
-
-  const [keyDrafts, setKeyDrafts] = useState<Record<LLMProvider, string>>({
-    openai: llmRouter.providerMatrix.openai.apiKey || '',
-    anthropic: llmRouter.providerMatrix.anthropic.apiKey || '',
-    deepseek: llmRouter.providerMatrix.deepseek.apiKey || '',
-    gemini: llmRouter.providerMatrix.gemini.apiKey || '',
-  });
-
-  const [isSyncingLicense, setIsSyncingLicense] = useState(false);
+  const [showKey, setShowKey] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [sensitivity, setSensitivity] = useState(80);
+  const [licenseInput, setLicenseInput] = useState(license.key || '');
+  const [isVerifyingLicense, setIsVerifyingLicense] = useState(false);
+
+  // ── Per-provider key drafts (session-memory only, never persisted) ──────────
+  const [keyDrafts, setKeyDrafts] = useState<Record<LLMProvider, string>>({
+    anthropic:  llmRouter.providerMatrix.anthropic?.apiKey  || '',
+    openai:     llmRouter.providerMatrix.openai?.apiKey     || '',
+    google:     llmRouter.providerMatrix.google?.apiKey     || '',
+    openrouter: llmRouter.providerMatrix.openrouter?.apiKey || '',
+    ollama:     '',
+  });
+
+  // ── Local UI state for provider / model dropdowns ──────────────────────────
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(
+    llmRouter.activeProvider
+  );
+  const [selectedModel, setSelectedModel] = useState<string>(
+    llmRouter.providerMatrix[llmRouter.activeProvider]?.model ||
+    getDefaultModel(llmRouter.activeProvider)
+  );
+
+  const providerDescriptor: ProviderDescriptor | undefined = MODEL_REGISTRY.find(
+    (p) => p.id === selectedProvider
+  );
+  const isOllama       = selectedProvider === 'ollama';
+  const isFreeRouter   = selectedProvider === 'openrouter' && selectedModel === 'openrouter/free';
+  const needsApiKey    = !isOllama;
+
+  const [ollamaEndpoint, setOllamaEndpoint] = useState('http://127.0.0.1:11434');
 
   if (!isOpen) return null;
 
-  const handleKeyChange = (provider: LLMProvider, val: string) => {
-    setKeyDrafts((prev) => ({ ...prev, [provider]: val }));
+  // ── Provider switch: update local state + store active provider ────────────
+  const handleProviderChange = (prov: LLMProvider) => {
+    setSelectedProvider(prov);
+    const defaultModel = getDefaultModel(prov);
+    setSelectedModel(defaultModel);
+    setLLMProvider(prov);
+    setLLMModel(prov, defaultModel);
+    setShowKey(false);
   };
 
-  const handleSaveKeys = () => {
-    (Object.keys(keyDrafts) as LLMProvider[]).forEach((prov) => {
-      setLLMApiKey(prov, keyDrafts[prov]);
-    });
+  // ── Model switch: update local state + store model ────────────────────────
+  const handleModelChange = (model: string) => {
+    setSelectedModel(model);
+    setLLMModel(selectedProvider, model);
+  };
+
+  // ── Apply credentials: writes key to in-memory store (NOT persisted) ───────
+  const handleApply = () => {
+    if (!isOllama) {
+      const draft = keyDrafts[selectedProvider] || '';
+      setLLMApiKey(selectedProvider, draft);
+    }
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 1500);
   };
 
-  const handleSyncLicense = async () => {
-    setIsSyncingLicense(true);
-    await new Promise((r) => setTimeout(r, 900));
-    setLicenseState('VALID');
-    setIsSyncingLicense(false);
+  const handleVerifyLicense = async () => {
+    setIsVerifyingLicense(true);
+    await activateLicense(licenseInput);
+    setIsVerifyingLicense(false);
   };
 
   const licColor =
-    license.licenseState === 'VALID'
+    license.status === 'ACTIVE'
       ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/30'
-      : license.licenseState === 'PENDING_SYNC'
-      ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30'
-      : 'text-rose-500 bg-rose-500/10 border border-rose-500/30';
+      : license.status === 'EXPIRED'
+      ? 'text-rose-500 bg-rose-500/10 border border-rose-500/30'
+      : 'text-amber-400 bg-amber-400/10 border border-amber-400/30';
+
+  // ── Shared <select> class ──────────────────────────────────────────────────
+  const selectCls =
+    'w-full appearance-none bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 ' +
+    'rounded px-3 py-1.5 text-[13px] font-sans text-zinc-800 dark:text-zinc-200 ' +
+    'focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 ' +
+    'transition-all cursor-pointer';
+
+  const labelCls = 'block text-[11px] font-sans font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase tracking-wide';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-sm animate-in fade-in duration-100 font-sans">
@@ -120,8 +166,8 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
               <div className="w-3 h-3 rounded-full bg-amber-500/80 opacity-60" />
               <div className="w-3 h-3 rounded-full bg-emerald-500/80 opacity-60" />
             </div>
-            <span className="text-xs font-mono font-bold tracking-wider text-zinc-700 dark:text-zinc-300">
-              SETTINGS & CONFIGURATION
+            <span className="text-sm font-sans font-semibold text-zinc-900 dark:text-zinc-100">
+              Settings & Configuration
             </span>
           </div>
 
@@ -138,8 +184,8 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
           {/* Left Navigation Column */}
           <div className="w-52 border-r border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 p-2.5 flex flex-col justify-between flex-shrink-0">
             <div className="space-y-1">
-              <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400 dark:text-zinc-600 font-bold">
-                SECTIONS
+              <div className="px-2 py-1 text-xs font-sans text-zinc-500 dark:text-zinc-400 font-medium">
+                Sections
               </div>
 
               <NavTabButton
@@ -172,129 +218,142 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
             </div>
 
             {/* Bottom Diagnostic Badge */}
-            <div className="p-2.5 rounded-lg bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono text-zinc-500 space-y-1">
-              <div className="flex justify-between">
-                <span>SEAT:</span>
-                <span className="text-zinc-800 dark:text-zinc-200 font-bold">{license.seatId || 'DEV-SEAT-001'}</span>
+            <div className="p-2.5 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100/50 dark:bg-zinc-900/40 text-xs font-sans text-zinc-500 space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span>Seat:</span>
+                <span className="text-zinc-700 dark:text-zinc-300 font-medium">{license.key ? license.key.substring(0, 12) + '...' : 'DEV-SEAT-001'}</span>
               </div>
-              <div className="flex justify-between">
-                <span>STATUS:</span>
-                <span className={license.licenseState === 'VALID' ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 dark:text-amber-400'}>
-                  {license.licenseState}
+              <div className="flex justify-between items-center">
+                <span>Status:</span>
+                <span className={license.status === 'ACTIVE' ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-amber-600 dark:text-amber-400 font-medium'}>
+                  {license.status === 'ACTIVE' ? 'Active' : 'Unverified'}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span>ROUTER:</span>
-                <span className="text-zinc-800 dark:text-zinc-200 uppercase font-semibold">{llmRouter.activeProvider}</span>
+              <div className="flex justify-between items-center">
+                <span>Engine:</span>
+                <span className="text-zinc-700 dark:text-zinc-300 font-medium">
+                  {MODEL_REGISTRY.find((p) => p.id === llmRouter.activeProvider)?.label ?? llmRouter.activeProvider}
+                </span>
               </div>
             </div>
           </div>
 
           {/* Right Content Area */}
           <div className="flex-1 bg-white dark:bg-zinc-900/20 p-6 overflow-y-auto font-sans">
-            {/* TAB 1: LLM ROUTING */}
+
+            {/* ── TAB 1: LLM ROUTING ─────────────────────────────────────────────── */}
             {activeTab === 'engine' && (
-              <div className="space-y-6 animate-in fade-in duration-100">
+              <div className="space-y-5 animate-in fade-in duration-100">
                 <div>
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                     <Cpu className="w-4 h-4 text-emerald-500" />
-                    LLM Routing & API Credentials
+                    AI Engine & Model Selection
                   </h3>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                    API keys are stored locally in your browser session. Zero telemetry transmission.
+                  <p className="text-[12px] text-zinc-500 dark:text-zinc-400 mt-1">
+                    Credentials are stored in session memory only and never written to disk or transmitted to ReciteAI servers.
                   </p>
                 </div>
 
-                {/* Active Provider Selector */}
-                <div className="space-y-2">
-                  <label className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 font-semibold">
-                    ACTIVE INFERENCE ROUTE
-                  </label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {(['openai', 'anthropic', 'deepseek', 'gemini'] as LLMProvider[]).map((prov) => {
-                      const isActive = llmRouter.activeProvider === prov;
-                      return (
-                        <button
-                          key={prov}
-                          onClick={() => setLLMProvider(prov)}
-                          className={cn(
-                            'p-2.5 rounded-lg border font-mono text-xs font-bold uppercase transition-all flex flex-col items-center gap-1',
-                            isActive
-                              ? 'border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 shadow-xs'
-                              : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40 text-zinc-500 hover:border-zinc-300 dark:hover:border-zinc-700'
-                          )}
-                        >
-                          <span>{prov}</span>
-                          <span className="text-[9px] font-normal text-zinc-400 lowercase">
-                            {prov === 'gemini' ? '2.0-flash' : prov === 'anthropic' ? 'claude-3.5' : prov === 'openai' ? 'gpt-4o' : 'deepseek-v3'}
-                          </span>
-                        </button>
-                      );
-                    })}
+                {/* ── Provider Dropdown ──────────────────────────────────────────── */}
+                <div>
+                  <label className={labelCls}>Provider</label>
+                  <div className="relative">
+                    <select
+                      value={selectedProvider}
+                      onChange={(e) => handleProviderChange(e.target.value as LLMProvider)}
+                      className={selectCls}
+                    >
+                      {MODEL_REGISTRY.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
                   </div>
                 </div>
 
-                {/* Provider Matrix Inputs */}
-                <div className="space-y-3 pt-1">
-                  <label className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 font-semibold">
-                    CREDENTIAL MATRIX
-                  </label>
-
-                  {(['openai', 'anthropic', 'deepseek', 'gemini'] as LLMProvider[]).map((prov) => {
-                    const cfg = llmRouter.providerMatrix[prov];
-                    const isVisible = showKey[prov];
-                    const isSelected = llmRouter.activeProvider === prov;
-
-                    return (
-                      <div
-                        key={prov}
-                        className={cn(
-                          'p-3 rounded-lg border transition-colors space-y-2',
-                          isSelected
-                            ? 'border-emerald-500/40 bg-emerald-500/5'
-                            : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40'
-                        )}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold uppercase text-zinc-800 dark:text-zinc-200">{prov}</span>
-                            {isSelected && (
-                              <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-mono text-[9px] font-bold">
-                                ACTIVE
-                              </span>
-                            )}
-                          </div>
-                          <span className="font-mono text-[10px] text-zinc-500">{cfg.model}</span>
-                        </div>
-
-                        <div className="relative">
-                          <input
-                            type={isVisible ? 'text' : 'password'}
-                            value={keyDrafts[prov]}
-                            placeholder={prov === 'gemini' ? 'AIzaSy...' : prov === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
-                            onChange={(e) => handleKeyChange(prov, e.target.value)}
-                            className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md pl-3 pr-10 py-1.5 text-xs font-mono text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all shadow-xs"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowKey((p) => ({ ...p, [prov]: !p[prov] }))}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-                          >
-                            {isVisible ? <EyeOff size={13} /> : <Eye size={13} />}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                {/* ── Model Dropdown ─────────────────────────────────────────────── */}
+                <div>
+                  <label className={labelCls}>Model</label>
+                  <div className="relative">
+                    <select
+                      value={selectedModel}
+                      onChange={(e) => handleModelChange(e.target.value)}
+                      className={selectCls}
+                    >
+                      {getModelsForProvider(selectedProvider).map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}{m.contextWindow ? ` — ${m.contextWindow}` : ''}{m.note ? ` (${m.note})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+                  </div>
                 </div>
+
+                {/* ── Credential Area ────────────────────────────────────────────── */}
+                {isOllama ? (
+                  <div>
+                    <label className={labelCls}>Ollama Local Endpoint</label>
+                    <input
+                      type="text"
+                      value={ollamaEndpoint}
+                      onChange={(e) => setOllamaEndpoint(e.target.value)}
+                      className={cn(selectCls, 'pr-3')}
+                      placeholder="http://127.0.0.1:11434"
+                    />
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-1.5">
+                      Fully air-gapped. No API key required. Ensure Ollama is running locally.
+                    </p>
+                  </div>
+                ) : isFreeRouter ? (
+                  <div className="p-3 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40">
+                    <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
+                      Using OpenRouter's free tier. No API key deduction. Rate limits apply.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <label className={labelCls}>
+                      {providerDescriptor?.label} API Key
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showKey ? 'text' : 'password'}
+                        value={keyDrafts[selectedProvider]}
+                        onChange={(e) =>
+                          setKeyDrafts((prev) => ({ ...prev, [selectedProvider]: e.target.value }))
+                        }
+                        placeholder={providerDescriptor?.keyPlaceholder ?? 'API key...'}
+                        className={cn(selectCls, 'pr-10 font-mono text-[12px]')}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowKey((v) => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                      >
+                        {showKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-1.5">
+                      Stored in session memory only. Never synced to cloud or written to disk.
+                    </p>
+                  </div>
+                )}
+
+                {/* ── Context Window Advisory ────────────────────────────────────── */}
+                <p className="text-[10px] text-zinc-500 font-sans border-t border-zinc-200 dark:border-zinc-800 pt-3 leading-relaxed">
+                  Note: Manuscript auditing requires extensive context retention. It is highly recommended to select flagship models (e.g., Claude 5 Opus, Gemini 3.1 Pro, GPT-5.6 Sol) with context windows exceeding 128k tokens. Using legacy or heavily quantized local models may result in hallucinated citation keys or truncated analysis.
+                </p>
               </div>
             )}
 
-            {/* TAB 2: SEAT LICENSE */}
+            {/* ── TAB 2: SEAT LICENSE ────────────────────────────────────────────── */}
             {activeTab === 'license' && (
               <div className="space-y-6 animate-in fade-in duration-100">
                 <div>
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                     <Shield className="w-4 h-4 text-emerald-500" />
                     Seat License & Verification
                   </h3>
@@ -303,63 +362,64 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                   </p>
                 </div>
 
-                <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 space-y-4">
+                <div className="p-4 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-[10px] font-mono text-zinc-500">CURRENT SEAT STATUS</div>
-                      <div className={cn('text-xs font-mono font-bold mt-0.5 px-2.5 py-0.5 rounded border inline-block', licColor)}>
-                        {license.licenseState}
+                      <div className="text-[11px] font-sans text-zinc-500">Current Seat Status</div>
+                      <div className={cn('text-xs font-sans font-medium mt-0.5 px-2.5 py-0.5 rounded border inline-block', licColor)}>
+                        {license.status === 'ACTIVE' ? 'Active' : license.status === 'UNVERIFIED' ? 'Unverified' : 'Expired'}
                       </div>
                     </div>
 
                     <button
-                      onClick={handleSyncLicense}
-                      disabled={isSyncingLicense}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-xs font-sans font-medium text-zinc-800 dark:text-zinc-200 transition-colors disabled:opacity-50 shadow-xs"
+                      onClick={handleVerifyLicense}
+                      disabled={isVerifyingLicense || !licenseInput}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded text-xs font-sans font-medium text-zinc-700 dark:text-zinc-300 transition-colors disabled:opacity-50 shadow-xs cursor-pointer"
                     >
-                      <RefreshCw size={12} className={cn(isSyncingLicense && 'animate-spin text-emerald-500')} />
-                      <span>{isSyncingLicense ? 'Synchronizing...' : 'Sync License Server'}</span>
+                      <RefreshCw size={12} className={cn(isVerifyingLicense && 'animate-spin text-emerald-500')} />
+                      <span>{isVerifyingLicense ? 'Verifying...' : 'Verify License'}</span>
                     </button>
                   </div>
+                  
+                  <div className="space-y-2">
+                    <label className={labelCls}>License Key</label>
+                    <input
+                      type="text"
+                      value={licenseInput}
+                      onChange={(e) => setLicenseInput(e.target.value)}
+                      placeholder="Enter License Key..."
+                      className="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded px-3 py-2 text-xs font-mono text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all shadow-xs"
+                    />
+                  </div>
 
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-200 dark:border-zinc-800/80 font-mono text-xs">
+                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-200 dark:border-zinc-800/80 font-sans text-xs">
                     <div>
-                      <span className="text-zinc-500 block text-[10px]">SEAT IDENTIFIER</span>
-                      <span className="text-zinc-800 dark:text-zinc-200 font-bold">{license.seatId || 'DEV-SEAT-001'}</span>
+                      <span className="text-zinc-500 block text-[11px] mb-0.5">Last Checked</span>
+                      <span className="text-zinc-700 dark:text-zinc-300 font-medium">{license.lastChecked ? new Date(license.lastChecked).toLocaleString() : 'Never'}</span>
                     </div>
                     <div>
-                      <span className="text-zinc-500 block text-[10px]">OFFLINE GRACE PERIOD</span>
-                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">{license.offlineGraceDaysRemaining} Days Remaining</span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 block text-[10px]">STORAGE RETENTION</span>
-                      <span className="text-zinc-800 dark:text-zinc-200 font-bold">Zero-Retention (Local Only)</span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 block text-[10px]">SIGNATURE ENCRYPTION</span>
-                      <span className="text-zinc-800 dark:text-zinc-200 font-bold">ED25519_ACTIVE</span>
+                      <span className="text-zinc-500 block text-[11px] mb-0.5">Verification Engine</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-medium">Lemon Squeezy API</span>
                     </div>
                   </div>
                 </div>
 
                 {/* State Override for Testing */}
-                <div className="space-y-2">
-                  <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 font-semibold">
-                    STATUS OVERRIDE (TESTING)
-                  </label>
-                  <div className="flex gap-2 font-mono text-xs">
-                    {(['VALID', 'PENDING_SYNC', 'EXPIRED'] as LicenseState[]).map((st) => (
+                <div className="space-y-2 pt-2">
+                  <label className={labelCls}>Status Override (Testing)</label>
+                  <div className="flex gap-2 font-sans text-xs">
+                    {(['ACTIVE', 'UNVERIFIED', 'EXPIRED'] as LicenseStatus[]).map((st) => (
                       <button
                         key={st}
-                        onClick={() => setLicenseState(st)}
+                        onClick={() => setLicenseStatus(st)}
                         className={cn(
-                          'px-3 py-1.5 rounded-md border text-[11px] transition-all',
-                          license.licenseState === st
-                            ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 border-transparent font-bold shadow-xs'
-                            : 'border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                          'px-3 py-1.5 rounded border text-xs font-medium transition-all cursor-pointer',
+                          license.status === st
+                            ? 'bg-zinc-800 dark:bg-zinc-200 text-white dark:text-zinc-900 border-transparent shadow-xs'
+                            : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
                         )}
                       >
-                        SET_{st}
+                        {st === 'ACTIVE' ? 'Set Active' : st === 'UNVERIFIED' ? 'Set Unverified' : 'Set Expired'}
                       </button>
                     ))}
                   </div>
@@ -367,11 +427,11 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
               </div>
             )}
 
-            {/* TAB 3: LOCAL STORAGE */}
+            {/* ── TAB 3: LOCAL STORAGE ───────────────────────────────────────────── */}
             {activeTab === 'storage' && (
               <div className="space-y-6 animate-in fade-in duration-100">
                 <div>
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                     <HardDrive className="w-4 h-4 text-emerald-500" />
                     Local Storage Engine
                   </h3>
@@ -381,33 +441,33 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                 </div>
 
                 <div className="space-y-3">
-                  <div className="p-3.5 rounded-lg border border-emerald-500/40 bg-emerald-500/5 space-y-1.5">
+                  <div className="p-3.5 rounded border border-emerald-500/30 bg-emerald-500/5 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Database size={15} className="text-emerald-600 dark:text-emerald-400" />
-                        <span className="font-mono text-xs font-bold text-zinc-900 dark:text-zinc-100">Active: IndexedDB (Client Storage)</span>
+                        <span className="font-sans text-xs font-medium text-zinc-900 dark:text-zinc-100">Active: IndexedDB (Client Storage)</span>
                       </div>
-                      <span className="px-2 py-0.2 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-mono text-[9px] font-bold">
-                        LOCAL ONLY
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-sans text-[10px] font-medium">
+                        Local Only
                       </span>
                     </div>
-                    <p className="text-xs text-zinc-600 dark:text-zinc-400">
-                      Stores sessions locally via <code className="font-mono text-emerald-700 dark:text-emerald-300">idb-keyval</code>. No external server retention.
+                    <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                      Stores sessions locally via <code className="font-mono text-[10px] bg-emerald-500/10 px-1 py-0.5 rounded">idb-keyval</code>. API keys excluded from persistence. No external server retention.
                     </p>
                   </div>
 
-                  <div className="p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40 opacity-70 space-y-1.5">
+                  <div className="p-3.5 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 opacity-80 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Lock size={15} className="text-zinc-400" />
-                        <span className="font-mono text-xs font-bold text-zinc-600 dark:text-zinc-400">Stub: PostgreSQL Cloud Adapter</span>
+                        <span className="font-sans text-xs font-medium text-zinc-600 dark:text-zinc-400">Stub: PostgreSQL Cloud Adapter</span>
                       </div>
-                      <span className="px-2 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-mono text-[9px]">
-                        ENTERPRISE
+                      <span className="px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 font-sans text-[10px] font-medium">
+                        Enterprise
                       </span>
                     </div>
                     <p className="text-xs text-zinc-500">
-                      Cloud PostgreSQL adapter for multi-seat institutional synchronization.
+                      Cloud PostgreSQL adapter for multi-seat institutional synchronization. API keys are never included in cloud sync payloads.
                     </p>
                   </div>
                 </div>
@@ -435,11 +495,11 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
               </div>
             )}
 
-            {/* TAB 4: DIAGNOSTICS & DISPLAY */}
+            {/* ── TAB 4: DIAGNOSTICS ─────────────────────────────────────────────── */}
             {activeTab === 'display' && (
               <div className="space-y-6 animate-in fade-in duration-100">
                 <div>
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                     <Monitor className="w-4 h-4 text-emerald-500" />
                     Diagnostics & Sensitivity
                   </h3>
@@ -450,9 +510,9 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
 
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <div className="flex justify-between text-[11px] font-mono text-zinc-600 dark:text-zinc-400">
-                      <span>AUDIT SENSITIVITY THRESHOLD</span>
-                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">{sensitivity}% STRICT</span>
+                    <div className="flex justify-between text-xs font-sans text-zinc-600 dark:text-zinc-400 font-medium">
+                      <span>Audit Sensitivity Threshold</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">{sensitivity}% Strict</span>
                     </div>
                     <input
                       type="range"
@@ -460,11 +520,11 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                       max="100"
                       value={sensitivity}
                       onChange={(e) => setSensitivity(Number(e.target.value))}
-                      className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      className="w-full h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full appearance-none cursor-pointer accent-emerald-500"
                     />
-                    <div className="flex justify-between text-[10px] font-mono text-zinc-400 dark:text-zinc-600">
-                      <span>RELAXED</span>
-                      <span>MAXIMUM STRICTNESS</span>
+                    <div className="flex justify-between text-[11px] font-sans text-zinc-400 dark:text-zinc-500">
+                      <span>Relaxed</span>
+                      <span>Maximum Strictness</span>
                     </div>
                   </div>
 
@@ -474,8 +534,8 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                         <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 block">KaTeX Display Isolation</span>
                         <span className="text-[11px] text-zinc-500">Atomic parsing of \[...\] and \begin&#123;equation&#125;</span>
                       </div>
-                      <span className="px-2 py-0.2 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-mono text-[9px] font-bold">
-                        ENABLED
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 font-sans text-[10px] font-medium">
+                        Enabled
                       </span>
                     </div>
 
@@ -484,8 +544,13 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                         <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 block">Connection Heartbeat</span>
                         <span className="text-[11px] text-zinc-500">Continuous network availability verification</span>
                       </div>
-                      <span className="px-2 py-0.2 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-mono text-[9px] font-bold">
-                        {telemetry.isOnline ? 'ONLINE' : 'OFFLINE'}
+                      <span className={cn(
+                        "px-2 py-0.5 rounded border font-sans text-[10px] font-medium",
+                        telemetry.isOnline
+                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
+                          : "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
+                      )}>
+                        {telemetry.isOnline ? 'Online' : 'Offline'}
                       </span>
                     </div>
                   </div>
@@ -501,7 +566,7 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
             {saveSuccess && (
               <span className="flex items-center gap-1.5 text-xs font-sans text-emerald-600 dark:text-emerald-400 font-medium animate-in fade-in">
                 <CheckCircle2 size={13} />
-                Preferences Saved
+                Preferences Applied
               </span>
             )}
           </div>
@@ -514,11 +579,11 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
               Close
             </button>
             <button
-              onClick={handleSaveKeys}
+              onClick={handleApply}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-zinc-900 text-white dark:bg-emerald-500/20 dark:text-emerald-300 dark:border dark:border-emerald-500/30 rounded-md text-xs font-sans font-semibold hover:bg-zinc-800 dark:hover:bg-emerald-500/30 transition-all shadow-xs"
             >
               <Sparkles size={12} />
-              <span>Apply Preferences</span>
+              <span>Apply</span>
             </button>
           </div>
         </div>

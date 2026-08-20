@@ -35,17 +35,17 @@ export default function ZoteroTab() {
         </div>
         
         <div>
-          <h3 className="text-xs font-bold text-zinc-200 mb-2">ZOTERO INTEGRATION</h3>
-          <p className="text-[10px] text-zinc-500 font-mono leading-relaxed max-w-[200px] mx-auto">
+          <h3 className="text-xs font-semibold text-zinc-200 mb-2">Zotero Integration</h3>
+          <p className="text-[11px] text-zinc-500 font-sans leading-relaxed max-w-[200px] mx-auto">
             Authorize CiteGuard to automatically push attached citations into a dedicated collection in your Zotero library.
           </p>
         </div>
 
         <button 
           onClick={handleConnect}
-          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-600 rounded text-[10px] font-mono font-bold transition-colors w-full max-w-[200px]"
+          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-600 rounded text-[11px] font-sans font-medium transition-colors w-full max-w-[200px] cursor-pointer"
         >
-          CONNECT ACCOUNT
+          Connect Account
         </button>
       </div>
     );
@@ -60,12 +60,12 @@ export default function ZoteroTab() {
             <Library className="w-4 h-4 mr-2 text-emerald-500" />
             Zotero Connected
           </h4>
-          <span className="flex items-center text-[9px] text-emerald-400 font-mono border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-            <CheckCircle2 className="w-2.5 h-2.5 mr-1" /> ACTIVE
+          <span className="flex items-center text-[10px] text-emerald-400 font-sans font-medium border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+            <CheckCircle2 className="w-2.5 h-2.5 mr-1" /> Active
           </span>
         </div>
 
-        <div className="space-y-2 text-[10px] font-mono text-zinc-500">
+        <div className="space-y-2 text-[11px] font-sans text-zinc-500">
           <div className="flex justify-between">
             <span>Target Collection:</span>
             <span className="text-zinc-300">CiteGuard Imports</span>
@@ -88,20 +88,20 @@ export default function ZoteroTab() {
         onClick={handleManualSync}
         disabled={isSyncing}
         className={cn(
-          "w-full px-4 py-2 flex items-center justify-center space-x-2 border rounded text-[10px] font-mono font-bold transition-all",
+          "w-full px-4 py-2 flex items-center justify-center space-x-2 border rounded text-[11px] font-sans font-medium transition-all cursor-pointer",
           isSyncing 
             ? "bg-zinc-800 border-zinc-700 text-zinc-500 cursor-wait" 
             : "bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-600"
         )}
       >
         <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
-        <span>{isSyncing ? "SYNCING TO CLOUD..." : "FORCE MANUAL SYNC"}</span>
+        <span>{isSyncing ? "Syncing to Cloud..." : "Force Manual Sync"}</span>
       </button>
 
       {/* Info Notice */}
       <div className="flex items-start p-3 bg-blue-950/20 border border-blue-900/30 rounded mt-4">
         <AlertCircle className="w-3.5 h-3.5 text-blue-500 mr-2 shrink-0 mt-0.5" />
-        <p className="text-[9px] text-blue-300/80 font-mono leading-relaxed">
+        <p className="text-[10px] text-blue-300/80 font-sans leading-relaxed">
           Citations you attach in the inspector will automatically push to your Zotero cloud account. You may need to press the Sync button in your desktop Zotero app to see them appear locally.
         </p>
       </div>

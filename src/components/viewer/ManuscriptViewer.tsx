@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useReciteStore } from '@/lib/store';
+import type { Claim } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import MathBlock from './MathBlock';
 import ClaimHighlight from './ClaimHighlight';
@@ -9,34 +10,28 @@ import { BibTeXParser } from '@/services/bibtex-parser';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import DOMPurify from 'dompurify';
+import { FileCode2, ChevronRight } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § DOM PURIFY CONFIG
-// Permit standard HTML + MathML (required for KaTeX). Explicitly FORBID
-// script tags, onload/onerror event attributes, and javascript: URIs.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DOMPURIFY_CONFIG: DOMPurify.Config = {
-  USE_PROFILES: { html: true, mathMl: true },
-  FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'button'],
-  FORBID_ATTR: [
-    'onerror', 'onload', 'onclick', 'onmouseover', 'onfocus',
-    'onblur', 'onsubmit', 'onchange', 'onkeydown', 'onkeyup',
-    'onkeypress', 'src',
-  ],
-  ALLOW_DATA_ATTR: false,
-  FORCE_BODY: false,
-};
-
-/**
- * Sanitize KaTeX HTML output server-safely.
- * DOMPurify requires a real DOM — during SSR (no window) we return
- * the raw string untouched since Next.js will never hydrate malicious
- * scripts server-side, and the client re-renders with DOMPurify active.
- */
 function safeKatexHtml(html: string): string {
   if (typeof window === 'undefined') return html;
-  return DOMPurify.sanitize(html, DOMPURIFY_CONFIG) as string;
+  const config: any = {
+    ALLOWED_TAGS: [
+      'span', 'div', 'math', 'mi', 'mn', 'mo', 'ms', 'mspace', 'mtext', 'merror',
+      'mfrac', 'mpadded', 'mphantom', 'mroot', 'mrow', 'msqrt', 'mstyle',
+      'mmultiscripts', 'mover', 'mprescripts', 'msub', 'msubsup', 'msup',
+      'munder', 'munderover', 'none', 'semantics', 'annotation', 'annotation-xml',
+    ],
+    ALLOWED_ATTR: [
+      'class', 'style', 'aria-hidden', 'href', 'title', 'xmlns', 'display',
+      'mathvariant', 'mathcolor', 'mathbackground', 'mathsize', 'dir', 'id',
+    ],
+    PARSER_MEDIA_TYPE: 'text/html',
+  };
+  return DOMPurify.sanitize(html, config) as unknown as string;
 }
 
 export default function ManuscriptViewer() {
@@ -112,12 +107,79 @@ export default function ManuscriptViewer() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [nextClaim, prevClaim]);
 
-  /**
-   * Rich content renderer: parses math formulas via KaTeX and wraps \cite{} keys
-   * in interactive peek definition hover cards.
-   */
+  // ── 1. AST Breadcrumb Computations ─────────────────────────────────────────
+  const activeSection = useMemo(() => {
+    const text = rawText || parsedText || '';
+    if (!text) return '§1 Introduction';
+
+    const sectionRegex = /\\section\*?\{([^}]+)\}/g;
+    let match;
+    let currentSection = '§1 Introduction';
+    const targetOffset = activeClaim ? activeClaim.startIndex : 0;
+
+    while ((match = sectionRegex.exec(text)) !== null) {
+      if (match.index <= targetOffset + 100) {
+        currentSection = `§ ${match[1].trim()}`;
+      } else {
+        break;
+      }
+    }
+    return currentSection;
+  }, [rawText, parsedText, activeClaim]);
+
+  const activeCitationTag = useMemo(() => {
+    if (!activeClaim) return null;
+    const match = activeClaim.text.match(/\\cite[a-zA-Z]*\{([^}]+)\}/);
+    if (match) return match[0];
+    if (activeClaim.suggestedPapers?.[0]?.doi) {
+      return `[${activeClaim.suggestedPapers[0].authors[0] || 'Ref'}]`;
+    }
+    return null;
+  }, [activeClaim]);
+
+  // ── 2. Line Number & Gutter Anomaly Pin Mapping ────────────────────────────
+  const textLines = useMemo(() => {
+    const text = rawText || parsedText || '';
+    if (!text) return [];
+    return text.split('\n');
+  }, [rawText, parsedText]);
+
+  const lineCountList = useMemo(() => {
+    const count = Math.max(textLines.length, 45);
+    return Array.from({ length: count }, (_, i) => i + 1);
+  }, [textLines]);
+
+  const lineClaimMap = useMemo(() => {
+    const text = rawText || parsedText || '';
+    if (!text || !claims.length) return new Map<number, Claim>();
+
+    const map = new Map<number, Claim>();
+    const lines = text.split('\n');
+    let currentOffset = 0;
+
+    lines.forEach((lineText, idx) => {
+      const lineNum = idx + 1;
+      const lineStart = currentOffset;
+      const lineEnd = currentOffset + lineText.length + 1;
+
+      // Find if any claim begins or exists in this line
+      const match = claims.find((c) => {
+        if (c.lineIndex !== undefined && c.lineIndex === lineNum) return true;
+        return c.startIndex >= lineStart && c.startIndex < lineEnd;
+      });
+
+      if (match) {
+        map.set(lineNum, match);
+      }
+
+      currentOffset = lineEnd;
+    });
+
+    return map;
+  }, [rawText, parsedText, claims]);
+
+  // ── 3. Rich Content Renderer (KaTeX + Citation Peek Hover Cards) ───────────
   const renderRichContent = (text: string, keyPrefix: string) => {
-    // 1. Split by math placeholders or explicit delimiters
     const parts = text.split(/(\[\[MATH_BLOCK_\d+\]\]|\$\$[\s\S]+?\$\$|\$[^\$\n]+?\$)/g);
 
     return parts.map((part, pIdx) => {
@@ -134,7 +196,7 @@ export default function ManuscriptViewer() {
           return (
             <span
               key={pKey}
-              className={mb.type === 'display' ? 'block my-3 text-center overflow-x-auto py-1' : 'inline-block px-0.5'}
+              className={mb.type === 'display' ? 'block my-3 text-center overflow-x-auto py-1 font-mono' : 'inline-block px-0.5 font-mono'}
               dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
@@ -151,7 +213,7 @@ export default function ManuscriptViewer() {
           return (
             <span
               key={pKey}
-              className="block my-3 text-center overflow-x-auto py-1"
+              className="block my-3 text-center overflow-x-auto py-1 font-mono"
               dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
@@ -168,7 +230,7 @@ export default function ManuscriptViewer() {
           return (
             <span
               key={pKey}
-              className="inline-block px-0.5"
+              className="inline-block px-0.5 font-mono"
               dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
@@ -195,11 +257,11 @@ export default function ManuscriptViewer() {
               className="group relative inline-block text-emerald-600 dark:text-emerald-400 font-mono text-[0.9em] cursor-help border-b border-emerald-500/40 border-dashed mx-0.5 select-text hover:bg-emerald-500/10 px-1 py-0.2 rounded transition-colors"
             >
               <span>{subPart}</span>
-              {/* Peek Definition Hover Card (macOS style floating popover) */}
-              <span className="hidden group-hover:flex flex-col absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-72 max-w-sm p-3 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md shadow-2xl rounded-md border border-zinc-200 dark:border-zinc-800 text-left font-sans text-xs text-zinc-800 dark:text-zinc-200 pointer-events-none transition-all duration-150 animate-in fade-in zoom-in-95">
-                <span className="flex items-center justify-between pb-1.5 mb-2 border-b border-zinc-200 dark:border-zinc-800 text-[10px] font-mono text-zinc-500 dark:text-zinc-400">
-                  <span className="font-bold text-emerald-600 dark:text-emerald-400">PEEK DEFINITION</span>
-                  <span className="uppercase">{keys.length > 1 ? `${keys.length} CITATIONS` : 'BIBTEX ENTRY'}</span>
+              {/* Peek Definition Hover Card */}
+              <span className="hidden group-hover:flex flex-col absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-72 max-w-sm p-3 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md shadow-xl rounded border border-zinc-200 dark:border-zinc-800 text-left font-sans text-xs text-zinc-800 dark:text-zinc-200 pointer-events-none transition-all duration-150 animate-in fade-in zoom-in-95">
+                <span className="flex items-center justify-between pb-1.5 mb-2 border-b border-zinc-200 dark:border-zinc-800 text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
+                  <span>Citation Reference</span>
+                  <span className="text-[10px] text-zinc-400">{keys.length > 1 ? `${keys.length} entries` : 'BibTeX'}</span>
                 </span>
                 <span className="space-y-2.5">
                   {keys.map((k, kIdx) => {
@@ -208,28 +270,28 @@ export default function ManuscriptViewer() {
                       <span key={kIdx} className="block space-y-1">
                         <span className="flex items-center justify-between text-[11px] font-mono font-semibold text-zinc-900 dark:text-zinc-100">
                           <span className="text-emerald-600 dark:text-emerald-400 truncate max-w-[180px]">
-                            @{entry?.type || 'ref'}{'{'}{k}{'}'}
+                            @{entry?.type || 'article'}{'{'}{k}{'}'}
                           </span>
                           {entry?.year && (
-                            <span className="text-[9px] px-1 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                            <span className="text-[10px] px-1 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
                               {entry.year}
                             </span>
                           )}
                         </span>
                         {entry ? (
                           <>
-                            <span className="block text-[11px] font-medium text-zinc-900 dark:text-zinc-100 leading-snug line-clamp-2">
-                              {entry.title || '(No title in BibTeX entry)'}
+                            <span className="block text-[11px] font-sans font-medium text-zinc-800 dark:text-zinc-200 leading-snug line-clamp-2">
+                              {entry.title || '(No title)'}
                             </span>
                             {entry.author && (
-                              <span className="block text-[10px] text-zinc-500 dark:text-zinc-400 truncate">
+                              <span className="block text-[10px] font-sans text-zinc-500 truncate">
                                 {entry.author}
                               </span>
                             )}
                           </>
                         ) : (
-                          <span className="block text-[10px] text-rose-500 dark:text-rose-400 italic">
-                            Unresolved: "{k}" not found in .bib database
+                          <span className="block text-[10px] font-sans text-rose-500 dark:text-rose-400 italic">
+                            Unresolved: &quot;{k}&quot; not found in .bib database
                           </span>
                         )}
                       </span>
@@ -246,7 +308,7 @@ export default function ManuscriptViewer() {
     });
   };
 
-  // Segmentation Engine: separates parsed text into claims and neutral text
+  // ── 4. Segmentation Engine ────────────────────────────────────────────────
   const renderedContent = useMemo(() => {
     const textToRender = parsedText || rawText;
 
@@ -320,72 +382,114 @@ export default function ManuscriptViewer() {
     });
   }, [parsedText, rawText, filteredClaims, mathBlocks, activeClaim, bibtexMap, setActiveClaimIndex]);
 
+  const activeLineNum = activeClaim?.lineIndex || 1;
+
   return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200 select-text overflow-hidden transition-colors">
-      {/* 1. Header Bar */}
-      <div className="h-9 px-3.5 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/80 dark:bg-zinc-900/40 backdrop-blur font-sans text-xs text-zinc-600 dark:text-zinc-400 flex-shrink-0">
-        <div className="flex items-center space-x-2.5 truncate">
-          <span className="flex h-2 w-2 relative">
-            <span className={cn('animate-ping absolute inline-flex h-full w-full rounded-full opacity-75', isAuditing ? 'bg-amber-500' : 'bg-emerald-500')} />
-            <span className={cn('relative inline-flex rounded-full h-2 w-2', isAuditing ? 'bg-amber-500' : 'bg-emerald-500')} />
+      {/* ── 1. Sleek AST Breadcrumb Bar (h-7 / 28px) ────────────────────────── */}
+      <div className="h-7 px-3 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/40 font-sans text-[12px] text-zinc-500 dark:text-zinc-400 flex-shrink-0 select-none">
+        <div className="flex items-center gap-1.5 truncate">
+          <FileCode2 size={13} className="text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
+          <span className="font-medium text-zinc-800 dark:text-zinc-200 truncate">
+            {documentTitle || 'untitled.tex'}
           </span>
-          <span className="text-zinc-900 dark:text-zinc-200 font-semibold truncate max-w-xs font-mono text-[11px]">{documentTitle}</span>
-          <span className="px-1.5 py-0.2 text-[9px] font-mono bg-zinc-200/80 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded border border-zinc-300 dark:border-zinc-700 uppercase">
-            {fileFormat}
+          <ChevronRight size={12} className="text-zinc-400" />
+          <span className="text-zinc-600 dark:text-zinc-400 truncate max-w-[220px]">
+            {activeSection}
           </span>
-          {bibtexContent && (
-            <span className="px-1.5 py-0.2 text-[9px] font-mono bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded border border-emerald-500/30 flex items-center gap-1">
-              BIBTEX: {bibtexMap.size} REFS
-            </span>
+          {activeCitationTag && (
+            <>
+              <ChevronRight size={12} className="text-zinc-400" />
+              <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                {activeCitationTag}
+              </span>
+            </>
           )}
         </div>
 
-        <div className="flex items-center space-x-3 text-[11px] font-mono">
-          <span className="text-zinc-500">
-            MATH: <strong className="text-zinc-800 dark:text-zinc-200">{mathBlocks.size}</strong>
-          </span>
-          <span className="text-zinc-500">
-            CLAIMS: <strong className="text-emerald-600 dark:text-emerald-400">{filteredClaims.length}</strong>
-          </span>
-          <span className="hidden sm:inline text-zinc-300 dark:text-zinc-700">|</span>
-          <span className="hidden sm:inline text-[10px] text-zinc-400 font-mono">
-            NAV: <kbd className="px-1 py-0.2 bg-zinc-100 dark:bg-zinc-800 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300">J</kbd>/<kbd className="px-1 py-0.2 bg-zinc-100 dark:bg-zinc-800 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300">K</kbd>
-          </span>
+        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+          <span>Ln {activeLineNum}</span>
+          <span>·</span>
+          <span>{filteredClaims.length} findings</span>
         </div>
       </div>
 
-      {/* 2. Main Inspection Canvas with Line Numbers & Anomaly Minimap */}
+      {/* ── 2. Main Inspection Canvas with Line Gutter & Anomaly Minimap ─────── */}
       <div className="relative flex-1 flex overflow-hidden">
-        {/* Optical Line Gutter */}
-        <div className="w-9 bg-zinc-50/60 dark:bg-zinc-950/60 border-r border-zinc-200 dark:border-zinc-900 flex flex-col items-center py-5 select-none font-mono text-[10px] text-zinc-400 dark:text-zinc-600 flex-shrink-0">
-          {Array.from({ length: 40 }).map((_, i) => (
-            <div key={i} className="h-6 leading-6">
-              {(i + 1) * 5}
-            </div>
-          ))}
+        {/* Optical Line Gutter with Monospace Numbers & Clean Diagnostic Dots */}
+        <div className="w-10 bg-zinc-50/60 dark:bg-zinc-950/60 border-r border-zinc-200 dark:border-zinc-800 flex flex-col py-6 select-none font-mono text-[11px] text-zinc-400 dark:text-zinc-600 flex-shrink-0 overflow-hidden">
+          {lineCountList.map((lineNum) => {
+            const claimOnLine = lineClaimMap.get(lineNum);
+            const isCurrent = activeClaim && claimOnLine && activeClaim.id === claimOnLine.id;
+
+            let dotColor = 'bg-sky-400';
+            if (claimOnLine) {
+              if (claimOnLine.isRetracted || claimOnLine.severity === 'High' || claimOnLine.severity === 'Critical') {
+                dotColor = 'bg-rose-500';
+              } else if (claimOnLine.severity === 'Medium') {
+                dotColor = 'bg-amber-400';
+              } else if (claimOnLine.status === 'accepted') {
+                dotColor = 'bg-emerald-500';
+              }
+            }
+
+            return (
+              <div
+                key={lineNum}
+                className={cn(
+                  'h-6 leading-6 px-1 flex items-center justify-between group transition-colors',
+                  isCurrent && 'bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 font-semibold'
+                )}
+              >
+                {/* Flat 6px Diagnostic Anomaly Dot */}
+                <div className="w-2.5 flex items-center justify-center">
+                  {claimOnLine ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const targetIdx = filteredClaims.findIndex((c) => c.id === claimOnLine.id);
+                        if (targetIdx !== -1) setActiveClaimIndex(targetIdx);
+                      }}
+                      title={`[${claimOnLine.severity}] Line ${lineNum}: ${claimOnLine.text.substring(0, 60)}...`}
+                      className={cn(
+                        'w-1.5 h-1.5 rounded-full cursor-pointer transition-transform hover:scale-125',
+                        dotColor,
+                        isCurrent && 'scale-125 ring-1 ring-zinc-400 dark:ring-zinc-500'
+                      )}
+                    />
+                  ) : null}
+                </div>
+
+                {/* Monospace Line Number */}
+                <span className="text-right pr-2 tabular-nums opacity-60 group-hover:opacity-100">
+                  {lineNum}
+                </span>
+              </div>
+            );
+          })}
         </div>
 
         {/* Scrollable Text Viewport */}
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto p-6 md:p-8 pr-6 font-serif leading-relaxed text-sm md:text-base tracking-normal text-zinc-800 dark:text-zinc-200 selection:bg-emerald-500/25 space-y-4"
+          className="flex-1 overflow-y-auto p-6 md:p-8 pr-6 font-mono leading-relaxed text-sm tracking-normal text-zinc-800 dark:text-zinc-200 selection:bg-emerald-500/25 space-y-4"
         >
-          <div className="max-w-3xl mx-auto whitespace-pre-wrap font-sans">
+          <div className="max-w-3xl mx-auto whitespace-pre-wrap">
             {renderedContent}
           </div>
         </div>
 
-        {/* Anomaly Minimap Rail (12px / w-3 right-edge VS Code style) */}
-        <div className="absolute right-0 top-0 bottom-0 w-3 bg-zinc-100/60 dark:bg-zinc-900/50 border-l border-zinc-200 dark:border-zinc-800/80 z-20 select-none overflow-hidden">
+        {/* Anomaly Minimap Rail */}
+        <div className="absolute right-0 top-0 bottom-0 w-2.5 bg-zinc-100/50 dark:bg-zinc-900/40 border-l border-zinc-200 dark:border-zinc-800 z-20 select-none overflow-hidden">
           {claims.map((claim, idx) => {
             const totalLen = (parsedText || rawText || '').length || 1;
             const topPercent = Math.min(Math.max((claim.startIndex / totalLen) * 100, 1), 98);
             const isCurrent = activeClaim?.id === claim.id;
 
             let tickColor = 'bg-sky-400';
-            if (claim.severity === 'High') tickColor = 'bg-red-500';
-            else if (claim.severity === 'Medium') tickColor = 'bg-yellow-500';
+            if (claim.severity === 'High') tickColor = 'bg-rose-500';
+            else if (claim.severity === 'Medium') tickColor = 'bg-amber-400';
 
             return (
               <div
@@ -398,9 +502,9 @@ export default function ManuscriptViewer() {
                 style={{ top: `${topPercent}%` }}
                 title={`[${claim.severity}] ${claim.text.slice(0, 60)}...`}
                 className={cn(
-                  'absolute left-0 right-0 h-[2px] cursor-pointer transition-all duration-150 hover:h-[4px] hover:z-30',
+                  'absolute left-0 right-0 h-[2px] cursor-pointer transition-all duration-150 hover:h-[3px] hover:z-30',
                   tickColor,
-                  isCurrent && 'h-[4px] bg-emerald-500 ring-1 ring-emerald-400 z-30'
+                  isCurrent && 'h-[3px] bg-emerald-500 z-30'
                 )}
               />
             );
@@ -409,29 +513,29 @@ export default function ManuscriptViewer() {
           {/* Current Viewport Scroll Indicator */}
           <div
             style={{ top: `${Math.min(Math.max(scrollProgress, 0), 94)}%` }}
-            className="absolute left-0 right-0 h-4 border border-zinc-400/50 dark:border-zinc-500/50 bg-zinc-400/10 pointer-events-none rounded-[1px]"
+            className="absolute left-0 right-0 h-4 border border-zinc-400/40 dark:border-zinc-500/40 bg-zinc-400/10 pointer-events-none rounded-[1px]"
           />
         </div>
       </div>
 
-      {/* 3. Footer Bar */}
-      <div className="h-6 px-3 bg-zinc-50 dark:bg-zinc-900/60 border-t border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between text-[10px] font-mono text-zinc-500 flex-shrink-0">
+      {/* ── 3. Footer Bar ──────────────────────────────────────────────────── */}
+      <div className="h-6 px-3 bg-zinc-50/80 dark:bg-zinc-900/40 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-[11px] font-sans text-zinc-500 flex-shrink-0">
         <div className="flex items-center space-x-2">
-          <span>TARGET:</span>
-          <span className="text-zinc-800 dark:text-zinc-200 font-semibold">
+          <span>Target:</span>
+          <span className="text-zinc-700 dark:text-zinc-300 font-mono text-[10px]">
             {activeClaim ? `[${activeClaim.startIndex} : ${activeClaim.endIndex}]` : 'None'}
           </span>
           {activeClaim && (
             <>
-              <span className="text-zinc-300 dark:text-zinc-700">|</span>
-              <span className="text-amber-700 dark:text-amber-300 font-semibold">{activeClaim.category}</span>
+              <span className="text-zinc-300 dark:text-zinc-700">·</span>
+              <span className="text-zinc-700 dark:text-zinc-300 font-medium">{activeClaim.category}</span>
             </>
           )}
         </div>
 
         <div className="flex items-center space-x-2">
-          <span>PROGRESS:</span>
-          <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{Math.round(scrollProgress)}%</span>
+          <span>Progress:</span>
+          <span className="text-zinc-700 dark:text-zinc-300 font-mono text-[10px]">{Math.round(scrollProgress)}%</span>
         </div>
       </div>
     </div>

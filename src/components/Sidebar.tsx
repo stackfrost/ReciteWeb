@@ -11,7 +11,6 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderOpen,
-  Sparkles,
   FileText,
   FileCode2,
   ListTree,
@@ -23,7 +22,6 @@ import {
 } from 'lucide-react';
 import { useReciteStore } from '@/lib/store';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
-import { DEMO_MANUSCRIPT, DEMO_CLAIMS, DEMO_BIBTEX } from '@/lib/demo-data';
 import { useTheme } from './ThemeProvider';
 import { cn } from '@/lib/utils';
 import { FileSystemService } from '@/services/file-system';
@@ -109,21 +107,6 @@ export default function Sidebar() {
     }
   };
 
-  const handleLoadDemo = () => {
-    setWorkspaceStatus('MOUNTING');
-    const { text: parsed, mathBlocks } = parseMathBlocks(DEMO_MANUSCRIPT);
-
-    setRawText(DEMO_MANUSCRIPT);
-    setParsedText(parsed);
-    setMathBlocks(mathBlocks);
-    setClaims(DEMO_CLAIMS);
-    setDocumentTitle('Quantum Spin Dynamics (Draft).tex');
-    setFileFormat('tex');
-    mountWorkspace('Quantum Spin Dynamics (Draft).tex', 14200);
-    mountBibTex('quantum_references.bib', DEMO_BIBTEX);
-    setWorkspaceStatus('MOUNTED');
-  };
-
   const handleMountBibClick = async () => {
     try {
       const { text, fileName } = await FileSystemService.mountBibFile();
@@ -144,9 +127,9 @@ export default function Sidebar() {
   }, [bibtexContent]);
 
   const licColor =
-    license.licenseState === 'VALID'
+    license.status === 'ACTIVE'
       ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/30'
-      : license.licenseState === 'PENDING_SYNC'
+      : license.status === 'UNVERIFIED'
       ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30'
       : 'text-rose-500 bg-rose-500/10 border border-rose-500/30';
 
@@ -177,7 +160,7 @@ export default function Sidebar() {
             active={false}
             onClick={() => setShowSettings(true)}
             icon={<div className={cn("p-1 rounded", licColor)}><Shield size={19} strokeWidth={1.5} /></div>}
-            title={`Seat License: ${license.licenseState}`}
+            title={`Seat License: ${license.status}`}
           />
 
           <RailButton
@@ -216,20 +199,20 @@ export default function Sidebar() {
       {/* 2. Collapsible Explorer Pane (240px) */}
       <div
         className={cn(
-          'h-full bg-zinc-50/95 dark:bg-[#0c0c0e]/95 backdrop-blur-md border-r border-zinc-200 dark:border-zinc-800/80 flex flex-col overflow-hidden transition-all duration-200 ease-in-out',
+          'h-full bg-zinc-50/95 dark:bg-[#0c0c0e]/95 backdrop-blur-md border-r border-zinc-200 dark:border-zinc-800/80 flex flex-col overflow-hidden transition-all duration-200 ease-in-out font-sans',
           !sidebarOpen ? 'w-0 opacity-0 border-r-0 pointer-events-none' : 'w-60 opacity-100'
         )}
       >
         {/* Explorer Header */}
         <div className="h-9 px-3 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between flex-shrink-0 bg-zinc-100/60 dark:bg-zinc-900/40">
-          <div className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300 font-mono text-[11px] font-bold tracking-wider">
-            <ListTree size={13} className="text-zinc-500" />
-            <span>EXPLORER</span>
+          <div className="flex items-center gap-2 text-zinc-800 dark:text-zinc-200 text-xs font-semibold">
+            <ListTree size={14} className="text-zinc-500" />
+            <span>Explorer</span>
           </div>
 
           <button
             onClick={toggleSidebar}
-            className="p-1 rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+            className="p-1 rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
             title="Collapse Sidebar (Ctrl+B)"
           >
             <ChevronLeft size={14} />
@@ -237,45 +220,45 @@ export default function Sidebar() {
         </div>
 
         {/* Explorer Content */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-4 font-sans text-xs">
+        <div className="flex-1 overflow-y-auto p-3 space-y-4 text-xs">
           {/* Active File / Outline */}
           {isMounted ? (
             <>
               {/* Document Info Card */}
-              <div className="p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-950/60 shadow-sm space-y-2">
+              <div className="p-2.5 rounded border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-950/60 shadow-xs space-y-2">
                 <div className="flex items-start gap-2">
                   <FileCode2 size={16} className="text-emerald-500 flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
-                    <div className="font-mono text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                    <div className="font-mono text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">
                       {workspace.fileName || 'Untitled'}
                     </div>
-                    <div className="text-[10px] font-mono text-zinc-500">
-                      {workspace.fileSizeBytes ? `${(workspace.fileSizeBytes / 1024).toFixed(1)} KB` : 'Draft'} • {filteredClaims.length} Claims
+                    <div className="text-[11px] text-zinc-500">
+                      {workspace.fileSizeBytes ? `${(workspace.fileSizeBytes / 1024).toFixed(1)} KB` : 'Draft'} · {filteredClaims.length} Findings
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-1.5 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-[10px] font-mono text-zinc-500">
-                  <span>MATH TOKENS: {mathBlocks.size}</span>
-                  <span className="text-emerald-600 dark:text-emerald-400 font-bold">READY</span>
+                <div className="pt-1.5 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-[11px] text-zinc-500">
+                  <span>Math blocks: {mathBlocks.size}</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">Ready</span>
                 </div>
               </div>
 
               {/* Database Link Section */}
-              <div className="p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-950/60 shadow-sm space-y-2">
+              <div className="p-2.5 rounded border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-950/60 shadow-xs space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-bold">
-                    <Database size={12} className="text-zinc-500" />
-                    <span>DATABASE_LINK</span>
+                  <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
+                    <Database size={12} className="text-zinc-400" />
+                    <span>Linked Database</span>
                   </div>
                   {bibtexContent ? (
-                    <span className="px-1.5 py-0.2 text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 rounded flex items-center gap-1">
+                    <span className="px-1.5 py-0.2 text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 rounded flex items-center gap-1">
                       <CheckCircle2 size={10} />
-                      LINKED
+                      Linked
                     </span>
                   ) : (
-                    <span className="px-1.5 py-0.2 text-[9px] font-mono text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-900 rounded border border-zinc-200 dark:border-zinc-800">
-                      UNATTACHED
+                    <span className="px-1.5 py-0.2 text-[10px] text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-900 rounded border border-zinc-200 dark:border-zinc-800">
+                      Unattached
                     </span>
                   )}
                 </div>
@@ -286,20 +269,20 @@ export default function Sidebar() {
                       <div className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-800 dark:text-zinc-200">
                         {bibtexFileName || 'references.bib'}
                       </div>
-                      <div className="text-[10px] font-mono text-zinc-500">
+                      <div className="text-[11px] text-zinc-500">
                         {parsedBibEntries.size} entries
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={handleMountBibClick}
-                        className="flex-1 py-1 px-2 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded text-[10px] font-mono font-semibold transition-colors flex items-center justify-center gap-1 border border-zinc-200 dark:border-zinc-800 cursor-pointer"
+                        className="flex-1 py-1 px-2 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded text-xs font-medium transition-colors flex items-center justify-center gap-1 border border-zinc-200 dark:border-zinc-800 cursor-pointer"
                       >
                         Replace .bib
                       </button>
                       <button
                         onClick={unmountBibTex}
-                        className="py-1 px-2 text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 rounded text-[10px] font-mono transition-colors cursor-pointer"
+                        className="py-1 px-2 text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 rounded text-xs transition-colors cursor-pointer"
                         title="Detach .bib Database"
                       >
                         Detach
@@ -309,9 +292,9 @@ export default function Sidebar() {
                 ) : (
                   <button
                     onClick={handleMountBibClick}
-                    className="w-full py-1.5 px-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 rounded-md font-mono text-[11px] font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    className="w-full py-1.5 px-2.5 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                   >
-                    <Database size={13} />
+                    <Database size={13} className="text-zinc-400" />
                     <span>Attach .bib Database</span>
                   </button>
                 )}
@@ -319,8 +302,8 @@ export default function Sidebar() {
 
               {workspace.type === 'directory' ? (
                 <div className="space-y-1">
-                  <div className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-bold">
-                    PROJECT FILES
+                  <div className="px-1 text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
+                    Project Files
                   </div>
                   <div className="space-y-0.5">
                     {Object.keys(workspace.projectFiles).sort().map(path => {
@@ -333,9 +316,9 @@ export default function Sidebar() {
                           onClick={() => setActiveFile(path)}
                           style={{ paddingLeft: `${10 + depth * 12}px` }}
                           className={cn(
-                            'w-full flex items-center justify-between py-1.5 pr-2.5 rounded-md text-left transition-colors font-mono text-[11px]',
+                            'w-full flex items-center justify-between py-1.5 pr-2.5 rounded text-left transition-colors font-mono text-xs',
                             isCurrent
-                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium'
+                              ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-medium'
                               : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-zinc-900 dark:hover:text-zinc-200'
                           )}
                         >
@@ -348,8 +331,8 @@ export default function Sidebar() {
                 </div>
               ) : (
                 <div className="space-y-1">
-                  <div className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-bold">
-                    DOCUMENT SECTIONS
+                  <div className="px-1 text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
+                    Document Outline
                   </div>
 
                   <div className="space-y-0.5">
@@ -360,9 +343,9 @@ export default function Sidebar() {
                           key={idx}
                           onClick={() => jumpToClaim(sec.claimIdx)}
                           className={cn(
-                            'w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-left transition-colors font-sans text-xs',
+                            'w-full flex items-center justify-between px-2.5 py-1.5 rounded text-left transition-colors text-xs',
                             isCurrent
-                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium'
+                              ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-medium'
                               : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-zinc-900 dark:hover:text-zinc-200'
                           )}
                         >
@@ -380,27 +363,21 @@ export default function Sidebar() {
               <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-900 text-zinc-400 border border-zinc-200 dark:border-zinc-800">
                 <FolderOpen size={18} />
               </div>
-              <div className="font-mono text-xs text-zinc-500">
+              <div className="text-xs text-zinc-500">
                 No document loaded.
               </div>
               <div className="space-y-1.5 pt-1">
                 <button
                   onClick={handleMountClick}
-                  className="w-full py-1.5 px-3 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-md font-mono text-[11px] font-bold transition-colors shadow-sm cursor-pointer"
+                  className="w-full py-1.5 px-3 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded text-xs font-medium transition-colors shadow-xs cursor-pointer"
                 >
                   Open Document...
                 </button>
                 <button
                   onClick={handleMountDirectoryClick}
-                  className="w-full py-1.5 px-3 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-md font-mono text-[11px] font-bold transition-colors shadow-sm cursor-pointer"
+                  className="w-full py-1.5 px-3 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded text-xs font-medium transition-colors shadow-xs cursor-pointer"
                 >
                   Open Folder...
-                </button>
-                <button
-                  onClick={handleLoadDemo}
-                  className="w-full py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 rounded-md font-mono text-[11px] font-bold transition-colors"
-                >
-                  Sample Manuscript
                 </button>
               </div>
             </div>
@@ -408,9 +385,9 @@ export default function Sidebar() {
         </div>
 
         {/* Explorer Footer */}
-        <div className="p-2 border-t border-zinc-200 dark:border-zinc-800/80 bg-zinc-100/50 dark:bg-zinc-900/30 text-[10px] font-mono text-zinc-500 flex items-center justify-between">
-          <span>IDB LOCAL STORAGE</span>
-          <span>AIR-GAPPED</span>
+        <div className="p-2.5 border-t border-zinc-200 dark:border-zinc-800/80 bg-zinc-100/50 dark:bg-zinc-900/30 text-[11px] text-zinc-500 flex items-center justify-between">
+          <span>Local Storage</span>
+          <span>Air-Gapped</span>
         </div>
       </div>
     </div>

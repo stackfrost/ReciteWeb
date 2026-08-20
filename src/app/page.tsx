@@ -24,9 +24,10 @@ import {
 import { cn } from '@/lib/utils';
 import { useReciteStore, LLMProvider, WorkspaceStatus } from '@/lib/store';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
-import { DEMO_MANUSCRIPT, DEMO_CLAIMS } from '@/lib/demo-data';
+import { DEMO_MANUSCRIPT, DEMO_CLAIMS, DEMO_BIBTEX } from '@/lib/demo-data';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import MenuBar from '@/components/MenuBar';
+import Toolbar from '@/components/Toolbar';
 import Sidebar from '@/components/Sidebar';
 import CommandPalette from '@/components/CommandPalette';
 import SettingsWindow from '@/components/SettingsWindow';
@@ -46,10 +47,11 @@ import VaultUnlockModal from '@/components/VaultUnlockModal';
 const STATUS_BAR_H = 24; // px — absolute bottom taskbar
 
 const LLM_LABELS: Record<LLMProvider, string> = {
-  openai: 'GPT-4o',
-  anthropic: 'Claude 3.5',
-  deepseek: 'DeepSeek-V3',
-  gemini: 'Gemini 2.0',
+  anthropic:  'Claude',
+  openai:     'OpenAI',
+  google:     'Gemini',
+  openrouter: 'OpenRouter',
+  ollama:     'Ollama',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,30 +88,30 @@ function StatusBar() {
   const isOnline = telemetry.isOnline;
   const latency = telemetry.apiLatencyMs;
   const mem = telemetry.memUsedMB;
-  const lic = license.licenseState;
+  const lic = license.status;
 
   const statusLabel =
     wsStatus === 'NO_WORKSPACE_MOUNTED'
       ? 'Engine: Standby'
       : wsStatus === 'PREFLIGHT_RUNNING'
-      ? 'Analyzing Document...'
+      ? 'Auditing Manuscript...'
       : wsStatus === 'PREFLIGHT_COMPLETE'
-      ? 'Analysis Complete'
+      ? 'Audit Complete'
       : wsStatus === 'AST_PARSING'
       ? 'Parsing AST...'
       : 'Engine: Ready';
 
   const licColor =
-    lic === 'VALID'
-      ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.5 rounded'
-      : lic === 'PENDING_SYNC'
-      ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded'
-      : 'text-rose-500 bg-rose-500/10 border border-rose-500/30 px-1.5 py-0.5 rounded';
+    lic === 'ACTIVE'
+      ? 'text-emerald-600 dark:text-emerald-400 hover:underline'
+      : lic === 'UNVERIFIED'
+      ? 'text-amber-600 dark:text-amber-400 hover:underline'
+      : 'text-rose-600 dark:text-rose-400 hover:underline';
 
   return (
     <footer
       style={{ height: STATUS_BAR_H }}
-      className="w-full border-t border-zinc-200 dark:border-zinc-800/80 bg-zinc-100/95 dark:bg-zinc-950/95 backdrop-blur-md flex items-center justify-between px-3 flex-shrink-0 select-none z-40 text-[10px] font-mono text-zinc-500 transition-colors"
+      className="w-full border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 flex items-center justify-between px-3 flex-shrink-0 select-none z-40 text-[11px] font-sans text-zinc-500 dark:text-zinc-400 transition-colors"
     >
       {/* LEFT: Connection & System Diagnostics */}
       <div className="flex items-center gap-3">
@@ -118,45 +120,45 @@ function StatusBar() {
             className={cn(
               'w-2 h-2 rounded-full transition-colors',
               isOnline
-                ? 'bg-emerald-500 shadow-sm'
-                : 'bg-red-500 shadow-sm animate-pulse'
+                ? 'bg-emerald-500'
+                : 'bg-rose-500'
             )}
           />
-          <span className={isOnline ? 'text-zinc-700 dark:text-zinc-300' : 'text-red-600 dark:text-red-400'}>
-            {isOnline ? 'Online' : 'Offline (Air-Gapped)'}
+          <span className={isOnline ? 'text-zinc-700 dark:text-zinc-300' : 'text-rose-600 dark:text-rose-400'}>
+            {isOnline ? 'Online' : 'Air-Gapped'}
           </span>
         </span>
 
         <span className="text-zinc-300 dark:text-zinc-800">│</span>
 
         <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-          <Network size={11} className="text-zinc-400 dark:text-zinc-600" />
+          <Network size={11} className="text-zinc-400" />
           Latency: {latency !== null ? `${latency}ms` : '--'}
         </span>
 
         <span className="text-zinc-300 dark:text-zinc-800">│</span>
 
         <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-          <FileText size={11} className="text-zinc-400 dark:text-zinc-600" />
-          <span>DOC_STATS:</span>
-          <strong className="font-semibold text-zinc-800 dark:text-zinc-200">
+          <FileText size={11} className="text-zinc-400" />
+          <span>Doc:</span>
+          <span className="text-zinc-800 dark:text-zinc-200">
             {docMetrics && docMetrics.wordCount > 0
-              ? `${docMetrics.wordCount.toLocaleString()} WORDS // ~${docMetrics.tokenCount.toLocaleString()} TOKENS`
-              : '-- WORDS // -- TOKENS'}
-          </strong>
+              ? `${docMetrics.wordCount.toLocaleString()} words · ~${docMetrics.tokenCount.toLocaleString()} tokens`
+              : '-- words · -- tokens'}
+          </span>
         </span>
 
         <span className="text-zinc-300 dark:text-zinc-800">│</span>
 
         <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-          <MemoryStick size={11} className="text-zinc-400 dark:text-zinc-600" />
+          <MemoryStick size={11} className="text-zinc-400" />
           Memory: {mem !== null ? `${mem} MB` : '--'}
         </span>
 
         <span className="text-zinc-300 dark:text-zinc-800">│</span>
 
         <span className="text-zinc-600 dark:text-zinc-400 flex items-center gap-1">
-          <Terminal size={10} className="text-zinc-400 dark:text-zinc-600" />
+          <Terminal size={11} className="text-zinc-400" />
           {statusLabel}
         </span>
       </div>
@@ -164,264 +166,29 @@ function StatusBar() {
       {/* RIGHT: Storage, LLM Model & License */}
       <div className="flex items-center gap-3">
         <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-          <Database size={11} className="text-zinc-400 dark:text-zinc-600" />
-          Storage: <strong className="font-semibold text-zinc-700 dark:text-zinc-300">IndexedDB</strong>
+          <Database size={11} className="text-zinc-400" />
+          Storage: <strong className="font-medium text-zinc-700 dark:text-zinc-300">IndexedDB</strong>
         </span>
 
         <span className="text-zinc-300 dark:text-zinc-800">│</span>
 
         <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-          <Cpu size={11} className="text-zinc-400 dark:text-zinc-600" />
-          Model: <strong className="font-semibold text-zinc-800 dark:text-zinc-200">{LLM_LABELS[llmRouter.activeProvider]}</strong>
+          <Cpu size={11} className="text-zinc-400" />
+          Model: <strong className="font-medium text-zinc-800 dark:text-zinc-200">{LLM_LABELS[llmRouter.activeProvider]}</strong>
         </span>
 
         <span className="text-zinc-300 dark:text-zinc-800">│</span>
 
         <button
           onClick={() => setShowSettings(true)}
-          className={cn('flex items-center gap-1 font-semibold hover:underline', licColor)}
+          className={cn('flex items-center gap-1 font-medium cursor-pointer', licColor)}
           title="View License Details"
         >
           <Shield size={11} />
-          License: {lic}
+          License: {lic === 'ACTIVE' ? 'Active' : lic === 'UNVERIFIED' ? 'Unverified' : 'Required'}
         </button>
       </div>
     </footer>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// § CONDENSED ACTION RIBBON (h-10)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function CondensedActionRibbon() {
-  const {
-    claims,
-    isAuditing,
-    setIsAuditing,
-    workspace,
-    mountWorkspace,
-    unmountWorkspace,
-    llmRouter,
-    setLLMProvider,
-    filterSeverity,
-    setFilterSeverity,
-    setWorkspaceStatus,
-    setTelemetry,
-    setRawText,
-    setParsedText,
-    setMathBlocks,
-    setClaims,
-    setDocumentTitle,
-    setFileFormat,
-    setShowSettings,
-  } = useReciteStore();
-
-  // Derive severity counts dynamically from claims — never stale
-  const highCount = claims?.filter((c) => c.severity === 'High' || c.severity === 'Critical').length || 0;
-  const medCount = claims?.filter((c) => c.severity === 'Medium').length || 0;
-  const lowCount = claims?.filter((c) => c.severity === 'Low').length || 0;
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [llmMenuOpen, setLlmMenuOpen] = useState(false);
-
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setWorkspaceStatus('MOUNTING');
-    const text = await file.text();
-    const { text: parsed, mathBlocks } = parseMathBlocks(text);
-
-    setRawText(text);
-    setParsedText(parsed);
-    setMathBlocks(mathBlocks);
-    setDocumentTitle(file.name);
-    setFileFormat(file.name.endsWith('.docx') ? 'docx' : file.name.endsWith('.txt') ? 'txt' : 'tex');
-    mountWorkspace(file.name, file.size);
-    setWorkspaceStatus('AST_PARSING');
-
-    setTimeout(() => {
-      setWorkspaceStatus('AST_PARSER_IDLE');
-    }, 200);
-
-    e.target.value = '';
-  };
-
-  const handleLoadDemo = () => {
-    setWorkspaceStatus('MOUNTING');
-    const { text: parsed, mathBlocks } = parseMathBlocks(DEMO_MANUSCRIPT);
-
-    setRawText(DEMO_MANUSCRIPT);
-    setParsedText(parsed);
-    setMathBlocks(mathBlocks);
-    setClaims(DEMO_CLAIMS);
-    setDocumentTitle('Quantum Spin Dynamics (Draft).tex');
-    setFileFormat('tex');
-    mountWorkspace('Quantum Spin Dynamics (Draft).tex', 14200);
-    setWorkspaceStatus('MOUNTED');
-  };
-
-  const handleRunAnalysis = () => {
-    if (!isAuditing) {
-      setIsAuditing(true);
-      setWorkspaceStatus('PREFLIGHT_RUNNING');
-      const t0 = performance.now();
-      setTimeout(() => {
-        setTelemetry({ apiLatencyMs: Math.round(performance.now() - t0) });
-        setIsAuditing(false);
-        setWorkspaceStatus('PREFLIGHT_COMPLETE');
-      }, 1200);
-    } else {
-      setIsAuditing(false);
-      setWorkspaceStatus('AST_PARSER_IDLE');
-    }
-  };
-
-  const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
-  const providers: LLMProvider[] = ['openai', 'anthropic', 'deepseek', 'gemini'];
-
-  return (
-    <div className="h-10 w-full bg-white dark:bg-zinc-950/90 backdrop-blur-md border border-zinc-200 dark:border-zinc-800/80 rounded-lg shadow-sm flex items-center justify-between px-3 select-none flex-shrink-0 transition-colors">
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        accept=".tex,.latex,.docx,.txt,.md"
-        onChange={handleFileSelect}
-      />
-
-      {/* Left: Document indicator & Severity Filter cluster */}
-      <div className="flex items-center gap-2">
-        {/* Document Action Button */}
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          title="Open Manuscript File (Ctrl+O)"
-          className={cn(
-            'flex items-center gap-1.5 px-2.5 py-1 rounded-md font-sans text-xs font-semibold border transition-all shadow-xs',
-            isMounted
-              ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15'
-              : 'border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-          )}
-        >
-          <FolderOpen size={13} className="text-zinc-500 dark:text-zinc-400" />
-          <span>
-            {isMounted
-              ? (workspace.fileName?.substring(0, 24) || 'Document') +
-                ((workspace.fileName?.length || 0) > 24 ? '…' : '')
-              : 'Open Document...'}
-          </span>
-        </button>
-
-        {!isMounted && (
-          <button
-            onClick={handleLoadDemo}
-            className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-md font-sans text-xs text-zinc-600 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 bg-zinc-50 dark:bg-zinc-900/60 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 transition-colors"
-          >
-            <Sparkles size={12} className="text-amber-500" />
-            <span>Sample Manuscript</span>
-          </button>
-        )}
-
-        {isMounted && (
-          <button
-            onClick={unmountWorkspace}
-            title="Close current document (Ctrl+W)"
-            className="flex items-center px-1.5 py-1 rounded text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 font-sans text-xs transition-colors"
-          >
-            Close
-          </button>
-        )}
-
-        <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-800 mx-1" />
-
-        {/* Compact Severity Filter Pills */}
-        <div className="flex items-center gap-1 font-mono text-[11px]">
-          <button
-            onClick={() => setFilterSeverity(filterSeverity === 'High' ? 'All' : 'High')}
-            className={cn(
-              'flex items-center gap-1 px-2 py-0.5 rounded border transition-colors',
-              filterSeverity === 'High'
-                ? 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/40 font-bold'
-                : 'border-zinc-200 dark:border-zinc-800/80 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900'
-            )}
-            title="Toggle High Severity Claims"
-          >
-            <AlertTriangle size={11} className="text-rose-500" />
-            <span>High: {highCount}</span>
-          </button>
-
-          <button
-            onClick={() => setFilterSeverity(filterSeverity === 'Medium' ? 'All' : 'Medium')}
-            className={cn(
-              'flex items-center gap-1 px-2 py-0.5 rounded border transition-colors',
-              filterSeverity === 'Medium'
-                ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/40 font-bold'
-                : 'border-zinc-200 dark:border-zinc-800/80 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900'
-            )}
-            title="Toggle Medium Severity Claims"
-          >
-            <Zap size={11} className="text-amber-500" />
-            <span>Med: {medCount}</span>
-          </button>
-
-          <button
-            onClick={() => setFilterSeverity(filterSeverity === 'Low' ? 'All' : 'Low')}
-            className={cn(
-              'flex items-center gap-1 px-2 py-0.5 rounded border transition-colors',
-              filterSeverity === 'Low'
-                ? 'bg-sky-500/20 text-sky-700 dark:text-sky-300 border-sky-500/40 font-bold'
-                : 'border-zinc-200 dark:border-zinc-800/80 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900'
-            )}
-            title="Toggle Low Severity Claims"
-          >
-            <CheckCircle2 size={11} className="text-sky-500" />
-            <span>Low: {lowCount}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Right: LLM Provider Dropdown & Main Analyze Button */}
-      <div className="flex items-center gap-2">
-        {/* LLM Routing Button */}
-        <button
-          onClick={() => setShowSettings(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-md transition-colors"
-          title="Configure Inference Engine & API Keys"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.9)]"></span>
-          <span>ENGINE: {llmRouter.activeProvider.toUpperCase()}</span>
-        </button>
-
-        {/* Primary Action Button */}
-        <button
-          id="btn-analyze-document"
-          onClick={handleRunAnalysis}
-          disabled={!isMounted}
-          className={cn(
-            'flex items-center gap-1.5 px-3.5 py-1 rounded-md font-sans text-xs font-bold border transition-all shadow-xs',
-            !isMounted
-              ? 'border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-600 bg-zinc-100 dark:bg-zinc-900/40 cursor-not-allowed'
-              : isAuditing
-              ? 'border-rose-500/50 text-rose-700 dark:text-rose-300 bg-rose-500/15 hover:bg-rose-500/25 animate-pulse'
-              : 'border-emerald-600 text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 shadow-sm'
-          )}
-        >
-          {isAuditing ? (
-            <>
-              <StopCircle size={13} />
-              <span>Stop Analysis</span>
-            </>
-          ) : (
-            <>
-              <Play size={13} />
-              <span>Analyze Document</span>
-            </>
-          )}
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -437,25 +204,25 @@ function SterileEditorEmptyState({
   onLoadDemo: () => void;
 }) {
   return (
-    <div className="h-full flex flex-col items-center justify-center p-8 select-none relative overflow-hidden bg-white/50 dark:bg-zinc-950/50">
+    <div className="h-full flex flex-col items-center justify-center p-8 select-none relative overflow-hidden bg-zinc-50/40 dark:bg-zinc-950 font-sans">
       <div className="relative z-10 max-w-md w-full text-center space-y-5">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm text-zinc-500 dark:text-zinc-400">
+        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs text-zinc-500">
           <FileCode2 size={24} />
         </div>
 
-        <div className="space-y-1.5 font-sans">
-          <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-            No document loaded.
+        <div className="space-y-1.5">
+          <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+            No document loaded
           </h2>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-            Open a LaTeX (.tex), Microsoft Word (.docx), or plain text manuscript to analyze citation coverage and verify claims.
+            Open a LaTeX (.tex), Microsoft Word (.docx), or text manuscript to analyze citation coverage and verify claims.
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1 font-sans text-xs">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1 text-xs">
           <button
             onClick={onMountClick}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-white rounded-lg transition-colors font-semibold shadow-xs"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-white rounded font-medium transition-colors shadow-xs cursor-pointer"
           >
             <FolderOpen size={14} />
             <span>Open Document...</span>
@@ -463,19 +230,19 @@ function SterileEditorEmptyState({
 
           <button
             onClick={onLoadDemo}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 rounded-lg transition-colors font-semibold"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded font-medium transition-colors cursor-pointer"
           >
-            <Sparkles size={14} />
-            <span>Open Sample Manuscript</span>
+            <Sparkles size={14} className="text-amber-500" />
+            <span>Sample Manuscript</span>
           </button>
         </div>
 
-        <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800/80 flex items-center justify-center gap-4 text-[11px] font-mono text-zinc-400 dark:text-zinc-600">
-          <span>Zero Retention</span>
-          <span>•</span>
-          <span>Local KaTeX Isolation</span>
-          <span>•</span>
-          <span>Air-Gapped Ready</span>
+        <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-center gap-3 text-[11px] text-zinc-400 dark:text-zinc-500">
+          <span>Client-side Processing</span>
+          <span>·</span>
+          <span>Local KaTeX Rendering</span>
+          <span>·</span>
+          <span>Air-Gapped Safe</span>
         </div>
       </div>
     </div>
@@ -537,6 +304,7 @@ function IDEWorkbench() {
     editorPaneWidth,
     setEditorPaneWidth,
     mountWorkspace,
+    mountBibTex,
     setRawText,
     setParsedText,
     setMathBlocks,
@@ -545,7 +313,12 @@ function IDEWorkbench() {
     setFileFormat,
     setWorkspaceStatus,
     isVaultUnlocked,
+    checkLicenseHeartbeat,
   } = useReciteStore();
+
+  useEffect(() => {
+    checkLicenseHeartbeat();
+  }, [checkLicenseHeartbeat]);
 
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -587,6 +360,7 @@ function IDEWorkbench() {
     setDocumentTitle('Quantum Spin Dynamics (Draft).tex');
     setFileFormat('tex');
     mountWorkspace('Quantum Spin Dynamics (Draft).tex', 14200);
+    mountBibTex('quantum_references.bib', DEMO_BIBTEX);
     setWorkspaceStatus('MOUNTED');
   };
 
@@ -607,28 +381,28 @@ function IDEWorkbench() {
         onChange={handleDirectFileSelect}
       />
 
-      {/* 2. Main Workspace Layout */}
-      <div className="flex flex-1 overflow-hidden relative min-h-0 bg-zinc-200/40 dark:bg-[#070709]">
-        {/* Activity Rail + Collapsible Explorer */}
+      {/* 2. Main Workspace Layout — Zero-Margin Full-Bleed Docking Grid */}
+      <div className="flex flex-1 overflow-hidden relative min-h-0 bg-zinc-50 dark:bg-zinc-950">
+        {/* Activity Rail + Collapsible Explorer (Docked Left) */}
         <Sidebar />
 
-        {/* Floating Desktop Panes Main Area */}
-        <main className="flex-1 flex flex-col min-w-0 p-2 gap-2 overflow-hidden">
-          {/* Condensed Top Action Ribbon (h-10) */}
-          <CondensedActionRibbon />
+        {/* Center & Right Docked Work Area */}
+        <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Full-Bleed Action Toolbar with Integrity HUD (h-10) */}
+          <Toolbar />
 
-          {/* Split Panes Container */}
+          {/* Docked Split Panes Container (Zero Margin, Hairline Border Dividers) */}
           <div
             ref={containerRef}
             className={cn(
-              'flex-1 flex overflow-hidden relative min-h-0 gap-2',
+              'flex-1 flex overflow-hidden relative min-h-0',
               dragging && 'select-none'
             )}
           >
-            {/* Left Pane: Manuscript Viewer */}
+            {/* Center Pane: Manuscript Viewer */}
             <section
               style={{ width: `${pct}%` }}
-              className="relative flex flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800/90 shadow-md dark:shadow-2xl bg-white dark:bg-zinc-950/90 backdrop-blur-md transition-colors"
+              className="relative flex flex-col overflow-hidden bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 transition-colors"
             >
               <div
                 className={cn(
@@ -649,36 +423,36 @@ function IDEWorkbench() {
               {/* Analysis Active Overlay */}
               {isAuditing && (
                 <div className="absolute inset-0 bg-white/85 dark:bg-zinc-950/85 backdrop-blur-sm flex flex-col items-center justify-center z-40 animate-in fade-in duration-150">
-                  <div className="flex items-center gap-2.5 font-sans text-xs text-emerald-700 dark:text-emerald-400 font-bold tracking-wide animate-pulse mb-3">
+                  <div className="flex items-center gap-2.5 font-mono text-xs text-emerald-700 dark:text-emerald-400 font-bold tracking-wide animate-pulse mb-3">
                     <Activity size={16} className="animate-spin" />
-                    <span>Analyzing document claims and citation integrity...</span>
+                    <span>AUDITING CITATIONS & CLAIMS...</span>
                   </div>
-                  <div className="w-56 h-1 bg-zinc-200 dark:bg-zinc-900 rounded-full overflow-hidden border border-zinc-300 dark:border-zinc-800">
-                    <div className="h-full bg-emerald-500 animate-[scan_1.2s_ease-in-out_infinite] rounded-full" style={{ width: '45%' }} />
+                  <div className="w-56 h-1 bg-zinc-200 dark:bg-zinc-900 overflow-hidden border border-zinc-300 dark:border-zinc-800">
+                    <div className="h-full bg-emerald-500 animate-[scan_1.2s_ease-in-out_infinite]" style={{ width: '45%' }} />
                   </div>
                 </div>
               )}
             </section>
 
-            {/* Custom Pointer Gutter Splitter */}
+            {/* Hairline Pointer Gutter Splitter */}
             <div
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               className={cn(
-                'w-1.5 flex-shrink-0 cursor-col-resize z-30 transition-all rounded-full flex items-center justify-center group relative',
+                'w-1 -ml-[2px] flex-shrink-0 cursor-col-resize z-30 transition-all flex items-center justify-center group relative',
                 dragging
                   ? 'bg-emerald-500 shadow-sm'
-                  : 'bg-transparent hover:bg-emerald-500/40'
+                  : 'bg-transparent hover:bg-emerald-500/50'
               )}
             >
-              <div className="absolute inset-y-0 -left-2 -right-2" />
+              <div className="absolute inset-y-0 -left-1.5 -right-1.5" />
             </div>
 
             {/* Right Pane: Action Inspector */}
             <section
               className={cn(
-                'flex-1 flex flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800/90 shadow-md dark:shadow-2xl bg-white dark:bg-zinc-950/90 backdrop-blur-md min-w-[280px] transition-colors',
+                'flex-1 flex flex-col overflow-hidden bg-white dark:bg-zinc-950 min-w-[320px] transition-colors',
                 dragging && 'pointer-events-none'
               )}
             >

@@ -11,7 +11,7 @@ export class LaTeXParser {
    * This is a stub for future AST parsing logic.
    */
   static extractClaims(texContent: string): any[] {
-    console.log('[LaTeXParser] Extracting claims...');
+    
     // Stub
     return [];
   }
@@ -54,7 +54,7 @@ export class LaTeXParser {
    * to isolate the natural language text for LLM processing.
    */
   static stripMathBlocks(texContent: string): { text: string; mathBlocks: Map<string, any> } {
-    console.log('[LaTeXParser] Stripping math blocks...');
+    
     // Stub
     return { text: texContent, mathBlocks: new Map() };
   }
@@ -140,4 +140,54 @@ export class LaTeXParser {
     
     return claims;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § MULTI-CALL CHUNKING UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
+
+import type { BibTeXEntry } from './bibtex-parser';
+
+/**
+ * Evenly divides an array of claims into at most `maxChunks` sub-arrays.
+ * If there are fewer claims than maxChunks, the number of chunks equals
+ * the number of claims (one per chunk). Empty input returns [].
+ */
+export function chunkClaims(
+  claims: ExtractedClaim[],
+  maxChunks: number = 4
+): ExtractedClaim[][] {
+  if (!claims || claims.length === 0) return [];
+
+  const numChunks = Math.min(maxChunks, claims.length);
+  const chunks: ExtractedClaim[][] = Array.from({ length: numChunks }, () => []);
+
+  // Round-robin distribution keeps chunks balanced within ±1
+  for (let i = 0; i < claims.length; i++) {
+    chunks[i % numChunks].push(claims[i]);
+  }
+
+  return chunks;
+}
+
+/**
+ * Given a chunk of claims and the full BibTeX map, returns a new Map
+ * containing only the entries actually cited in that chunk.
+ * This dramatically reduces token count per API call.
+ */
+export function pruneBibTeXForChunk(
+  chunk: ExtractedClaim[],
+  fullBib: Map<string, BibTeXEntry>
+): Map<string, BibTeXEntry> {
+  const pruned = new Map<string, BibTeXEntry>();
+
+  for (const claim of chunk) {
+    for (const citeKey of claim.citations) {
+      if (fullBib.has(citeKey) && !pruned.has(citeKey)) {
+        pruned.set(citeKey, fullBib.get(citeKey)!);
+      }
+    }
+  }
+
+  return pruned;
 }

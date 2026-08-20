@@ -51,14 +51,14 @@ let _isUnlocked = false;
  */
 async function tauriUnlockVault(pin: string): Promise<void> {
   // Dynamically import Tauri Stronghold APIs to prevent SSR/build errors
-  const { load }        = await import('@tauri-apps/plugin-stronghold');
+  const { Stronghold }  = await import('@tauri-apps/plugin-stronghold');
   const { appDataDir }  = await import('@tauri-apps/api/path');
 
   const vaultPath = `${await appDataDir()}/recite.hold`;
-  const client    = await load(vaultPath, pin);
+  const client    = await Stronghold.load(vaultPath, pin);
 
   _vaultHandle  = client;
-  _storeHandle  = client.getStore(VAULT_STORE_NAME);
+  _storeHandle  = (client as any).getStore(VAULT_STORE_NAME);
   _isUnlocked   = true;
 }
 

@@ -411,17 +411,23 @@ export default function MenuBar() {
 
                   {item === 'Engine' && (
                     <>
-                      <div className="px-2.5 py-1 text-[10px] font-mono text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-semibold">
-                        LLM ROUTING
+                      <div className="px-2.5 py-1 text-[11px] text-zinc-500 font-medium">
+                        Inference Engine
                       </div>
-                      {(['openai', 'anthropic', 'deepseek', 'gemini'] as LLMProvider[]).map((prov) => (
+                      {([
+                        { id: 'anthropic',  label: 'Claude (Anthropic)' },
+                        { id: 'openai',     label: 'OpenAI' },
+                        { id: 'google',     label: 'Gemini (Google)' },
+                        { id: 'openrouter', label: 'OpenRouter' },
+                        { id: 'ollama',     label: 'Ollama (Local)' },
+                      ] as { id: LLMProvider; label: string }[]).map((prov) => (
                         <MenuAction
-                          key={prov}
-                          icon={<Cpu size={13} className={prov === llmRouter.activeProvider ? 'text-emerald-500' : 'text-zinc-400'} />}
-                          label={prov.toUpperCase()}
-                          active={prov === llmRouter.activeProvider}
+                          key={prov.id}
+                          icon={<Cpu size={13} className={prov.id === llmRouter.activeProvider ? 'text-emerald-500' : 'text-zinc-400'} />}
+                          label={prov.label}
+                          active={prov.id === llmRouter.activeProvider}
                           onClick={() => {
-                            setLLMProvider(prov);
+                            setLLMProvider(prov.id);
                             setActiveMenu(null);
                           }}
                         />
@@ -429,7 +435,7 @@ export default function MenuBar() {
                       <div className="border-b border-zinc-100 dark:border-zinc-800 my-1" />
                       <MenuAction
                         icon={<Sliders size={13} className="text-zinc-500" />}
-                        label="LLM Key Matrix..."
+                        label="API Keys & Settings..."
                         shortcut="Ctrl+,"
                         onClick={() => {
                           setActiveMenu(null);
@@ -443,7 +449,7 @@ export default function MenuBar() {
                     <>
                       <MenuAction
                         icon={<Terminal size={13} className="text-emerald-500" />}
-                        label="Telemetry Diagnostics"
+                        label="Diagnostics Status"
                         onClick={() => {
                           setActiveMenu(null);
                           setTelemetry({ apiLatencyMs: 38 });
@@ -451,7 +457,7 @@ export default function MenuBar() {
                       />
                       <MenuAction
                         icon={<Activity size={13} className="text-zinc-500" />}
-                        label="Ping OpenAlex / arXiv Nodes"
+                        label="Check OpenAlex & arXiv Nodes"
                         onClick={() => {
                           setActiveMenu(null);
                           setTelemetry({ apiLatencyMs: 42 });
@@ -464,15 +470,15 @@ export default function MenuBar() {
                     <>
                       <MenuAction
                         icon={<Keyboard size={13} className="text-zinc-500" />}
-                        label="Keyboard Shortcuts (J/K Nav)"
+                        label="Keyboard Shortcuts"
                         onClick={() => {
                           setActiveMenu(null);
-                          alert('Navigation Shortcuts:\n\n[J] / [Down Arrow]: Step Next Claim\n[K] / [Up Arrow]: Step Previous Claim\n[Ctrl+K]: Command Palette\n[Ctrl+O]: Open Document\n[Ctrl+E]: Export Bibliography\n[Ctrl+T]: Toggle Light/Dark Mode\n[Ctrl+,]: Preferences');
+                          alert('Keyboard Shortcuts:\n\n[J] / [Down]: Step Next Finding\n[K] / [Up]: Step Previous Finding\n[Ctrl+↵]: Run Audit\n[Ctrl+K]: Command Palette\n[Ctrl+O]: Open Document\n[Ctrl+E]: Export Bibliography\n[Ctrl+T]: Toggle Theme\n[Ctrl+,]: Preferences');
                         }}
                       />
                       <MenuAction
                         icon={<Shield size={13} className="text-zinc-500" />}
-                        label={`Seat License: ${license.licenseState}`}
+                        label={`Seat License: ${license.status === 'ACTIVE' ? 'Active' : 'Unverified'}`}
                         onClick={() => {
                           setActiveMenu(null);
                           setShowSettings(true);
@@ -489,7 +495,7 @@ export default function MenuBar() {
                       <div className="border-b border-zinc-100 dark:border-zinc-800 my-1" />
                       <MenuAction
                         icon={<HelpCircle size={13} className="text-zinc-400" />}
-                        label="ReciteAI Core v0.1.0-ENTERPRISE"
+                        label="ReciteAI Desktop v0.1.0"
                         disabled
                       />
                     </>
@@ -505,31 +511,31 @@ export default function MenuBar() {
       <div className="flex items-center flex-1 justify-center" data-tauri-drag-region>
         <button
           onClick={triggerCommandPalette}
-          className="flex items-center gap-2 px-3 py-0.5 rounded-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all font-sans text-[11px] shadow-xs"
+          className="flex items-center gap-2 px-3 py-0.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all font-sans text-xs shadow-xs cursor-pointer"
         >
-          <Search size={11} className="text-zinc-400" />
+          <Search size={12} className="text-zinc-400" />
           <span className="hidden sm:inline">Search commands...</span>
-          <kbd className="hidden sm:inline px-1 py-0.2 rounded text-[9px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+          <kbd className="hidden sm:inline px-1 py-0.2 rounded text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-400 border border-zinc-200 dark:border-zinc-700">
             Ctrl+K
           </kbd>
         </button>
       </div>
 
       {/* Right License & Status Pill */}
-      <div className="flex items-center gap-3 font-mono text-[10px] text-zinc-500" data-tauri-drag-region>
-        <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 font-semibold truncate max-w-[200px]">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm flex-shrink-0" />
+      <div className="flex items-center gap-3 font-sans text-xs text-zinc-500" data-tauri-drag-region>
+        <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs truncate max-w-[220px]">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
           {isMounted ? documentTitle : 'No Document Loaded'}
         </span>
         <span className={cn(
-          "hidden sm:inline px-1.5 py-0.5 rounded",
-          license.licenseState === 'VALID'
-            ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/30'
-            : license.licenseState === 'PENDING_SYNC'
-            ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30'
-            : 'text-rose-500 bg-rose-500/10 border border-rose-500/30'
+          "hidden sm:inline px-2 py-0.5 rounded text-xs",
+          license.status === 'ACTIVE'
+            ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30'
+            : license.status === 'UNVERIFIED'
+            ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30'
+            : 'text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/30'
         )}>
-          LICENSE: {license.licenseState}
+          License: {license.status === 'ACTIVE' ? 'Active' : 'Unverified'}
         </span>
       </div>
     </header>

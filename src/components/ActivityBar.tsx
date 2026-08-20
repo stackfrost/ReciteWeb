@@ -18,9 +18,9 @@ export default function ActivityBar() {
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
 
   const licColor =
-    license.licenseState === 'VALID'
+    license.status === 'ACTIVE'
       ? 'text-emerald-400'
-      : license.licenseState === 'PENDING_SYNC'
+      : license.status === 'UNVERIFIED'
       ? 'text-amber-400'
       : 'text-red-400';
 
@@ -40,7 +40,7 @@ export default function ActivityBar() {
           active={activeActivityView === 'license'}
           onClick={() => setShowSettings(true)}
           icon={<Shield size={20} strokeWidth={1.5} className={licColor} />}
-          title={`Seat License: ${license.licenseState}`}
+          title={`Seat License: ${license.status}`}
         />
 
         <ActivityButton

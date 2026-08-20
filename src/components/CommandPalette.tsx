@@ -551,7 +551,7 @@ export default function CommandPalette({
             onKeyDown={handleKeyDown}
             className="flex-1 bg-transparent text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none"
           />
-          <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-500">
+          <kbd className="px-1.5 py-0.5 rounded text-[10px] font-sans border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-500">
             ESC
           </kbd>
         </div>
@@ -559,7 +559,7 @@ export default function CommandPalette({
         {/* Action List */}
         <div className="max-h-[340px] overflow-y-auto p-1.5 space-y-0.5">
           {filteredCommands.length === 0 ? (
-            <div className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-600 font-mono">
+            <div className="py-8 text-center text-xs text-zinc-500 font-sans">
               No matching commands found.
             </div>
           ) : (
@@ -587,7 +587,7 @@ export default function CommandPalette({
                     <div className="truncate">
                       <div className="font-medium truncate">{cmd.title}</div>
                       {cmd.subtitle && (
-                        <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate font-mono">
+                        <div className="text-[11px] font-sans text-zinc-400 dark:text-zinc-500 truncate">
                           {cmd.subtitle}
                         </div>
                       )}
@@ -595,11 +595,11 @@ export default function CommandPalette({
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                    <span className="text-[9px] font-mono uppercase tracking-wider text-zinc-400 dark:text-zinc-600">
+                    <span className="text-[10px] font-sans font-medium text-zinc-400 dark:text-zinc-500">
                       {cmd.category}
                     </span>
                     {cmd.shortcut && (
-                      <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 text-zinc-500">
+                      <kbd className="px-1.5 py-0.5 rounded text-[10px] font-sans border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 text-zinc-500">
                         {cmd.shortcut}
                       </kbd>
                     )}
@@ -611,7 +611,7 @@ export default function CommandPalette({
         </div>
 
         {/* Footer */}
-        <div className="h-8 px-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 flex items-center justify-between text-[10px] font-mono text-zinc-400 dark:text-zinc-600">
+        <div className="h-8 px-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 flex items-center justify-between text-[11px] font-sans text-zinc-500">
           <div className="flex items-center gap-3">
             <span>↑↓ Navigate</span>
             <span>↵ Select</span>

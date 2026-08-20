@@ -36,8 +36,8 @@ export default function LegalWindow() {
               <div className="w-3 h-3 rounded-full bg-amber-500/80 opacity-60" />
               <div className="w-3 h-3 rounded-full bg-emerald-500/80 opacity-60" />
             </div>
-            <span className="text-xs font-mono font-bold tracking-wider text-zinc-700 dark:text-zinc-300">
-              LEGAL & PRIVACY COMPLIANCE
+            <span className="text-sm font-sans font-semibold text-zinc-900 dark:text-zinc-100">
+              Legal & Privacy Compliance
             </span>
           </div>
 
@@ -117,7 +117,7 @@ export default function LegalWindow() {
 
         {/* Modal Footer */}
         <div className="h-14 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40 px-6 flex items-center justify-between flex-shrink-0">
-          <div className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500">
+          <div className="text-[11px] font-sans text-zinc-500">
             Compliance Policy v2.4 (August 2026)
           </div>
           <button

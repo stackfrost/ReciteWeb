@@ -64,8 +64,8 @@ export default function VaultUnlockModal() {
                 <Shield className="w-5 h-5 text-emerald-400" />
               </div>
               <div>
-                <div className="text-sm font-bold text-zinc-100 font-mono">SECURE VAULT</div>
-                <div className="text-[11px] text-zinc-500 font-mono">STRONGHOLD ENCRYPTED STORE</div>
+                <div className="text-sm font-semibold text-zinc-100 font-sans">Secure Vault</div>
+                <div className="text-[11px] text-zinc-500 font-sans">Stronghold Encrypted Store</div>
               </div>
             </div>
             <p className="text-xs text-zinc-400 font-sans leading-relaxed">
@@ -80,9 +80,9 @@ export default function VaultUnlockModal() {
             <div className="space-y-1.5">
               <label
                 htmlFor="vault-pin"
-                className="text-[10px] font-mono font-bold uppercase tracking-widest text-zinc-500"
+                className="text-xs font-sans font-medium text-zinc-400"
               >
-                VAULT PIN
+                Vault PIN
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600" />
@@ -96,7 +96,7 @@ export default function VaultUnlockModal() {
                   autoComplete="current-password"
                   disabled={loading}
                   className={cn(
-                    'w-full pl-9 pr-10 py-2.5 bg-zinc-950 border rounded-md text-sm font-mono text-zinc-100',
+                    'w-full pl-9 pr-10 py-2 bg-zinc-950 border rounded text-sm font-sans text-zinc-100',
                     'placeholder:text-zinc-700 focus:outline-none focus:ring-1 transition-colors',
                     error
                       ? 'border-rose-500/60 focus:ring-rose-500/40'
@@ -127,7 +127,7 @@ export default function VaultUnlockModal() {
               type="submit"
               disabled={!pin.trim() || loading}
               className={cn(
-                'w-full flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold font-mono transition-all',
+                'w-full flex items-center justify-center gap-2 py-2 rounded text-sm font-medium font-sans transition-all cursor-pointer',
                 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white',
                 'disabled:opacity-40 disabled:cursor-not-allowed'
               )}
@@ -135,19 +135,19 @@ export default function VaultUnlockModal() {
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>UNLOCKING VAULT...</span>
+                  <span>Unlocking Vault...</span>
                 </>
               ) : (
                 <>
                   <Shield className="w-4 h-4" />
-                  <span>UNLOCK VAULT</span>
+                  <span>Unlock Vault</span>
                 </>
               )}
             </button>
           </form>
 
           {/* Footer */}
-          <div className="px-6 pb-4 text-[10px] font-mono text-zinc-600 text-center">
+          <div className="px-6 pb-4 text-[11px] font-sans text-zinc-500 text-center">
             Keys are never transmitted to ReciteAI servers.
             <br />
             Vault: Stronghold / Argon2id-KDF / XSalsa20-Poly1305
