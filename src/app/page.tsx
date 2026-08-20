@@ -16,6 +16,7 @@ import {
   MemoryStick,
   Sparkles,
   FileCode2,
+  FileText,
   Sliders,
   Terminal,
   Activity,
@@ -36,6 +37,7 @@ import ToastContainer from '@/components/ToastContainer';
 import ManuscriptViewer from '@/components/viewer/ManuscriptViewer';
 import ActionInspector from '@/components/inspector/ActionInspector';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
+import VaultUnlockModal from '@/components/VaultUnlockModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § CONSTANTS
@@ -55,7 +57,7 @@ const LLM_LABELS: Record<LLMProvider, string> = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function StatusBar() {
-  const { telemetry, workspace, license, llmRouter, setTelemetry, setShowSettings } = useReciteStore();
+  const { telemetry, workspace, license, llmRouter, docMetrics, setTelemetry, setShowSettings } = useReciteStore();
 
   useEffect(() => {
     const onOnline = () => setTelemetry({ isOnline: true });
@@ -135,6 +137,18 @@ function StatusBar() {
         <span className="text-zinc-300 dark:text-zinc-800">│</span>
 
         <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
+          <FileText size={11} className="text-zinc-400 dark:text-zinc-600" />
+          <span>DOC_STATS:</span>
+          <strong className="font-semibold text-zinc-800 dark:text-zinc-200">
+            {docMetrics && docMetrics.wordCount > 0
+              ? `${docMetrics.wordCount.toLocaleString()} WORDS // ~${docMetrics.tokenCount.toLocaleString()} TOKENS`
+              : '-- WORDS // -- TOKENS'}
+          </strong>
+        </span>
+
+        <span className="text-zinc-300 dark:text-zinc-800">│</span>
+
+        <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
           <MemoryStick size={11} className="text-zinc-400 dark:text-zinc-600" />
           Memory: {mem !== null ? `${mem} MB` : '--'}
         </span>
@@ -182,6 +196,7 @@ function StatusBar() {
 
 function CondensedActionRibbon() {
   const {
+    claims,
     isAuditing,
     setIsAuditing,
     workspace,
@@ -189,7 +204,6 @@ function CondensedActionRibbon() {
     unmountWorkspace,
     llmRouter,
     setLLMProvider,
-    stats,
     filterSeverity,
     setFilterSeverity,
     setWorkspaceStatus,
@@ -202,6 +216,11 @@ function CondensedActionRibbon() {
     setFileFormat,
     setShowSettings,
   } = useReciteStore();
+
+  // Derive severity counts dynamically from claims — never stale
+  const highCount = claims?.filter((c) => c.severity === 'High' || c.severity === 'Critical').length || 0;
+  const medCount = claims?.filter((c) => c.severity === 'Medium').length || 0;
+  const lowCount = claims?.filter((c) => c.severity === 'Low').length || 0;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [llmMenuOpen, setLlmMenuOpen] = useState(false);
@@ -330,7 +349,7 @@ function CondensedActionRibbon() {
             title="Toggle High Severity Claims"
           >
             <AlertTriangle size={11} className="text-rose-500" />
-            <span>High: {stats.highSeverity}</span>
+            <span>High: {highCount}</span>
           </button>
 
           <button
@@ -344,7 +363,7 @@ function CondensedActionRibbon() {
             title="Toggle Medium Severity Claims"
           >
             <Zap size={11} className="text-amber-500" />
-            <span>Med: {stats.mediumSeverity}</span>
+            <span>Med: {medCount}</span>
           </button>
 
           <button
@@ -358,7 +377,7 @@ function CondensedActionRibbon() {
             title="Toggle Low Severity Claims"
           >
             <CheckCircle2 size={11} className="text-sky-500" />
-            <span>Low: {stats.lowSeverity}</span>
+            <span>Low: {lowCount}</span>
           </button>
         </div>
       </div>
@@ -467,8 +486,12 @@ function SterileEditorEmptyState({
 // § DRAG ENGINE — Custom PointerEvent Splitter
 // ─────────────────────────────────────────────────────────────────────────────
 
-function usePointerDrag(initialPct: number, min: number, max: number) {
-  const [pct, setPct] = useState(initialPct);
+function usePointerDrag(
+  currentPct: number,
+  onPctChange: (pct: number) => void,
+  min: number,
+  max: number
+) {
   const [dragging, setDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -482,9 +505,11 @@ function usePointerDrag(initialPct: number, min: number, max: number) {
       if (!dragging || !containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const rawPct = ((e.clientX - rect.left) / rect.width) * 100;
-      if (rawPct >= min && rawPct <= max) setPct(rawPct);
+      if (rawPct >= min && rawPct <= max) {
+        onPctChange(Math.round(rawPct * 10) / 10);
+      }
     },
-    [dragging, min, max]
+    [dragging, min, max, onPctChange]
   );
 
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -496,7 +521,7 @@ function usePointerDrag(initialPct: number, min: number, max: number) {
     setDragging(false);
   }, []);
 
-  return { pct, dragging, containerRef, onPointerDown, onPointerMove, onPointerUp };
+  return { pct: currentPct, dragging, containerRef, onPointerDown, onPointerMove, onPointerUp };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -509,6 +534,8 @@ function IDEWorkbench() {
     isAuditing,
     showExportModal,
     setShowExportModal,
+    editorPaneWidth,
+    setEditorPaneWidth,
     mountWorkspace,
     setRawText,
     setParsedText,
@@ -517,13 +544,14 @@ function IDEWorkbench() {
     setDocumentTitle,
     setFileFormat,
     setWorkspaceStatus,
+    isVaultUnlocked,
   } = useReciteStore();
 
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { pct, dragging, containerRef, onPointerDown, onPointerMove, onPointerUp } =
-    usePointerDrag(58, 25, 75);
+    usePointerDrag(editorPaneWidth || 50, setEditorPaneWidth, 25, 75);
 
   const handleDirectFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -564,6 +592,9 @@ function IDEWorkbench() {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-zinc-100 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200 overflow-hidden font-sans select-none antialiased transition-colors">
+      {/* Vault Unlock Gate — displayed until Stronghold is unlocked */}
+      {!isVaultUnlocked && <VaultUnlockModal />}
+
       {/* 1. Global Menu Bar */}
       <MenuBar />
 

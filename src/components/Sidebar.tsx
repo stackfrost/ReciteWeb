@@ -31,12 +31,14 @@ import { BibTeXParser } from '@/services/bibtex-parser';
 
 export default function Sidebar() {
   const {
-    sidebarCollapsed,
+    sidebarOpen,
     toggleSidebar,
     setShowSettings,
     setShowExportModal,
     workspace,
     mountWorkspace,
+    mountDirectoryWorkspace,
+    setActiveFile,
     setRawText,
     setParsedText,
     setMathBlocks,
@@ -80,6 +82,29 @@ export default function Sidebar() {
       if (err.message !== 'USER_ABORTED') {
         const { addToast } = useReciteStore.getState();
         addToast(`Failed to open document: ${err.message}`, 'error');
+      }
+    }
+  };
+
+  const handleMountDirectoryClick = async () => {
+    try {
+      const { directoryName, files } = await FileSystemService.mountDirectory();
+      setWorkspaceStatus('MOUNTING');
+      mountDirectoryWorkspace(directoryName, files);
+      
+      const mainFile = Object.keys(files).find(k => k === 'main.tex' || k.endsWith('.tex'));
+      if (mainFile) {
+        useReciteStore.getState().setActiveFile(mainFile);
+      }
+      
+      setWorkspaceStatus('AST_PARSING');
+      setTimeout(() => {
+        setWorkspaceStatus('AST_PARSER_IDLE');
+      }, 200);
+    } catch (err: any) {
+      if (err.message !== 'USER_ABORTED') {
+        const { addToast } = useReciteStore.getState();
+        addToast(`Failed to open directory: ${err.message}`, 'error');
       }
     }
   };
@@ -141,7 +166,7 @@ export default function Sidebar() {
         {/* Top Icons */}
         <div className="flex flex-col gap-3 w-full px-1.5">
           <RailButton
-            active={!sidebarCollapsed}
+            active={sidebarOpen}
             onClick={toggleSidebar}
             icon={<Files size={19} strokeWidth={1.5} />}
             title="Toggle Explorer (Ctrl+B)"
@@ -192,7 +217,7 @@ export default function Sidebar() {
       <div
         className={cn(
           'h-full bg-zinc-50/95 dark:bg-[#0c0c0e]/95 backdrop-blur-md border-r border-zinc-200 dark:border-zinc-800/80 flex flex-col overflow-hidden transition-all duration-200 ease-in-out',
-          sidebarCollapsed ? 'w-0 opacity-0 border-r-0 pointer-events-none' : 'w-60 opacity-100'
+          !sidebarOpen ? 'w-0 opacity-0 border-r-0 pointer-events-none' : 'w-60 opacity-100'
         )}
       >
         {/* Explorer Header */}
@@ -292,33 +317,63 @@ export default function Sidebar() {
                 )}
               </div>
 
-              {/* Sections / Outline */}
-              <div className="space-y-1">
-                <div className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-bold">
-                  DOCUMENT SECTIONS
+              {workspace.type === 'directory' ? (
+                <div className="space-y-1">
+                  <div className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-bold">
+                    PROJECT FILES
+                  </div>
+                  <div className="space-y-0.5">
+                    {Object.keys(workspace.projectFiles).sort().map(path => {
+                      const isCurrent = workspace.activeFilePath === path;
+                      const depth = path.split('/').length - 1;
+                      const name = path.split('/').pop();
+                      return (
+                        <button
+                          key={path}
+                          onClick={() => setActiveFile(path)}
+                          style={{ paddingLeft: `${10 + depth * 12}px` }}
+                          className={cn(
+                            'w-full flex items-center justify-between py-1.5 pr-2.5 rounded-md text-left transition-colors font-mono text-[11px]',
+                            isCurrent
+                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium'
+                              : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-zinc-900 dark:hover:text-zinc-200'
+                          )}
+                        >
+                          <span className="truncate">{name}</span>
+                          {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+              ) : (
+                <div className="space-y-1">
+                  <div className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-bold">
+                    DOCUMENT SECTIONS
+                  </div>
 
-                <div className="space-y-0.5">
-                  {sections.map((sec, idx) => {
-                    const isCurrent = activeClaimIndex === sec.claimIdx;
-                    return (
-                      <button
-                        key={idx}
-                        onClick={() => jumpToClaim(sec.claimIdx)}
-                        className={cn(
-                          'w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-left transition-colors font-sans text-xs',
-                          isCurrent
-                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium'
-                            : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-zinc-900 dark:hover:text-zinc-200'
-                        )}
-                      >
-                        <span className="truncate">{sec.title}</span>
-                        {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
-                      </button>
-                    );
-                  })}
+                  <div className="space-y-0.5">
+                    {sections.map((sec, idx) => {
+                      const isCurrent = activeClaimIndex === sec.claimIdx;
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => jumpToClaim(sec.claimIdx)}
+                          className={cn(
+                            'w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-left transition-colors font-sans text-xs',
+                            isCurrent
+                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium'
+                              : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-zinc-900 dark:hover:text-zinc-200'
+                          )}
+                        >
+                          <span className="truncate">{sec.title}</span>
+                          {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           ) : (
             <div className="py-6 text-center space-y-3">
@@ -331,9 +386,15 @@ export default function Sidebar() {
               <div className="space-y-1.5 pt-1">
                 <button
                   onClick={handleMountClick}
-                  className="w-full py-1.5 px-3 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-md font-mono text-[11px] font-bold transition-colors shadow-sm"
+                  className="w-full py-1.5 px-3 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-md font-mono text-[11px] font-bold transition-colors shadow-sm cursor-pointer"
                 >
                   Open Document...
+                </button>
+                <button
+                  onClick={handleMountDirectoryClick}
+                  className="w-full py-1.5 px-3 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-md font-mono text-[11px] font-bold transition-colors shadow-sm cursor-pointer"
+                >
+                  Open Folder...
                 </button>
                 <button
                   onClick={handleLoadDemo}

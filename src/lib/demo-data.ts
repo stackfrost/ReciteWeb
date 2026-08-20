@@ -84,13 +84,15 @@ where $\\eta = 1.02 \\pm 0.04$, matching the predicted scaling for a $U(1)$ gaug
 export const DEMO_CLAIMS: Claim[] = [
   {
     id: 'claim-1',
-    text: 'Frustrated quantum magnets with S = 1/2 degrees of freedom on triangular lattices provide a benchmark platform for realizing gapless quantum spin liquid (QSL) states',
+    text: 'Frustrated quantum magnets with $S = 1/2$ degrees of freedom on triangular lattices provide a benchmark platform for realizing gapless quantum spin liquid (QSL) states \\cite{shimizu2003}.',
     category: 'Literature Claim',
     severity: 'Low',
     status: 'accepted',
     lineIndex: 2,
     startIndex: 153,
     endIndex: 326,
+    context: 'Frustrated quantum magnets with $S = 1/2$ degrees of freedom on triangular lattices provide a benchmark platform for realizing gapless quantum spin liquid (QSL) states \\cite{shimizu2003}. In the presence of strong Heisenberg exchange coupling $J/k_B \\approx 250\\text{ K}$ and modest ring exchange terms, conventional Néel ordering is suppressed down to millikelvin regimes.',
+    auditType: 'MissingCitation',
     suggestedPapers: [
       {
         paperId: 's2-shimizu',
@@ -105,13 +107,16 @@ export const DEMO_CLAIMS: Claim[] = [
   },
   {
     id: 'claim-2',
-    text: 'RF phase coherence was sustained by a custom double-shielded semi-rigid coaxial transmission line designed to maintain insertion loss below 0.45 dB/m at 180 MHz',
+    text: 'RF phase coherence was sustained by a custom double-shielded semi-rigid coaxial transmission line designed to maintain insertion loss below $0.45\\text{ dB/m}$ at $180\\text{ MHz}$ \\cite{zheng2024_unresolved}.',
     category: 'Instrumentation/Methodology',
     severity: 'High',
     status: 'pending',
     lineIndex: 12,
     startIndex: 1086,
-    endIndex: 1246,
+    endIndex: 1285,
+    context: 'The nuclear spin-lattice relaxation rate $T_1^{-1}$ was acquired via saturation-recovery pulse sequences ($(\\pi/2) - t - (\\pi/2) - \\pi$). RF phase coherence was sustained by a custom double-shielded semi-rigid coaxial transmission line designed to maintain insertion loss below $0.45\\text{ dB/m}$ at $180\\text{ MHz}$ \\cite{zheng2024_unresolved}.',
+    suggestedFix: 'RF phase coherence was sustained by a custom double-shielded semi-rigid coaxial transmission line designed to maintain insertion loss below $0.45\\text{ dB/m}$ at $180\\text{ MHz}$ \\cite{lawson2021}.',
+    auditType: 'WeakCitation',
     suggestedPapers: [
       {
         paperId: 's2-zheng24',
@@ -126,13 +131,15 @@ export const DEMO_CLAIMS: Claim[] = [
   },
   {
     id: 'claim-3',
-    text: 'Our high-resolution spectra reveal that K(T) remains finite as T -> 0 K, directly verifying gapless fermionic spinon excitations with a constant density of states at the Fermi level',
+    text: 'Our high-resolution spectra reveal that $\\mathbf{K}(T)$ remains finite as $T \\to 0\\text{ K}$, directly verifying gapless fermionic spinon excitations with a constant density of states at the Fermi level \\cite{itoh1998}.',
     category: 'Theoretical Assertion',
     severity: 'High',
     status: 'pending',
     lineIndex: 22,
     startIndex: 1810,
-    endIndex: 1989,
+    endIndex: 2035,
+    context: 'Here $\\mathbf{K}_{orb}$ represents the temperature-independent orbital chemical shift and $\\chi_{spin}(T)$ is the intrinsic spin susceptibility of the 2D triangular layers \\cite{imai1993}. Our high-resolution spectra reveal that $\\mathbf{K}(T)$ remains finite as $T \\to 0\\text{ K}$, directly verifying gapless fermionic spinon excitations with a constant density of states at the Fermi level \\cite{itoh1998}.',
+    auditType: 'Misattribution',
     suggestedPapers: [
       {
         paperId: 's2-itoh',
@@ -147,13 +154,16 @@ export const DEMO_CLAIMS: Claim[] = [
   },
   {
     id: 'claim-4',
-    text: 'matching the predicted scaling for a U(1) gauge-field coupled spinon Fermi surface',
+    text: 'matching the predicted scaling for a $U(1)$ gauge-field coupled spinon Fermi surface \\cite{zheng2017}.',
     category: 'Literature Claim',
     severity: 'Medium',
     status: 'pending',
     lineIndex: 28,
     startIndex: 2282,
-    endIndex: 2365,
+    endIndex: 2384,
+    context: 'In the low-temperature asymptotic regime $T < 1.2\\text{ K}$, the Korringa-like relaxation rate follows a power-law dependency: where $\\eta = 1.02 \\pm 0.04$, matching the predicted scaling for a $U(1)$ gauge-field coupled spinon Fermi surface \\cite{zheng2017}.',
+    suggestedFix: 'matching the predicted scaling for a $U(1)$ gauge-field coupled spinon Fermi surface \\cite{lawson2021}.',
+    auditType: 'WeakCitation',
     suggestedPapers: [
       {
         paperId: 's2-zheng17',
@@ -168,13 +178,16 @@ export const DEMO_CLAIMS: Claim[] = [
   },
   {
     id: 'claim-5',
-    text: 'High-field continuous-wave optical spectroscopy confirms the absence of single-particle gap openings or structural dimerization down to 45 mK.',
+    text: 'High-field continuous-wave optical spectroscopy confirms the absence of single-particle gap openings or structural dimerization down to $45\\text{ mK}$.',
     category: 'Numerical/Data Claim',
     severity: 'High',
     status: 'pending',
     lineIndex: 30,
     startIndex: 2386,
-    endIndex: 2529,
+    endIndex: 2530,
+    context: 'High-field continuous-wave optical spectroscopy confirms the absence of single-particle gap openings or structural dimerization down to $45\\text{ mK}$.',
+    suggestedFix: 'High-field continuous-wave optical spectroscopy confirms the absence of single-particle gap openings or structural dimerization down to $45\\text{ mK}$ \\cite{imai1993}.',
+    auditType: 'MissingCitation',
     suggestedPapers: [],
   },
 ];

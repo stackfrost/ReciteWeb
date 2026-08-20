@@ -55,4 +55,25 @@ export class BibTeXParser {
 
     return entries;
   }
+
+  /**
+   * Generates a filtered BibTeX string containing only the entries
+   * whose keys are in the provided `usedKeys` array.
+   */
+  static generateFilteredBib(
+    usedKeys: string[],
+    fullBibMap: Map<string, BibTeXEntry>
+  ): string {
+    const keySet = new Set(usedKeys.map((k) => k.trim()));
+    const blocks: string[] = [];
+
+    for (const key of keySet) {
+      const entry = fullBibMap.get(key);
+      if (entry) {
+        blocks.push(entry.raw.trim());
+      }
+    }
+
+    return blocks.join('\n\n') + '\n';
+  }
 }

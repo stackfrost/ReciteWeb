@@ -8,6 +8,36 @@ import ClaimHighlight from './ClaimHighlight';
 import { BibTeXParser } from '@/services/bibtex-parser';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import DOMPurify from 'dompurify';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § DOM PURIFY CONFIG
+// Permit standard HTML + MathML (required for KaTeX). Explicitly FORBID
+// script tags, onload/onerror event attributes, and javascript: URIs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DOMPURIFY_CONFIG: DOMPurify.Config = {
+  USE_PROFILES: { html: true, mathMl: true },
+  FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'button'],
+  FORBID_ATTR: [
+    'onerror', 'onload', 'onclick', 'onmouseover', 'onfocus',
+    'onblur', 'onsubmit', 'onchange', 'onkeydown', 'onkeyup',
+    'onkeypress', 'src',
+  ],
+  ALLOW_DATA_ATTR: false,
+  FORCE_BODY: false,
+};
+
+/**
+ * Sanitize KaTeX HTML output server-safely.
+ * DOMPurify requires a real DOM — during SSR (no window) we return
+ * the raw string untouched since Next.js will never hydrate malicious
+ * scripts server-side, and the client re-renders with DOMPurify active.
+ */
+function safeKatexHtml(html: string): string {
+  if (typeof window === 'undefined') return html;
+  return DOMPurify.sanitize(html, DOMPURIFY_CONFIG) as string;
+}
 
 export default function ManuscriptViewer() {
   const {
@@ -105,7 +135,7 @@ export default function ManuscriptViewer() {
             <span
               key={pKey}
               className={mb.type === 'display' ? 'block my-3 text-center overflow-x-auto py-1' : 'inline-block px-0.5'}
-              dangerouslySetInnerHTML={{ __html: html }}
+              dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
         } catch {
@@ -122,7 +152,7 @@ export default function ManuscriptViewer() {
             <span
               key={pKey}
               className="block my-3 text-center overflow-x-auto py-1"
-              dangerouslySetInnerHTML={{ __html: html }}
+              dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
         } catch {
@@ -139,7 +169,7 @@ export default function ManuscriptViewer() {
             <span
               key={pKey}
               className="inline-block px-0.5"
-              dangerouslySetInnerHTML={{ __html: html }}
+              dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
         } catch {

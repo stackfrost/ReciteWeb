@@ -46,6 +46,62 @@ export class FileSystemService {
   }
 
   /**
+   * Prompts the user to select a directory, recursively traverses it,
+   * and returns all .tex and .bib files in a flat map keyed by relative path.
+   */
+  static async mountDirectory(): Promise<{ directoryName: string; files: Record<string, MountResult> }> {
+    if (!('showDirectoryPicker' in window)) {
+      throw new Error('Native File System Access API is not supported in this environment.');
+    }
+
+    try {
+      const dirHandle = await (window as any).showDirectoryPicker({
+        mode: 'readwrite',
+      });
+
+      const files: Record<string, MountResult> = {};
+      
+      async function traverse(handle: any, currentPath: string) {
+        for await (const entry of handle.values()) {
+          if (entry.kind === 'file') {
+            if (entry.name.endsWith('.tex') || entry.name.endsWith('.bib') || entry.name.endsWith('.txt')) {
+              try {
+                const file = await entry.getFile();
+                const text = await file.text();
+                files[currentPath + entry.name] = {
+                  text,
+                  fileHandle: entry,
+                  fileName: entry.name,
+                  fileSize: file.size,
+                };
+              } catch (e) {
+                console.warn(`Failed to read file ${entry.name}`, e);
+              }
+            }
+          } else if (entry.kind === 'directory') {
+            // Ignore common excluded directories
+            if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
+              await traverse(entry, currentPath + entry.name + '/');
+            }
+          }
+        }
+      }
+
+      await traverse(dirHandle, '');
+
+      return {
+        directoryName: dirHandle.name,
+        files,
+      };
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error('USER_ABORTED');
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Prompts the user to select a local BibTeX (.bib) file, reads its contents,
    * and returns the text along with the file metadata.
    */

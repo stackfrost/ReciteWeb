@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useReciteStore } from '@/lib/store';
+import { useReciteStore, calculateDocMetrics } from '@/lib/store';
 import { FileSystemService } from '@/services/file-system';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
+import { DiffGenerator } from '@/services/diff-generator';
+import { ReportGenerator } from '@/services/report-generator';
 import { useTheme } from './ThemeProvider';
 
 export default function KeyboardShortcuts() {
@@ -107,6 +109,105 @@ export default function KeyboardShortcuts() {
         if (!isInput) {
           e.preventDefault();
           toggleTheme();
+        }
+      }
+
+      // 7. Export Unified Patch (Ctrl/Cmd + Shift + P)
+      else if (key === 'p' && e.shiftKey) {
+        if (!isInput) {
+          e.preventDefault();
+          try {
+            const { claims, rawText: currentRaw, workspace: currentWs, documentTitle: currentTitle } = useReciteStore.getState();
+            if (currentWs.status === 'NO_WORKSPACE_MOUNTED') {
+              addToast('Open a manuscript first to export fixes.', 'warning');
+              return;
+            }
+            const fileName = currentWs.fileName || currentTitle || 'manuscript.tex';
+            const actionableClaims = claims.filter(
+              (c) => typeof c.suggestedFix === 'string' && c.suggestedFix.trim().length > 0
+            );
+
+            if (actionableClaims.length === 0) {
+              addToast('No suggested fixes available to generate patch.', 'warning');
+              return;
+            }
+
+            const patchContent = DiffGenerator.generateUnifiedPatch(currentRaw, claims, fileName);
+            const baseName = fileName.replace(/\.[^/.]+$/, '');
+            const suggestedPatchName = `${baseName || 'fixes'}.patch`;
+
+            if ('showSaveFilePicker' in window) {
+              const handle = await (window as any).showSaveFilePicker({
+                suggestedName: suggestedPatchName,
+                types: [
+                  {
+                    description: 'Unified Diff Patch (*.patch, *.diff)',
+                    accept: { 'text/plain': ['.patch', '.diff'] },
+                  },
+                ],
+              });
+              await FileSystemService.saveFile(handle, patchContent);
+            } else {
+              const blob = new Blob([patchContent], { type: 'text/plain;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = suggestedPatchName;
+              a.click();
+              URL.revokeObjectURL(url);
+            }
+            addToast(`Exported unified patch (${actionableClaims.length} fixes included).`, 'success');
+          } catch (err: any) {
+            if (err.name !== 'AbortError' && err.message !== 'USER_ABORTED') {
+              addToast(`Patch export failed: ${err.message}`, 'error');
+            }
+          }
+        }
+      }
+
+      // 8. Export Audit Report (Ctrl/Cmd + Shift + R)
+      else if (key === 'r' && e.shiftKey) {
+        if (!isInput) {
+          e.preventDefault();
+          try {
+            const { claims, rawText: currentRaw, workspace: currentWs, documentTitle: currentTitle, docMetrics } = useReciteStore.getState();
+            if (currentWs.status === 'NO_WORKSPACE_MOUNTED') {
+              addToast('Open a manuscript first to export audit report.', 'warning');
+              return;
+            }
+            const fileName = currentWs.fileName || currentTitle || 'manuscript.tex';
+            const metrics = docMetrics && docMetrics.wordCount > 0 ? docMetrics : calculateDocMetrics(currentRaw);
+
+            const reportContent = ReportGenerator.generateMarkdownReport(fileName, claims, metrics);
+            const baseName = fileName.replace(/\.[^/.]+$/, '');
+            const suggestedReportName = `audit_report_${baseName || 'manuscript'}.md`;
+
+            if ('showSaveFilePicker' in window) {
+              const handle = await (window as any).showSaveFilePicker({
+                suggestedName: suggestedReportName,
+                types: [
+                  {
+                    description: 'Markdown Audit Report (*.md)',
+                    accept: { 'text/markdown': ['.md'], 'text/plain': ['.txt'] },
+                  },
+                ],
+              });
+              await FileSystemService.saveFile(handle, reportContent);
+            } else {
+              const blob = new Blob([reportContent], { type: 'text/markdown;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = suggestedReportName;
+              a.click();
+              URL.revokeObjectURL(url);
+            }
+            addToast(`Exported Markdown audit report (${claims.length} claims documented).`, 'success');
+          } catch (err: any) {
+            if (err.name !== 'AbortError' && err.message !== 'USER_ABORTED') {
+              addToast(`Report export failed: ${err.message}`, 'error');
+            }
+          }
         }
       }
     };

@@ -10,10 +10,55 @@ import {
   Search,
   Activity,
   AlertTriangle,
+  AlertOctagon,
   FileSearch,
+  Wrench,
+  ArrowRight,
+  Diff,
+  Sparkles,
+  Info,
+  Zap,
 } from 'lucide-react';
 import CandidateCard from './CandidateCard';
 import ZoteroTab from './ZoteroTab';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § SEVERITY CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SEVERITY_STYLES: Record<string, { bg: string; text: string; border: string; icon: React.ReactNode }> = {
+  Critical: {
+    bg: 'bg-rose-500/15',
+    text: 'text-rose-700 dark:text-rose-300',
+    border: 'border-rose-500/40',
+    icon: <AlertOctagon className="w-3 h-3" />,
+  },
+  High: {
+    bg: 'bg-rose-500/15',
+    text: 'text-rose-700 dark:text-rose-300',
+    border: 'border-rose-500/40',
+    icon: <AlertTriangle className="w-3 h-3" />,
+  },
+  Medium: {
+    bg: 'bg-amber-500/15',
+    text: 'text-amber-700 dark:text-amber-300',
+    border: 'border-amber-500/40',
+    icon: <Zap className="w-3 h-3" />,
+  },
+  Low: {
+    bg: 'bg-sky-500/15',
+    text: 'text-sky-700 dark:text-sky-300',
+    border: 'border-sky-500/40',
+    icon: <Info className="w-3 h-3" />,
+  },
+};
+
+const TYPE_LABELS: Record<string, string> = {
+  MissingCitation: 'Missing Citation',
+  WeakCitation: 'Weak Citation',
+  Hallucination: 'Hallucination',
+  Misattribution: 'Misattribution',
+};
 
 export default function ActionInspector() {
   const {
@@ -23,6 +68,7 @@ export default function ActionInspector() {
     setInspectorTab,
     acceptCitation,
     dismissClaim,
+    applyFix,
   } = useReciteStore();
 
   const activeClaim = filteredClaims[activeClaimIndex] || null;
@@ -49,6 +95,9 @@ export default function ActionInspector() {
 
   const isAccepted = activeClaim.status === 'accepted';
   const isRetracted = activeClaim.isRetracted;
+  const hasSuggestedFix = !!activeClaim.suggestedFix;
+  const severityStyle = SEVERITY_STYLES[activeClaim.severity] || SEVERITY_STYLES.Medium;
+  const auditTypeLabel = activeClaim.auditType ? TYPE_LABELS[activeClaim.auditType] || activeClaim.auditType : null;
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200 transition-colors">
@@ -78,30 +127,64 @@ export default function ActionInspector() {
 
         {/* Claim Summary Pane */}
         <div className="p-3.5 space-y-2.5">
-          <div className="flex items-start justify-between">
-            <span
-              className={cn(
-                'px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider rounded border',
-                isRetracted
-                  ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40'
-                  : isAccepted
-                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40'
-                  : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/40'
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* Status badge */}
+              <span
+                className={cn(
+                  'px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider rounded-md border',
+                  isRetracted
+                    ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40'
+                    : isAccepted
+                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40'
+                    : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/40'
+                )}
+              >
+                {isRetracted ? 'RETRACTED' : isAccepted ? 'VERIFIED' : 'UNVERIFIED'}
+              </span>
+
+              {/* Severity badge */}
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider rounded-md border',
+                  severityStyle.bg,
+                  severityStyle.text,
+                  severityStyle.border
+                )}
+              >
+                {severityStyle.icon}
+                {activeClaim.severity}
+              </span>
+
+              {/* Audit type badge */}
+              {auditTypeLabel && (
+                <span className="px-2 py-0.5 text-[10px] font-mono font-semibold uppercase tracking-wider rounded-md border bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30">
+                  {auditTypeLabel}
+                </span>
               )}
-            >
-              {isRetracted ? 'RETRACTED' : isAccepted ? 'VERIFIED' : 'UNVERIFIED'} • {activeClaim.category}
-            </span>
+            </div>
+
             <button
               onClick={() => dismissClaim(activeClaim.id)}
-              className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors p-0.5 rounded"
+              className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors p-0.5 rounded flex-shrink-0"
               title="Dismiss Claim"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          {/* Claim text */}
           <p className="text-xs font-serif text-zinc-700 dark:text-zinc-300 leading-relaxed border-l-2 border-zinc-300 dark:border-zinc-700 pl-2.5 italic">
-            "{activeClaim.text.replace(/\[\[MATH_BLOCK_\d+\]\]/g, ' [MATH] ')}"
+            &quot;{activeClaim.text.replace(/\[\[MATH_BLOCK_\d+\]\]/g, ' [MATH] ')}&quot;
           </p>
+
+          {/* Context (if available) */}
+          {activeClaim.context && (
+            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed pl-2.5 border-l-2 border-zinc-200 dark:border-zinc-800 font-serif">
+              <span className="text-[10px] font-mono font-bold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">Context: </span>
+              {activeClaim.context}
+            </div>
+          )}
         </div>
       </div>
 
@@ -109,6 +192,15 @@ export default function ActionInspector() {
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {inspectorTab === 'candidates' && (
           <div className="space-y-2.5">
+            {/* Remediation Diff Viewer */}
+            {hasSuggestedFix && (
+              <RemediationDiffCard
+                originalText={activeClaim.text}
+                suggestedFix={activeClaim.suggestedFix!}
+                onApply={() => applyFix(activeClaim.id)}
+              />
+            )}
+
             {activeClaim.suggestedPapers && activeClaim.suggestedPapers.length > 0 ? (
               activeClaim.suggestedPapers.map((paper, idx) => (
                 <CandidateCard
@@ -118,9 +210,11 @@ export default function ActionInspector() {
                 />
               ))
             ) : (
-              <div className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-600 font-sans">
-                No matching citation candidates found.
-              </div>
+              !hasSuggestedFix && (
+                <div className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-600 font-sans">
+                  No matching citation candidates found.
+                </div>
+              )
             )}
           </div>
         )}
@@ -143,9 +237,32 @@ export default function ActionInspector() {
               </div>
               <div className="flex justify-between">
                 <span className="text-zinc-500">CLAIM SEVERITY:</span>
-                <span className="text-zinc-800 dark:text-zinc-200 font-bold">{activeClaim.severity}</span>
+                <span className={cn('font-bold', severityStyle.text)}>{activeClaim.severity}</span>
               </div>
+              {auditTypeLabel && (
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">AUDIT TYPE:</span>
+                  <span className="text-zinc-800 dark:text-zinc-200 font-bold">{auditTypeLabel}</span>
+                </div>
+              )}
+              {activeClaim.suggestedFix && (
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">REMEDIATION:</span>
+                  <span className="text-emerald-500 font-bold">FIX AVAILABLE</span>
+                </div>
+              )}
             </div>
+
+            {/* Show diff viewer in health tab too if fix exists */}
+            {hasSuggestedFix && (
+              <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                <RemediationDiffCard
+                  originalText={activeClaim.text}
+                  suggestedFix={activeClaim.suggestedFix!}
+                  onApply={() => applyFix(activeClaim.id)}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -154,6 +271,82 @@ export default function ActionInspector() {
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § REMEDIATION DIFF CARD — macOS-style unified diff viewer
+// ─────────────────────────────────────────────────────────────────────────────
+
+function RemediationDiffCard({
+  originalText,
+  suggestedFix,
+  onApply,
+}: {
+  originalText: string;
+  suggestedFix: string;
+  onApply: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100/80 dark:bg-zinc-900/60">
+        <div className="flex items-center gap-1.5 text-[11px] font-mono font-bold text-zinc-600 dark:text-zinc-300 tracking-wide">
+          <Diff className="w-3.5 h-3.5 text-violet-500" />
+          <span>SUGGESTED REMEDIATION</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-rose-500/60" />
+          <span className="w-2 h-2 rounded-full bg-amber-500/60" />
+          <span className="w-2 h-2 rounded-full bg-emerald-500/60" />
+        </div>
+      </div>
+
+      {/* Diff Content */}
+      <div className="p-2.5 space-y-2">
+        {/* Original (red) */}
+        <div className="rounded-md bg-rose-500/8 dark:bg-rose-500/10 border-l-4 border-rose-500 px-3 py-2">
+          <div className="text-[9px] font-mono font-bold text-rose-600 dark:text-rose-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+            <span className="inline-block w-3 text-center">−</span>
+            Original
+          </div>
+          <p className="text-[11px] font-serif text-rose-900 dark:text-rose-200 leading-relaxed break-words whitespace-pre-wrap">
+            {originalText}
+          </p>
+        </div>
+
+        {/* Arrow */}
+        <div className="flex justify-center">
+          <ArrowRight className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-600 rotate-90" />
+        </div>
+
+        {/* Suggested Fix (green) */}
+        <div className="rounded-md bg-emerald-500/8 dark:bg-emerald-500/10 border-l-4 border-emerald-500 px-3 py-2">
+          <div className="text-[9px] font-mono font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+            <span className="inline-block w-3 text-center">+</span>
+            Suggested Fix
+          </div>
+          <p className="text-[11px] font-serif text-emerald-900 dark:text-emerald-200 leading-relaxed break-words whitespace-pre-wrap">
+            {suggestedFix}
+          </p>
+        </div>
+      </div>
+
+      {/* Action Footer */}
+      <div className="px-3 py-2.5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-100/50 dark:bg-zinc-900/40">
+        <button
+          onClick={onApply}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold rounded-md transition-all shadow-sm hover:shadow-md cursor-pointer"
+        >
+          <Wrench className="w-3.5 h-3.5" />
+          <span>Apply Fix to Manuscript</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § TAB BUTTON
+// ─────────────────────────────────────────────────────────────────────────────
 
 function TabButton({
   active,

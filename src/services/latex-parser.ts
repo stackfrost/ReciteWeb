@@ -17,6 +17,39 @@ export class LaTeXParser {
   }
 
   /**
+   * Recursively resolves \input{} and \include{} macros by substituting
+   * the content of the referenced files.
+   */
+  static resolveIncludes(mainTexContent: string, projectFiles: Record<string, any>): string {
+    const includeRegex = /\\(?:input|include)\{([^}]+)\}/g;
+    let resolvedText = mainTexContent;
+    
+    let iterations = 0;
+    while (includeRegex.test(resolvedText) && iterations < 100) {
+      includeRegex.lastIndex = 0;
+      resolvedText = resolvedText.replace(includeRegex, (match, p1) => {
+        const relativePath = p1.trim();
+        const texPath = relativePath.endsWith('.tex') ? relativePath : `${relativePath}.tex`;
+        
+        if (projectFiles[texPath]) {
+          return projectFiles[texPath].text;
+        }
+        
+        const matchedKey = Object.keys(projectFiles).find(k => k === texPath || k.endsWith('/' + texPath));
+        if (matchedKey) {
+          return projectFiles[matchedKey].text;
+        }
+        
+        console.warn(`Could not resolve include: ${p1}`);
+        return `%% [Missing Include: ${p1}] %%`;
+      });
+      iterations++;
+    }
+    
+    return resolvedText;
+  }
+
+  /**
    * Strips out math blocks (e.g. \[...\] or \begin{equation}...\end{equation}) 
    * to isolate the natural language text for LLM processing.
    */

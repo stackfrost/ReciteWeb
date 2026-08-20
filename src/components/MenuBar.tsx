@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useReciteStore, LLMProvider } from '@/lib/store';
+import { useReciteStore, LLMProvider, calculateDocMetrics } from '@/lib/store';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
 import { DEMO_MANUSCRIPT, DEMO_CLAIMS, DEMO_BIBTEX } from '@/lib/demo-data';
 import { useTheme } from './ThemeProvider';
@@ -24,9 +24,13 @@ import {
   Sun,
   Moon,
   Command,
+  FileCode2,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FileSystemService } from '@/services/file-system';
+import { DiffGenerator } from '@/services/diff-generator';
+import { ReportGenerator } from '@/services/report-generator';
 
 type MenuCategory = 'File' | 'Edit' | 'View' | 'Engine' | 'Terminal' | 'Help';
 
@@ -139,6 +143,100 @@ export default function MenuBar() {
     setFilterStatus('All');
   };
 
+  const handleExportPatch = async () => {
+    setActiveMenu(null);
+    try {
+      const { claims, rawText, workspace, documentTitle, addToast } = useReciteStore.getState();
+      const fileName = workspace.fileName || documentTitle || 'manuscript.tex';
+      const actionableClaims = claims.filter(
+        (c) => typeof c.suggestedFix === 'string' && c.suggestedFix.trim().length > 0
+      );
+
+      if (actionableClaims.length === 0) {
+        addToast('No suggested fixes available to generate patch.', 'warning');
+        return;
+      }
+
+      const patchContent = DiffGenerator.generateUnifiedPatch(rawText, claims, fileName);
+      if (!patchContent || patchContent.trim().length === 0) {
+        addToast('No diff changes detected in manuscript.', 'warning');
+        return;
+      }
+
+      const baseName = fileName.replace(/\.[^/.]+$/, '');
+      const suggestedPatchName = `${baseName || 'fixes'}.patch`;
+
+      if ('showSaveFilePicker' in window) {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: suggestedPatchName,
+          types: [
+            {
+              description: 'Unified Diff Patch (*.patch, *.diff)',
+              accept: { 'text/plain': ['.patch', '.diff'] },
+            },
+          ],
+        });
+        await FileSystemService.saveFile(handle, patchContent);
+      } else {
+        const blob = new Blob([patchContent], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = suggestedPatchName;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      addToast(`Exported unified patch (${actionableClaims.length} fixes included).`, 'success');
+    } catch (err: any) {
+      if (err.name !== 'AbortError' && err.message !== 'USER_ABORTED') {
+        const { addToast } = useReciteStore.getState();
+        addToast(`Patch export failed: ${err.message}`, 'error');
+      }
+    }
+  };
+
+  const handleExportReport = async () => {
+    setActiveMenu(null);
+    try {
+      const { claims, rawText, workspace, documentTitle, docMetrics, addToast } = useReciteStore.getState();
+      const fileName = workspace.fileName || documentTitle || 'manuscript.tex';
+      const metrics = docMetrics && docMetrics.wordCount > 0 ? docMetrics : calculateDocMetrics(rawText);
+
+      const reportContent = ReportGenerator.generateMarkdownReport(fileName, claims, metrics);
+      const baseName = fileName.replace(/\.[^/.]+$/, '');
+      const suggestedReportName = `audit_report_${baseName || 'manuscript'}.md`;
+
+      if ('showSaveFilePicker' in window) {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: suggestedReportName,
+          types: [
+            {
+              description: 'Markdown Audit Report (*.md)',
+              accept: { 'text/markdown': ['.md'], 'text/plain': ['.txt'] },
+            },
+          ],
+        });
+        await FileSystemService.saveFile(handle, reportContent);
+      } else {
+        const blob = new Blob([reportContent], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = suggestedReportName;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      addToast(`Exported Markdown audit report (${claims.length} claims documented).`, 'success');
+    } catch (err: any) {
+      if (err.name !== 'AbortError' && err.message !== 'USER_ABORTED') {
+        const { addToast } = useReciteStore.getState();
+        addToast(`Report export failed: ${err.message}`, 'error');
+      }
+    }
+  };
+
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
   const menuItems: MenuCategory[] = ['File', 'Edit', 'View', 'Engine', 'Terminal', 'Help'];
 
@@ -149,10 +247,11 @@ export default function MenuBar() {
   return (
     <header
       ref={menuBarRef}
+      data-tauri-drag-region
       className="h-8 w-full bg-zinc-100/95 dark:bg-zinc-950/90 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between px-3 text-[12px] font-sans select-none flex-shrink-0 z-50 transition-colors"
     >
       {/* Left OS Frame & Menus */}
-      <div className="flex items-center">
+      <div className="flex items-center" data-tauri-drag-region>
         {/* macOS Traffic Lights */}
         <div className="flex items-center gap-1.5 mr-3 px-1">
           <div className="w-2.5 h-2.5 rounded-full bg-red-500/80 hover:bg-red-400 cursor-pointer transition-colors shadow-sm" />
@@ -179,7 +278,7 @@ export default function MenuBar() {
 
               {/* Dropdown Menus */}
               {activeMenu === item && (
-                <div className="absolute top-full left-0 mt-1 min-w-[230px] bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-lg backdrop-blur-md p-1 font-sans text-xs z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute top-full left-0 mt-1 min-w-[240px] bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-lg backdrop-blur-md p-1 font-sans text-xs z-50 animate-in fade-in zoom-in-95 duration-100">
                   {item === 'File' && (
                     <>
                       <MenuAction
@@ -195,6 +294,20 @@ export default function MenuBar() {
                         onClick={handleLoadDemo}
                       />
                       <div className="border-b border-zinc-100 dark:border-zinc-800 my-1" />
+                      <MenuAction
+                        icon={<FileCode2 size={13} className="text-emerald-500" />}
+                        label="Export Suggested Fixes (.patch)..."
+                        shortcut="Ctrl+Shift+P"
+                        disabled={!isMounted}
+                        onClick={handleExportPatch}
+                      />
+                      <MenuAction
+                        icon={<FileText size={13} className="text-violet-500" />}
+                        label="Export Audit Report (.md)..."
+                        shortcut="Ctrl+Shift+R"
+                        disabled={!isMounted}
+                        onClick={handleExportReport}
+                      />
                       <MenuAction
                         icon={<Download size={13} className="text-zinc-500" />}
                         label="Export Bibliography (.bib)..."
@@ -389,7 +502,7 @@ export default function MenuBar() {
       </div>
 
       {/* Center Search Bar trigger */}
-      <div className="flex items-center">
+      <div className="flex items-center flex-1 justify-center" data-tauri-drag-region>
         <button
           onClick={triggerCommandPalette}
           className="flex items-center gap-2 px-3 py-0.5 rounded-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all font-sans text-[11px] shadow-xs"
@@ -403,7 +516,7 @@ export default function MenuBar() {
       </div>
 
       {/* Right License & Status Pill */}
-      <div className="flex items-center gap-3 font-mono text-[10px] text-zinc-500">
+      <div className="flex items-center gap-3 font-mono text-[10px] text-zinc-500" data-tauri-drag-region>
         <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 font-semibold truncate max-w-[200px]">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm flex-shrink-0" />
           {isMounted ? documentTitle : 'No Document Loaded'}
