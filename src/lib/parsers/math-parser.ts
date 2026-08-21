@@ -6,6 +6,10 @@ export interface MathBlock {
   rawFormula: string; // Formula without delimiters, e.g. "E=mc^2"
   type: 'inline' | 'display';
   renderedHtml?: string;
+  originalCoordinates?: {
+    startOffset: number;
+    endOffset: number;
+  };
 }
 
 export interface ParsedDocument {
@@ -13,15 +17,40 @@ export interface ParsedDocument {
   mathBlocks: Map<string, MathBlock>;
 }
 
+import { QuarantineVault, quarantineSource } from './environment-quarantine';
+
 export function parseMathBlocks(rawText: string): ParsedDocument {
   const mathBlocks = new Map<string, MathBlock>();
-  let counter = 0;
-  let text = rawText;
+  const vault = new QuarantineVault();
+  
+  const text = quarantineSource(rawText, vault);
 
-  // Helper to register a math block
-  const registerBlock = (fullMatch: string, formula: string, type: 'inline' | 'display'): string => {
-    const id = `[[MATH_BLOCK_${counter++}]]`;
-    const cleanFormula = formula.trim();
+  const quarantinedBlocks = vault.getAll();
+
+  for (const block of quarantinedBlocks) {
+    if (block.type === 'listing') continue; // Skip non-math
+
+    const type = block.type === 'display_math' ? 'display' : 'inline';
+    let rawFormula = block.rawContent;
+
+    // Strip delimiters for KaTeX
+    if (rawFormula.startsWith('\\begin{')) {
+      const endBrace = rawFormula.indexOf('}');
+      if (endBrace !== -1) {
+        const envName = rawFormula.slice(7, endBrace);
+        rawFormula = rawFormula.replace(`\\begin{${envName}}`, '').replace(`\\end{${envName}}`, '');
+      }
+    } else if (rawFormula.startsWith('$$')) {
+      rawFormula = rawFormula.slice(2, -2);
+    } else if (rawFormula.startsWith('\\[')) {
+      rawFormula = rawFormula.slice(2, -2);
+    } else if (rawFormula.startsWith('\\(')) {
+      rawFormula = rawFormula.slice(2, -2);
+    } else if (rawFormula.startsWith('$')) {
+      rawFormula = rawFormula.slice(1, -1);
+    }
+
+    const cleanFormula = rawFormula.trim();
     let renderedHtml = '';
 
     try {
@@ -31,40 +60,18 @@ export function parseMathBlocks(rawText: string): ParsedDocument {
         trust: false,
       });
     } catch {
-      renderedHtml = `<span class="text-red-400 font-mono">${escapeHtml(fullMatch)}</span>`;
+      renderedHtml = `<span class="text-red-400 font-mono">${escapeHtml(block.rawContent)}</span>`;
     }
 
-    mathBlocks.set(id, {
-      id,
-      content: fullMatch,
+    mathBlocks.set(block.id, {
+      id: block.id,
+      content: block.rawContent,
       rawFormula: cleanFormula,
       type,
       renderedHtml,
+      originalCoordinates: block.originalCoordinates,
     });
-
-    return id;
-  };
-
-  // 1. Match LaTeX Display Environments: \begin{equation}...\end{equation}, \begin{align}...\end{align}, \[...\]
-  const envRegex = /\\(?:begin\{(equation|align|gather|multline)\*?\}[\s\S]*?\\end\{\1\*?\}|\[[\s\S]*?\])/g;
-  text = text.replace(envRegex, (match) => {
-    // Extract inner content if it's \[...\]
-    const inner = match.startsWith('\\[') ? match.slice(2, -2) : match;
-    return registerBlock(match, inner, 'display');
-  });
-
-  // 2. Match Display Math $$...$$
-  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (match, formula) => {
-    return registerBlock(match, formula, 'display');
-  });
-
-  // 3. Match Inline Math $...$ or \(...\)
-  // Negative lookbehind (?<!\\) prevents matching escaped dollars \$
-  const inlineRegex = /(?<!\\)\$([^$\n]+?)(?<!\\)\$|\\\(([\\s\S]*?)\\\)/g;
-  text = text.replace(inlineRegex, (match, p1, p2, p3) => {
-    const formula = p1 || p2 || p3 || match.slice(1, -1);
-    return registerBlock(match, formula, 'inline');
-  });
+  }
 
   return { text, mathBlocks };
 }

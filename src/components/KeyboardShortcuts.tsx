@@ -132,7 +132,7 @@ export default function KeyboardShortcuts() {
               return;
             }
 
-            const patchContent = DiffGenerator.generateUnifiedPatch(currentRaw, claims, fileName);
+            const patchContent = DiffGenerator.generateUnifiedPatchFromClaims(currentRaw, claims, fileName);
             const baseName = fileName.replace(/\.[^/.]+$/, '');
             const suggestedPatchName = `${baseName || 'fixes'}.patch`;
 

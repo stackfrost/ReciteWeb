@@ -191,7 +191,7 @@ export default function CommandPalette({
         category: 'Document',
         title: 'Open Document...',
         subtitle: 'Load a local LaTeX (.tex), Word (.docx), or text file',
-        icon: <FolderOpen className="w-4 h-4 text-blue-500" />,
+        icon: <FolderOpen className="w-4 h-4 text-emerald-500" />,
         shortcut: 'Ctrl+O',
         action: handleMountClick,
       },
@@ -200,7 +200,7 @@ export default function CommandPalette({
         category: 'Document',
         title: 'Load Sample Manuscript',
         subtitle: 'Load pre-configured quantum physics draft with 5 claims',
-        icon: <Sparkles className="w-4 h-4 text-amber-500" />,
+        icon: <FileText className="w-4 h-4 text-zinc-500" />,
         shortcut: 'Ctrl+Shift+D',
         action: handleLoadDemo,
       },
@@ -287,7 +287,7 @@ export default function CommandPalette({
               return;
             }
 
-            const patchContent = DiffGenerator.generateUnifiedPatch(rawText, claims, fileName);
+            const patchContent = DiffGenerator.generateUnifiedPatchFromClaims(rawText, claims, fileName);
             if (!patchContent || patchContent.trim().length === 0) {
               addToast('No diff changes detected in manuscript.', 'warning');
               return;
@@ -427,7 +427,7 @@ export default function CommandPalette({
         category: 'Preferences',
         title: `Switch to ${resolvedTheme === 'dark' ? 'Light' : 'Dark'} Mode`,
         subtitle: 'Toggle clinical high-contrast light or dark appearance',
-        icon: resolvedTheme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-400" />,
+        icon: resolvedTheme === 'dark' ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4 text-indigo-400" />,
         shortcut: 'Ctrl+T',
         action: () => {
           toggleTheme();
@@ -475,7 +475,7 @@ export default function CommandPalette({
         category: 'System',
         title: 'Legal & Privacy Compliance...',
         subtitle: 'View enterprise zero-knowledge architecture and BYOK liability terms',
-        icon: <Shield className="w-4 h-4 text-amber-500" />,
+        icon: <Shield className="w-4 h-4 text-yellow-500" />,
         action: () => {
           handleClose();
           setShowLegalWindow(true);
@@ -574,12 +574,12 @@ export default function CommandPalette({
                   onMouseEnter={() => setSelectedIndex(idx)}
                   disabled={cmd.disabled}
                   className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors font-sans text-xs',
+                    'w-full flex items-center justify-between px-3 py-2 text-left transition-colors font-sans text-xs border-l-2',
                     cmd.disabled
-                      ? 'opacity-40 cursor-not-allowed text-zinc-400'
+                      ? 'border-transparent opacity-40 cursor-not-allowed text-zinc-400 rounded-lg'
                       : isSelected
-                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 dark:bg-emerald-500/15'
-                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900'
+                      ? 'bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 border-emerald-500 rounded-r-lg rounded-l-[2px]'
+                      : 'border-transparent text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-lg'
                   )}
                 >
                   <div className="flex items-center gap-2.5 truncate">

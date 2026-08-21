@@ -38,7 +38,7 @@ export default function ToastContainer() {
               "flex items-center gap-3 px-4 py-3 rounded-lg shadow-xl border bg-white dark:bg-zinc-900 pointer-events-auto animate-in slide-in-from-right-5 fade-in duration-200",
               toast.type === 'success' ? 'border-emerald-500/30' :
               toast.type === 'error' ? 'border-rose-500/30' :
-              toast.type === 'warning' ? 'border-amber-500/30' :
+              toast.type === 'warning' ? 'border-yellow-500/30' :
               'border-zinc-200 dark:border-zinc-800'
             )}
           >
@@ -47,7 +47,7 @@ export default function ToastContainer() {
                 "w-5 h-5",
                 toast.type === 'success' ? 'text-emerald-500' :
                 toast.type === 'error' ? 'text-rose-500' :
-                toast.type === 'warning' ? 'text-amber-500' :
+                toast.type === 'warning' ? 'text-yellow-500' :
                 'text-zinc-500'
               )} 
             />

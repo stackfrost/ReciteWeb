@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { MathBlock, parseMathBlocks } from './parsers/math-parser';
 import { LLMOrchestrator } from '@/services/llm-orchestrator';
-import { LaTeXParser } from '@/services/latex-parser';
+import { LaTeXParser, rehydrateQuarantinedMath } from '@/services/latex-parser';
 import { BibTeXParser } from '@/services/bibtex-parser';
 import { FileSystemService } from '@/services/file-system';
 import { LicenseManager } from '@/services/license-manager';
@@ -182,19 +182,42 @@ export interface WorkspaceState {
 // § E. UI TELEMETRY (Status Bar)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface NetworkTelemetry {
-  isOnline: boolean;
-  /** Last measured API round-trip latency in ms, null if no call made */
-  apiLatencyMs: number | null;
-  /** JS heap used in MB via performance.memory, null if API unavailable */
-  memUsedMB: number | null;
+export interface TelemetryState {
+  astNodeCount: number;
+  tokenPressure: number;
+  lastWriteLatency: number;
+  memoryUsage: number;
+  // Keep for backwards compatibility
+  isOnline?: boolean;
+  apiLatencyMs?: number | null;
+  memUsedMB?: number | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § F. TRANSIENT EDITOR STATE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface DiagnosticPin {
+  id: string;
+  line: number;
+  type: 'critical' | 'medium';
+  message: string;
+}
+
+/**
+ * DO NOT bind `cursorOffset` or `scrollLine` directly into React components via `useStore((state) => state.cursorOffset)`. High-frequency updates will cause severe re-render lag. Use `useStore.subscribe()` via DOM refs instead.
+ */
+export interface EditorState {
+  cursorOffset: number;
+  scrollLine: number;
+  diagnosticPins: DiagnosticPin[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § FULL STORE INTERFACE
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface ReciteState {
+interface ReciteState extends EditorState {
   // ── Document ──────────────────────────────────────────────────────────────
   rawText: string;
   parsedText: string;
@@ -247,7 +270,16 @@ interface ReciteState {
   storage: StorageAdapter;
   llmRouter: LLMRouter;
   workspace: WorkspaceState;
-  telemetry: NetworkTelemetry;
+  telemetry: TelemetryState;
+  showTelemetry: boolean;
+  semanticScholarKey: string | null;
+
+  // ── Transient Editor State Actions ────────────────────────────────────────
+  setCursorOffset: (offset: number) => void;
+  setScrollLine: (line: number) => void;
+  setDiagnosticPins: (pins: DiagnosticPin[]) => void;
+  updateTelemetry: (metrics: Partial<TelemetryState>) => void;
+  setShowTelemetry: (show: boolean) => void;
 
   // ── Document Actions ──────────────────────────────────────────────────────
   setRawText: (text: string) => void;
@@ -313,7 +345,8 @@ interface ReciteState {
   mountDirectoryWorkspace: (dirName: string, files: Record<string, any>) => void;
   setActiveFile: (path: string) => void;
   unmountWorkspace: () => void;
-  setTelemetry: (patch: Partial<NetworkTelemetry>) => void;
+  setTelemetry: (patch: Partial<TelemetryState>) => void;
+  setSemanticScholarKey: (key: string | null) => void;
 
   // ── Reset ─────────────────────────────────────────────────────────────────
   reset: () => void;
@@ -404,10 +437,19 @@ const initialState = {
     activeFilePath: null as string | null,
   },
   telemetry: {
+    astNodeCount: 0,
+    tokenPressure: 0,
+    lastWriteLatency: 0,
+    memoryUsage: 0,
     isOnline: true,
     apiLatencyMs: null as number | null,
     memUsedMB: null as number | null,
   },
+  showTelemetry: true,
+  semanticScholarKey: null as string | null,
+  cursorOffset: 0,
+  scrollLine: 0,
+  diagnosticPins: [] as DiagnosticPin[],
   toasts: [] as Toast[],
   confirmDialog: null as ConfirmDialog | null,
 };
@@ -436,6 +478,7 @@ export const useReciteStore = create<ReciteState>()(
     get().applyFilters();
   },
   setActiveClaimIndex: (index) => set({ activeClaimIndex: index }),
+  setSemanticScholarKey: (key) => set({ semanticScholarKey: key }),
   nextClaim: () => {
     const { filteredClaims, activeClaimIndex } = get();
     if (!filteredClaims.length) return;
@@ -842,15 +885,22 @@ export const useReciteStore = create<ReciteState>()(
       stats: initialState.stats,
     }),
 
+  updateTelemetry: (metrics) =>
+    set((s) => ({ telemetry: { ...s.telemetry, ...metrics } })),
+  setShowTelemetry: (show) => set({ showTelemetry: show }),
   setTelemetry: (patch) =>
     set((s) => ({ telemetry: { ...s.telemetry, ...patch } })),
+
+  setCursorOffset: (offset) => set({ cursorOffset: offset }),
+  setScrollLine: (line) => set({ scrollLine: line }),
+  setDiagnosticPins: (pins) => set({ diagnosticPins: pins }),
 
   reset: () => set(initialState),
 
   setAuditProgress: (msg) => set({ auditProgress: msg }),
 
   runAudit: async () => {
-    const { workspace, rawText, bibtexContent, llmRouter, setWorkspaceStatus, setIsAuditing, setClaims, setTelemetry, addToast, setAuditProgress } = get();
+    const { workspace, rawText, mathBlocks, bibtexContent, llmRouter, setWorkspaceStatus, setIsAuditing, setClaims, setTelemetry, addToast, setAuditProgress } = get();
     if (workspace.status === 'NO_WORKSPACE_MOUNTED') return;
 
     setWorkspaceStatus('PREFLIGHT_RUNNING');
@@ -883,19 +933,26 @@ export const useReciteStore = create<ReciteState>()(
       // Update API latency telemetry
       setTelemetry({ apiLatencyMs: result.latencyMs });
 
+      // Convert MathBlocks Map to string Map for rehydration
+      const tokenMap = new Map<string, string>();
+      mathBlocks.forEach((block, key) => tokenMap.set(key, block.content));
+
       // Map AuditClaim to internal Claim structure, preserving suggestedFix and context
       const mappedClaims: Claim[] = result.claims.map((ac) => ({
         id: ac.id,
-        text: ac.text,
+        text: rehydrateQuarantinedMath(ac.text, tokenMap),
         category: 'Literature Claim' as ClaimCategory,
         severity: ac.severity === 'Critical' ? 'Critical' : ac.severity as ClaimSeverity,
         status: 'pending' as ClaimStatus,
         startIndex: 0,
-        endIndex: ac.text.length,
-        suggestedFix: ac.suggestedFix,
+        endIndex: ac.text.length, // Re-evaluated below, this is just a placeholder
+        suggestedFix: ac.suggestedFix ? rehydrateQuarantinedMath(ac.suggestedFix, tokenMap) : undefined,
         context: ac.context,
         auditType: ac.type,
       }));
+
+      // Update endIndex based on rehydrated text
+      mappedClaims.forEach(c => c.endIndex = c.text.length);
 
       // Use setClaims to ensure stats and filters are recalculated
       setClaims(mappedClaims);

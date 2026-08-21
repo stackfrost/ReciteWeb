@@ -31,6 +31,12 @@ argon2           = "0.5"
 serde            = { version = "1", features = ["derive"] }
 serde_json       = "1"
 
+# Zotero SQLite bridge
+rusqlite         = { version = "0.31", features = ["bundled"] }
+
+# High-speed local PDF text extraction
+pdf-extract      = "0.7"
+
 [profile.release]
 # Maximum binary hardening for distribution
 panic   = "abort"   # Remove stack-unwind tables (reduces binary surface)

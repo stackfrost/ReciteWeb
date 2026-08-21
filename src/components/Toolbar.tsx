@@ -10,6 +10,7 @@ import {
   FolderOpen,
   Cpu,
   Link2,
+  Download,
 } from 'lucide-react';
 import { LaTeXParser } from '@/services/latex-parser';
 import { BibTeXParser } from '@/services/bibtex-parser';
@@ -36,6 +37,7 @@ export default function Toolbar() {
     setFilterSeverity,
     llmRouter,
     setShowSettings,
+    setShowExportModal,
     runAudit,
     setWorkspaceStatus,
     setRawText,
@@ -121,17 +123,17 @@ export default function Toolbar() {
           onClick={runAudit}
           disabled={!isMounted || isAuditing}
           className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-colors shadow-xs cursor-pointer',
+            'flex items-center gap-2 font-sans text-sm font-medium px-4 py-1.5 rounded-md transition-colors duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50',
             !isMounted
               ? 'bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 border border-zinc-200 dark:border-zinc-800 cursor-not-allowed'
               : isAuditing
-              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30'
-              : 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white'
+              ? 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 border border-yellow-500/30'
+              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
           )}
         >
           {isAuditing ? (
             <>
-              <RotateCcw size={12} className="animate-spin text-amber-500" />
+              <RotateCcw size={12} className="animate-spin text-yellow-500" />
               <span>Auditing Manuscript...</span>
             </>
           ) : (
@@ -151,10 +153,10 @@ export default function Toolbar() {
         <button
           onClick={() => fileInputRef.current?.click()}
           title="Open Manuscript File (Ctrl+O)"
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 p-1.5 rounded bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 transition-colors duration-150 cursor-pointer"
         >
-          <FolderOpen size={13} className="text-zinc-500" />
-          <span className="truncate max-w-[180px]">
+          <FolderOpen size={14} />
+          <span className="truncate max-w-[180px] text-xs font-medium">
             {isMounted ? workspace.fileName || 'Document' : 'Open File...'}
           </span>
         </button>
@@ -163,7 +165,7 @@ export default function Toolbar() {
           <button
             onClick={unmountWorkspace}
             title="Close document (Ctrl+W)"
-            className="px-2 py-1 text-zinc-400 hover:text-rose-500 transition-colors cursor-pointer"
+            className="p-1.5 rounded bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 transition-colors duration-150 cursor-pointer text-xs font-medium"
           >
             Close
           </button>
@@ -173,7 +175,7 @@ export default function Toolbar() {
       {/* ── MIDDLE SECTION: Diagnostics Summary ─────────────────────────────── */}
       <div className="hidden md:flex items-center gap-2 text-zinc-500 dark:text-zinc-400 text-xs">
         {auditProgress ? (
-          <span className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-medium animate-pulse">
+          <span className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400 font-medium animate-pulse">
             <RotateCcw size={11} className="animate-spin" />
             {auditProgress}
           </span>
@@ -204,11 +206,11 @@ export default function Toolbar() {
               className={cn(
                 'flex items-center gap-1 px-2 py-0.5 rounded transition-colors cursor-pointer',
                 filterSeverity === 'Medium'
-                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium'
+                  ? 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 font-medium'
                   : 'hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-400'
               )}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
               <span>{medCount} Medium</span>
             </button>
 
@@ -218,11 +220,11 @@ export default function Toolbar() {
               className={cn(
                 'flex items-center gap-1 px-2 py-0.5 rounded transition-colors cursor-pointer',
                 filterSeverity === 'Low'
-                  ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400 font-medium'
+                  ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 font-medium'
                   : 'hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-400'
               )}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
               <span>{lowCount} Low</span>
             </button>
           </>
@@ -244,11 +246,23 @@ export default function Toolbar() {
         {/* Flat Engine Pill */}
         <button
           onClick={() => setShowSettings(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 p-1.5 rounded bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 transition-colors duration-150 cursor-pointer text-xs font-medium"
           title="Configure LLM Inference Engine & API Keys"
         >
-          <Cpu size={12} className="text-zinc-400" />
-          <span>Engine: <strong className="text-zinc-900 dark:text-zinc-100 font-medium">{engineName} (BYOK)</strong></span>
+          <Cpu size={14} />
+          <span>Engine: <strong className="font-semibold">{engineName} (BYOK)</strong></span>
+        </button>
+
+        <span className="hidden lg:inline text-zinc-300 dark:text-zinc-800">|</span>
+
+        {/* Export Button */}
+        <button
+          onClick={() => setShowExportModal(true)}
+          className="flex items-center gap-1.5 p-1.5 rounded bg-indigo-500/10 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/20 transition-colors duration-150 cursor-pointer text-xs font-medium"
+          title="Export Publication Package"
+        >
+          <Download size={14} />
+          <span>Export</span>
         </button>
       </div>
     </header>

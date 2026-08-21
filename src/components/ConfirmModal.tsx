@@ -32,7 +32,7 @@ export default function ConfirmModal() {
                 onClick={closeConfirm}
                 className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 cursor-pointer shadow-xs"
               />
-              <div className="w-3 h-3 rounded-full bg-amber-500/80 opacity-60" />
+              <div className="w-3 h-3 rounded-full bg-yellow-500/80 opacity-60" />
               <div className="w-3 h-3 rounded-full bg-emerald-500/80 opacity-60" />
             </div>
             <span className="text-xs font-mono font-bold tracking-wider text-zinc-700 dark:text-zinc-300">
@@ -50,7 +50,7 @@ export default function ConfirmModal() {
 
         {/* Body */}
         <div className="p-5 flex gap-4">
-          <div className="p-2.5 h-fit bg-amber-500/10 rounded-lg border border-amber-500/20 text-amber-500">
+          <div className="p-2.5 h-fit bg-yellow-500/10 rounded-lg border border-yellow-500/20 text-yellow-500">
             <AlertTriangle className="w-5 h-5" />
           </div>
           <div>

@@ -62,6 +62,8 @@ export default function MenuBar() {
     documentTitle,
     runAudit,
     mountBibTex,
+    showTelemetry,
+    setShowTelemetry,
   } = useReciteStore();
 
   const { resolvedTheme, toggleTheme } = useTheme();
@@ -157,7 +159,7 @@ export default function MenuBar() {
         return;
       }
 
-      const patchContent = DiffGenerator.generateUnifiedPatch(rawText, claims, fileName);
+      const patchContent = DiffGenerator.generateUnifiedPatchFromClaims(rawText, claims, fileName);
       if (!patchContent || patchContent.trim().length === 0) {
         addToast('No diff changes detected in manuscript.', 'warning');
         return;
@@ -255,7 +257,7 @@ export default function MenuBar() {
         {/* macOS Traffic Lights */}
         <div className="flex items-center gap-1.5 mr-3 px-1">
           <div className="w-2.5 h-2.5 rounded-full bg-red-500/80 hover:bg-red-400 cursor-pointer transition-colors shadow-sm" />
-          <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80 hover:bg-amber-400 cursor-pointer transition-colors shadow-sm" />
+          <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80 hover:bg-yellow-400 cursor-pointer transition-colors shadow-sm" />
           <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80 hover:bg-emerald-400 cursor-pointer transition-colors shadow-sm" />
         </div>
 
@@ -288,7 +290,7 @@ export default function MenuBar() {
                         onClick={handleMountClick}
                       />
                       <MenuAction
-                        icon={<Sparkles size={13} className="text-amber-500" />}
+                        icon={<FileText size={13} className="text-zinc-500" />}
                         label="Open Sample Manuscript"
                         shortcut="Ctrl+Shift+D"
                         onClick={handleLoadDemo}
@@ -379,9 +381,17 @@ export default function MenuBar() {
                           toggleSidebar();
                         }}
                       />
+                      <MenuAction
+                        icon={<Activity size={13} className="text-zinc-500" />}
+                        label={showTelemetry ? "Hide Telemetry HUD" : "Show Telemetry HUD"}
+                        onClick={() => {
+                          setActiveMenu(null);
+                          setShowTelemetry(!showTelemetry);
+                        }}
+                      />
                       <div className="border-b border-zinc-100 dark:border-zinc-800 my-1" />
                       <MenuAction
-                        icon={resolvedTheme === 'dark' ? <Sun size={13} className="text-amber-500" /> : <Moon size={13} className="text-indigo-500" />}
+                        icon={resolvedTheme === 'dark' ? <Sun size={13} className="text-yellow-500" /> : <Moon size={13} className="text-indigo-500" />}
                         label={`Switch to ${resolvedTheme === 'dark' ? 'Light' : 'Dark'} Mode`}
                         shortcut="Ctrl+T"
                         onClick={() => {
@@ -485,7 +495,7 @@ export default function MenuBar() {
                         }}
                       />
                       <MenuAction
-                        icon={<Shield size={13} className="text-amber-500" />}
+                        icon={<Shield size={13} className="text-yellow-500" />}
                         label="Legal & Privacy Compliance..."
                         onClick={() => {
                           setActiveMenu(null);
@@ -532,7 +542,7 @@ export default function MenuBar() {
           license.status === 'ACTIVE'
             ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30'
             : license.status === 'UNVERIFIED'
-            ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30'
+            ? 'text-yellow-600 dark:text-yellow-400 bg-yellow-500/10 border border-yellow-500/30'
             : 'text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/30'
         )}>
           License: {license.status === 'ACTIVE' ? 'Active' : 'Unverified'}

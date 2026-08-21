@@ -41,7 +41,7 @@ export default function CandidateCard({ paper, onAccept }: CandidateCardProps) {
             {formatCitationCount(paper.citationCount)}
           </span>
           {paper.influentialCitationCount !== undefined && paper.influentialCitationCount > 0 && (
-            <span className="flex items-center text-amber-600 dark:text-amber-400" title="Highly Influential Citations (Semantic Scholar)">
+            <span className="flex items-center text-yellow-600 dark:text-yellow-400" title="Highly Influential Citations (Semantic Scholar)">
               <Activity className="w-3 h-3 mr-1" />
               {formatCitationCount(paper.influentialCitationCount)}
             </span>

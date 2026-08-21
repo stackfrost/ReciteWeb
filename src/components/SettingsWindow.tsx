@@ -140,7 +140,7 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
       ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/30'
       : license.status === 'EXPIRED'
       ? 'text-rose-500 bg-rose-500/10 border border-rose-500/30'
-      : 'text-amber-400 bg-amber-400/10 border border-amber-400/30';
+      : 'text-yellow-400 bg-yellow-400/10 border border-yellow-400/30';
 
   // ── Shared <select> class ──────────────────────────────────────────────────
   const selectCls =
@@ -163,7 +163,7 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                 onClick={handleClose}
                 className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 cursor-pointer shadow-xs"
               />
-              <div className="w-3 h-3 rounded-full bg-amber-500/80 opacity-60" />
+              <div className="w-3 h-3 rounded-full bg-yellow-500/80 opacity-60" />
               <div className="w-3 h-3 rounded-full bg-emerald-500/80 opacity-60" />
             </div>
             <span className="text-sm font-sans font-semibold text-zinc-900 dark:text-zinc-100">
@@ -225,7 +225,7 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
               </div>
               <div className="flex justify-between items-center">
                 <span>Status:</span>
-                <span className={license.status === 'ACTIVE' ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-amber-600 dark:text-amber-400 font-medium'}>
+                <span className={license.status === 'ACTIVE' ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-yellow-600 dark:text-yellow-400 font-medium'}>
                   {license.status === 'ACTIVE' ? 'Active' : 'Unverified'}
                 </span>
               </div>
@@ -582,7 +582,7 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
               onClick={handleApply}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-zinc-900 text-white dark:bg-emerald-500/20 dark:text-emerald-300 dark:border dark:border-emerald-500/30 rounded-md text-xs font-sans font-semibold hover:bg-zinc-800 dark:hover:bg-emerald-500/30 transition-all shadow-xs"
             >
-              <Sparkles size={12} />
+              <CheckCircle2 size={12} />
               <span>Apply</span>
             </button>
           </div>

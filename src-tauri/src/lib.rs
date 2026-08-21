@@ -8,6 +8,10 @@
 //   • No plaintext key material ever reaches the filesystem outside the vault.
 // ─────────────────────────────────────────────────────────────────────────────
 
+pub mod zotero_bridge;
+pub mod pdf_engine;
+pub mod commands;
+
 use tauri::Manager;
 
 /// Initialise the Tauri application with the Stronghold plugin.
@@ -74,6 +78,12 @@ pub fn run() {
 
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            zotero_bridge::find_zotero_pdf,
+            pdf_engine::extract_pdf_text,
+            commands::fs::apply_manuscript_patch,
+            commands::fs::log_manuscript_patch,
+        ])
         .run(tauri::generate_context!())
         .expect("ReciteAI: Tauri application loop encountered a fatal error");
 }

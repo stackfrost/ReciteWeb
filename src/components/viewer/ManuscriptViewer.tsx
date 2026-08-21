@@ -6,6 +6,8 @@ import type { Claim } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import MathBlock from './MathBlock';
 import ClaimHighlight from './ClaimHighlight';
+
+import ASTBreadcrumbs from './ASTBreadcrumbs';
 import { BibTeXParser } from '@/services/bibtex-parser';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
@@ -70,13 +72,37 @@ export default function ManuscriptViewer() {
   }, [filteredClaims, activeClaimIndex]);
 
   // Track scroll progress
+  const rafScrollRef = useRef<number | null>(null);
+  const rafCursorRef = useRef<number | null>(null);
+
   const handleScroll = () => {
-    if (containerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-      const total = scrollHeight - clientHeight;
-      const progress = total > 0 ? (scrollTop / total) * 100 : 0;
-      setScrollProgress(progress);
-    }
+    if (rafScrollRef.current !== null) return;
+    rafScrollRef.current = requestAnimationFrame(() => {
+      if (containerRef.current) {
+        const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+        const total = scrollHeight - clientHeight;
+        const progress = total > 0 ? (scrollTop / total) * 100 : 0;
+        setScrollProgress(progress);
+        
+        // Calculate the current scrollLine
+        const scrollLine = Math.floor(scrollTop / 24);
+        useReciteStore.getState().setScrollLine(scrollLine);
+      }
+      rafScrollRef.current = null;
+    });
+  };
+
+  const updateCursorOffset = () => {
+    if (rafCursorRef.current !== null) return;
+    rafCursorRef.current = requestAnimationFrame(() => {
+      let offset = 0;
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        offset = sel.getRangeAt(0).startOffset;
+      }
+      useReciteStore.getState().setCursorOffset(offset);
+      rafCursorRef.current = null;
+    });
   };
 
   // Auto-scroll to active claim
@@ -137,56 +163,24 @@ export default function ManuscriptViewer() {
     return null;
   }, [activeClaim]);
 
-  // ── 2. Line Number & Gutter Anomaly Pin Mapping ────────────────────────────
-  const textLines = useMemo(() => {
-    const text = rawText || parsedText || '';
-    if (!text) return [];
-    return text.split('\n');
-  }, [rawText, parsedText]);
-
-  const lineCountList = useMemo(() => {
-    const count = Math.max(textLines.length, 45);
-    return Array.from({ length: count }, (_, i) => i + 1);
-  }, [textLines]);
-
-  const lineClaimMap = useMemo(() => {
-    const text = rawText || parsedText || '';
-    if (!text || !claims.length) return new Map<number, Claim>();
-
-    const map = new Map<number, Claim>();
-    const lines = text.split('\n');
-    let currentOffset = 0;
-
-    lines.forEach((lineText, idx) => {
-      const lineNum = idx + 1;
-      const lineStart = currentOffset;
-      const lineEnd = currentOffset + lineText.length + 1;
-
-      // Find if any claim begins or exists in this line
-      const match = claims.find((c) => {
-        if (c.lineIndex !== undefined && c.lineIndex === lineNum) return true;
-        return c.startIndex >= lineStart && c.startIndex < lineEnd;
-      });
-
-      if (match) {
-        map.set(lineNum, match);
-      }
-
-      currentOffset = lineEnd;
-    });
-
-    return map;
-  }, [rawText, parsedText, claims]);
 
   // ── 3. Rich Content Renderer (KaTeX + Citation Peek Hover Cards) ───────────
-  const renderRichContent = (text: string, keyPrefix: string) => {
-    const parts = text.split(/(\[\[MATH_BLOCK_\d+\]\]|\$\$[\s\S]+?\$\$|\$[^\$\n]+?\$)/g);
+  const renderRichContent = (rawTextStr: string, keyPrefix: string) => {
+    // 1. Pre-pass: Stitch together broken quarantine tokens and preserve backslashes
+    // If the orchestrator properly rehydrated tokens, this won't match, but we keep it for safety.
+    const text = rawTextStr
+      .replace(/\\/g, '\\\\') // Preserve backslashes from being lost in string payload evaluation
+      .replace(/\[\[\s*R\s*E\s*C\s*I\s*T\s*E\s*A\s*I\s*_\s*Q\s*U\s*A\s*R\s*A\s*N\s*T\s*I\s*N\s*E[\s_A-Z0-9]*\]\]/gi, (match) => match.replace(/\s+/g, ''));
+
+    // Split on quarantine tokens or math delimiters ($$, \[ \], $, \( \))
+    const parts = text.split(/(\[\[RECITEAI_QUARANTINE_[A-Z_]+_\d+_[A-Z0-9]+\]\]|\$\$[\s\S]+?\$\$|\\\\\[[\s\S]+?\\\\\]|\$[^\$\n]+?\$|\\\\[(][^\n]+?\\\\[)])/g);
 
     return parts.map((part, pIdx) => {
+      if (!part) return null;
       const pKey = `${keyPrefix}-p-${pIdx}`;
 
       // Check for placeholder math token
-      if (part.startsWith('[[MATH_BLOCK_') && mathBlocks.has(part)) {
+      if (part.startsWith('[[RECITEAI_QUARANTINE_') && mathBlocks.has(part)) {
         const mb = mathBlocks.get(part)!;
         try {
           const html = katex.renderToString(mb.rawFormula, {
@@ -196,7 +190,7 @@ export default function ManuscriptViewer() {
           return (
             <span
               key={pKey}
-              className={mb.type === 'display' ? 'block my-3 text-center overflow-x-auto py-1 font-mono' : 'inline-block px-0.5 font-mono'}
+              className={mb.type === 'display' ? 'block my-6 text-center overflow-x-auto py-1 bg-zinc-900/60 border border-zinc-800 rounded px-2 text-zinc-100' : 'inline px-1 bg-zinc-900/60 border border-zinc-800 rounded text-zinc-100'}
               dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
@@ -205,15 +199,19 @@ export default function ManuscriptViewer() {
         }
       }
 
-      // Check for display math $$...$$
-      if (part.startsWith('$$') && part.endsWith('$$') && part.length >= 4) {
-        const formula = part.slice(2, -2).trim();
+      // Check for display math $$...$$ or \[...\]
+      if (
+        (part.startsWith('$$') && part.endsWith('$$') && part.length >= 4) ||
+        (part.startsWith('\\\[') && part.endsWith('\\\]') && part.length >= 6)
+      ) {
+        let formula = part.startsWith('$$') ? part.slice(2, -2) : part.slice(3, -3);
+        formula = formula.trim().replace(/\\\\/g, '\\').replace(/\\t/g, '    ');
         try {
           const html = katex.renderToString(formula, { displayMode: true, throwOnError: false });
           return (
             <span
               key={pKey}
-              className="block my-3 text-center overflow-x-auto py-1 font-mono"
+              className="block my-6 text-center overflow-x-auto py-1 bg-zinc-900/60 border border-zinc-800 rounded px-2 text-zinc-100"
               dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
@@ -222,15 +220,19 @@ export default function ManuscriptViewer() {
         }
       }
 
-      // Check for inline math $...$
-      if (part.startsWith('$') && part.endsWith('$') && part.length >= 2) {
-        const formula = part.slice(1, -1).trim();
+      // Check for inline math $...$ or \(...\)
+      if (
+        (part.startsWith('$') && part.endsWith('$') && part.length >= 2) ||
+        (part.startsWith('\\\\(') && part.endsWith('\\\\)') && part.length >= 6)
+      ) {
+        let formula = part.startsWith('$') ? part.slice(1, -1) : part.slice(3, -3);
+        formula = formula.trim().replace(/\\\\/g, '\\').replace(/\\t/g, ' ');
         try {
           const html = katex.renderToString(formula, { displayMode: false, throwOnError: false });
           return (
             <span
               key={pKey}
-              className="inline-block px-0.5 font-mono"
+              className="inline px-1 bg-zinc-900/60 border border-zinc-800 rounded text-zinc-100"
               dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
@@ -240,12 +242,12 @@ export default function ManuscriptViewer() {
       }
 
       // 2. In non-math text, detect \cite{...} commands
-      const citeRegex = /(\\cite[a-zA-Z]*\{[^}]+\})/g;
+      const citeRegex = /(\\\\cite[a-zA-Z]*\{[^}]+\})/g;
       const subParts = part.split(citeRegex);
 
       return subParts.map((subPart, sIdx) => {
         const subKey = `${pKey}-s-${sIdx}`;
-        const match = subPart.match(/^\\cite[a-zA-Z]*\{([^}]+)\}$/);
+        const match = subPart.match(/^\\\\cite[a-zA-Z]*\{([^}]+)\}$/);
 
         if (match) {
           const rawKeys = match[1];
@@ -356,128 +358,144 @@ export default function ManuscriptViewer() {
       });
     }
 
-    return segments.map((seg, sIdx) => {
-      const segmentKey = `seg-${sIdx}`;
-      if (seg.type === 'claim' && seg.claim) {
-        const claim = seg.claim;
-        const isActive = activeClaim?.id === claim.id;
+    // Split segments into paragraphs by \n\n
+    type SeverityType = 'High' | 'Medium' | 'Low' | null;
+    const paragraphs: { 
+      id: string; 
+      segments: Segment[]; 
+      hasUnresolvedClaim: boolean; 
+      severityType: SeverityType;
+      startLine: number;
+    }[] = [];
+    let currentParagraph: Segment[] = [];
+    let hasUnresolved = false;
+    let highestSeverity: SeverityType = null;
+    let currentLineNumber = 1;
+    let currentParagraphStartLine = 1;
 
-        return (
-          <ClaimHighlight
-            key={segmentKey}
-            ref={isActive ? activeClaimRef : undefined}
-            claim={claim}
-            isActive={isActive}
-            onClick={() => {
-              const targetIdx = filteredClaims.findIndex((c) => c.id === claim.id);
-              if (targetIdx !== -1) setActiveClaimIndex(targetIdx);
-            }}
-          >
-            {renderRichContent(seg.content, segmentKey)}
-          </ClaimHighlight>
-        );
-      }
+    segments.forEach((seg) => {
+      const parts = seg.content.split(/\n\n/);
+      
+      parts.forEach((part, i) => {
+        if (i > 0) {
+          paragraphs.push({ 
+            id: `para-${paragraphs.length}`, 
+            segments: currentParagraph, 
+            hasUnresolvedClaim: hasUnresolved,
+            severityType: highestSeverity,
+            startLine: currentParagraphStartLine
+          });
+          currentParagraph = [];
+          hasUnresolved = false;
+          highestSeverity = null;
+          // Splitting by \n\n means we increment line number by 2
+          currentLineNumber += 2;
+          currentParagraphStartLine = currentLineNumber;
+        }
+        
+        if (part.length > 0 || seg.type === 'claim') {
+          currentParagraph.push({
+            ...seg,
+            content: part
+          });
+          
+          if (seg.type === 'claim' && seg.claim) {
+            if (seg.claim.status !== 'accepted' && !seg.claim.isRetracted) {
+              hasUnresolved = true;
+              const sev = seg.claim.severity;
+              if (sev === 'High' || (sev === 'Medium' && highestSeverity !== 'High') || (sev === 'Low' && highestSeverity === null)) {
+                highestSeverity = sev as SeverityType;
+              }
+            } else if (seg.claim.isRetracted) {
+              hasUnresolved = true;
+              highestSeverity = 'High';
+            }
+          }
+        }
+        
+        const newlineCount = (part.match(/\n/g) || []).length;
+        currentLineNumber += newlineCount;
+      });
+    });
+    
+    if (currentParagraph.length > 0) {
+      paragraphs.push({ 
+        id: `para-${paragraphs.length}`,
+        segments: currentParagraph, 
+        hasUnresolvedClaim: hasUnresolved,
+        severityType: highestSeverity,
+        startLine: currentParagraphStartLine
+      });
+    }
 
-      return <span key={segmentKey}>{renderRichContent(seg.content, segmentKey)}</span>;
+    return paragraphs.map((para) => {
+      const isMathDisplay = para.segments.length === 1 && para.segments[0].content.trim().startsWith('$$') && para.segments[0].content.trim().endsWith('$$');
+      
+      return (
+        <div key={para.id} className={`flex group relative ${isMathDisplay ? 'my-6' : 'mb-4'}`}>
+          <div className="w-8 shrink-0 border-r border-zinc-800/80 mr-3 flex flex-col items-end pr-1 pt-0.5 select-none">
+            <span className="text-[9px] font-mono text-zinc-600 leading-none">
+               {para.startLine}
+            </span>
+            {para.hasUnresolvedClaim && (
+              <div 
+                className={`w-1.5 h-1.5 rounded-full mt-1.5 ${
+                  para.severityType === 'High' ? 'bg-red-500' : 
+                  para.severityType === 'Medium' ? 'bg-yellow-500' : 'bg-cyan-500'
+                }`} 
+              />
+            )}
+          </div>
+          <div className="flex-1 pr-4">
+            {para.segments.map((seg, sIdx) => {
+              const segmentKey = `${para.id}-seg-${sIdx}`;
+              if (seg.type === 'claim' && seg.claim) {
+                const claim = seg.claim;
+                const isActive = activeClaim?.id === claim.id;
+
+                return (
+                  <ClaimHighlight
+                    key={segmentKey}
+                    ref={isActive ? activeClaimRef : undefined}
+                    claim={claim}
+                    isActive={isActive}
+                    onClick={() => {
+                      const targetIdx = filteredClaims.findIndex((c) => c.id === claim.id);
+                      if (targetIdx !== -1) setActiveClaimIndex(targetIdx);
+                    }}
+                  >
+                    {renderRichContent(seg.content, segmentKey)}
+                  </ClaimHighlight>
+                );
+              }
+
+              return <span key={segmentKey}>{renderRichContent(seg.content, segmentKey)}</span>;
+            })}
+          </div>
+        </div>
+      );
     });
   }, [parsedText, rawText, filteredClaims, mathBlocks, activeClaim, bibtexMap, setActiveClaimIndex]);
 
   const activeLineNum = activeClaim?.lineIndex || 1;
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200 select-text overflow-hidden transition-colors">
+    <div className="bg-zinc-950 flex flex-col flex-1 min-h-0 overflow-hidden text-zinc-100 transition-colors">
       {/* ── 1. Sleek AST Breadcrumb Bar (h-7 / 28px) ────────────────────────── */}
-      <div className="h-7 px-3 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/40 font-sans text-[12px] text-zinc-500 dark:text-zinc-400 flex-shrink-0 select-none">
-        <div className="flex items-center gap-1.5 truncate">
-          <FileCode2 size={13} className="text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
-          <span className="font-medium text-zinc-800 dark:text-zinc-200 truncate">
-            {documentTitle || 'untitled.tex'}
-          </span>
-          <ChevronRight size={12} className="text-zinc-400" />
-          <span className="text-zinc-600 dark:text-zinc-400 truncate max-w-[220px]">
-            {activeSection}
-          </span>
-          {activeCitationTag && (
-            <>
-              <ChevronRight size={12} className="text-zinc-400" />
-              <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-                {activeCitationTag}
-              </span>
-            </>
-          )}
-        </div>
+      <ASTBreadcrumbs />
 
-        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
-          <span>Ln {activeLineNum}</span>
-          <span>·</span>
-          <span>{filteredClaims.length} findings</span>
-        </div>
-      </div>
-
-      {/* ── 2. Main Inspection Canvas with Line Gutter & Anomaly Minimap ─────── */}
+      {/* ── 2. Main Inspection Canvas with Anomaly Minimap ─────── */}
       <div className="relative flex-1 flex overflow-hidden">
-        {/* Optical Line Gutter with Monospace Numbers & Clean Diagnostic Dots */}
-        <div className="w-10 bg-zinc-50/60 dark:bg-zinc-950/60 border-r border-zinc-200 dark:border-zinc-800 flex flex-col py-6 select-none font-mono text-[11px] text-zinc-400 dark:text-zinc-600 flex-shrink-0 overflow-hidden">
-          {lineCountList.map((lineNum) => {
-            const claimOnLine = lineClaimMap.get(lineNum);
-            const isCurrent = activeClaim && claimOnLine && activeClaim.id === claimOnLine.id;
-
-            let dotColor = 'bg-sky-400';
-            if (claimOnLine) {
-              if (claimOnLine.isRetracted || claimOnLine.severity === 'High' || claimOnLine.severity === 'Critical') {
-                dotColor = 'bg-rose-500';
-              } else if (claimOnLine.severity === 'Medium') {
-                dotColor = 'bg-amber-400';
-              } else if (claimOnLine.status === 'accepted') {
-                dotColor = 'bg-emerald-500';
-              }
-            }
-
-            return (
-              <div
-                key={lineNum}
-                className={cn(
-                  'h-6 leading-6 px-1 flex items-center justify-between group transition-colors',
-                  isCurrent && 'bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 font-semibold'
-                )}
-              >
-                {/* Flat 6px Diagnostic Anomaly Dot */}
-                <div className="w-2.5 flex items-center justify-center">
-                  {claimOnLine ? (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const targetIdx = filteredClaims.findIndex((c) => c.id === claimOnLine.id);
-                        if (targetIdx !== -1) setActiveClaimIndex(targetIdx);
-                      }}
-                      title={`[${claimOnLine.severity}] Line ${lineNum}: ${claimOnLine.text.substring(0, 60)}...`}
-                      className={cn(
-                        'w-1.5 h-1.5 rounded-full cursor-pointer transition-transform hover:scale-125',
-                        dotColor,
-                        isCurrent && 'scale-125 ring-1 ring-zinc-400 dark:ring-zinc-500'
-                      )}
-                    />
-                  ) : null}
-                </div>
-
-                {/* Monospace Line Number */}
-                <span className="text-right pr-2 tabular-nums opacity-60 group-hover:opacity-100">
-                  {lineNum}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-
         {/* Scrollable Text Viewport */}
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto p-6 md:p-8 pr-6 font-mono leading-relaxed text-sm tracking-normal text-zinc-800 dark:text-zinc-200 selection:bg-emerald-500/25 space-y-4"
+          onClick={updateCursorOffset}
+          onKeyUp={updateCursorOffset}
+          className="font-sans text-[15px] text-zinc-200 leading-relaxed bg-transparent resize-none outline-none border-none focus:ring-0 flex-1 overflow-y-auto whitespace-pre-wrap pt-4"
+          style={{ tabSize: 2 }}
         >
-          <div className="max-w-3xl mx-auto whitespace-pre-wrap">
-            {renderedContent}
-          </div>
+          {renderedContent}
         </div>
 
         {/* Anomaly Minimap Rail */}
@@ -487,9 +505,9 @@ export default function ManuscriptViewer() {
             const topPercent = Math.min(Math.max((claim.startIndex / totalLen) * 100, 1), 98);
             const isCurrent = activeClaim?.id === claim.id;
 
-            let tickColor = 'bg-sky-400';
+            let tickColor = 'bg-cyan-400';
             if (claim.severity === 'High') tickColor = 'bg-rose-500';
-            else if (claim.severity === 'Medium') tickColor = 'bg-amber-400';
+            else if (claim.severity === 'Medium') tickColor = 'bg-yellow-400';
 
             return (
               <div

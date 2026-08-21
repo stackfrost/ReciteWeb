@@ -33,7 +33,7 @@ export default function LegalWindow() {
                 onClick={() => setShowLegalWindow(false)}
                 className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 cursor-pointer shadow-xs"
               />
-              <div className="w-3 h-3 rounded-full bg-amber-500/80 opacity-60" />
+              <div className="w-3 h-3 rounded-full bg-yellow-500/80 opacity-60" />
               <div className="w-3 h-3 rounded-full bg-emerald-500/80 opacity-60" />
             </div>
             <span className="text-sm font-sans font-semibold text-zinc-900 dark:text-zinc-100">

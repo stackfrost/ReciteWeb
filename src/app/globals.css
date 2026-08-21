@@ -3,23 +3,23 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 @layer base {
   :root {
-    --background: #f8fafc;
-    --foreground: #09090b;
+    --background: var(--color-zinc-50);
+    --foreground: var(--color-zinc-900);
     --card-bg: #ffffff;
-    --border-color: #e4e4e7;
+    --border-color: var(--color-zinc-200);
   }
 
   .dark {
-    --background: #09090b;
-    --foreground: #e4e4e7;
-    --card-bg: #0c0c0e;
-    --border-color: #27272a;
+    --background: var(--color-zinc-950);
+    --foreground: var(--color-zinc-100);
+    --card-bg: var(--color-zinc-900);
+    --border-color: var(--color-zinc-800);
   }
 
   html, body {
@@ -28,14 +28,15 @@
     height: 100vh;
     width: 100vw;
     overflow: hidden; 
+    font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   ::selection {
-    background-color: rgba(16, 185, 129, 0.25);
-    color: inherit;
+    background-color: var(--color-zinc-800);
+    color: var(--color-zinc-100);
   }
 }
 

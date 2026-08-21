@@ -30,7 +30,7 @@ export default function MathBlock({ content, isDisplay = false }: MathBlockProps
   return (
     <span 
       ref={containerRef} 
-      className={isDisplay ? "block my-4 text-center overflow-x-auto" : "inline-block"}
+      className={isDisplay ? "block my-4 text-center overflow-x-auto" : "inline"}
     />
   );
 }

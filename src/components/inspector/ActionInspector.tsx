@@ -94,15 +94,15 @@ export default function ActionInspector() {
                 claim.severity === 'High' || claim.severity === 'Critical'
                   ? 'bg-rose-500'
                   : claim.severity === 'Medium'
-                  ? 'bg-amber-400'
-                  : 'bg-sky-400';
+                  ? 'bg-yellow-400'
+                  : 'bg-blue-400';
 
               const sevTextColor =
                 claim.severity === 'High' || claim.severity === 'Critical'
                   ? 'text-rose-600 dark:text-rose-400'
                   : claim.severity === 'Medium'
-                  ? 'text-amber-600 dark:text-amber-400'
-                  : 'text-sky-600 dark:text-sky-400';
+                  ? 'text-yellow-600 dark:text-yellow-400'
+                  : 'text-blue-600 dark:text-blue-400';
 
               const statusText = claim.isRetracted ? 'Flagged' : claim.status === 'accepted' ? 'Resolved' : 'Unresolved';
               const statusColor = claim.isRetracted
@@ -272,13 +272,19 @@ export default function ActionInspector() {
                       </div>
 
                       {/* Apply Action Button */}
-                      <div className="p-2.5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40">
+                      <div className="p-2.5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40 flex items-center gap-2">
+                        <button
+                          onClick={() => dismissClaim(activeClaim.id)}
+                          className="flex-1 flex items-center justify-center font-sans text-sm font-medium px-4 py-1.5 rounded-md transition-colors duration-150 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-600 cursor-pointer"
+                        >
+                          Reject
+                        </button>
                         <button
                           onClick={() => applyFix(activeClaim.id)}
-                          className="w-full flex items-center justify-center gap-2 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-medium rounded transition-colors cursor-pointer shadow-xs"
+                          className="flex-1 flex items-center justify-center gap-2 font-sans text-sm font-medium px-4 py-1.5 rounded-md transition-colors duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs"
                         >
                           <Wrench className="w-3.5 h-3.5" />
-                          <span>Apply Fix to Manuscript</span>
+                          <span>Accept Fix</span>
                         </button>
                       </div>
                     </div>

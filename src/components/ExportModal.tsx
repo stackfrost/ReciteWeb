@@ -103,19 +103,19 @@ export default function ExportModal({ isOpen, onClose }: ExportModalProps) {
               className={cn(
                 'border p-3 rounded-lg flex flex-col items-center justify-center text-center transition-colors',
                 unverifiedCount > 0
-                  ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-900/50'
+                  ? 'bg-yellow-50/50 dark:bg-yellow-950/20 border-yellow-300 dark:border-yellow-900/50'
                   : 'bg-zinc-50 dark:bg-zinc-900/60 border-zinc-200 dark:border-zinc-800'
               )}
             >
               {unverifiedCount > 0 ? (
-                <AlertTriangle className="w-5 h-5 text-amber-500 mb-1" />
+                <AlertTriangle className="w-5 h-5 text-yellow-500 mb-1" />
               ) : (
                 <CheckCircle2 className="w-5 h-5 text-emerald-500 mb-1 opacity-50" />
               )}
               <span
                 className={cn(
                   'text-xl font-mono font-bold leading-none mb-1',
-                  unverifiedCount > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-500'
+                  unverifiedCount > 0 ? 'text-yellow-700 dark:text-yellow-400' : 'text-zinc-500'
                 )}
               >
                 {unverifiedCount}
@@ -127,8 +127,8 @@ export default function ExportModal({ isOpen, onClose }: ExportModalProps) {
           </div>
 
           {unverifiedCount > 0 && (
-            <div className="flex items-start space-x-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-900 dark:text-amber-200">
-              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+            <div className="flex items-start space-x-2 p-2.5 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-900 dark:text-yellow-200">
+              <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
               <p className="text-[11px] leading-relaxed">
                 Notice: {unverifiedCount} claims remain unverified. These will be excluded from the generated .bib file.
               </p>

@@ -2,20 +2,27 @@ import type { LLMProvider } from '@/lib/models';
 import type { ExtractedClaim } from './latex-parser';
 import type { BibTeXEntry } from './bibtex-parser';
 import { chunkClaims, pruneBibTeXForChunk } from './latex-parser';
+import { resolvePdfContext } from './pdf-bridge';
+import { chunkText } from './text-chunker';
+import { searchPdfContext } from './vector-search';
+import { ProviderRateLimiter } from './rate-limiter';
+import { useReciteStore } from '../lib/store';
+import { validateCitation } from './metadata-cascade';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § SYSTEM PROMPT — Post-doctoral peer-review audit persona
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a post-doctoral peer reviewer and experimental physics expert. Your task is to audit extracted manuscript claims against their cited BibTeX entries.
+const SYSTEM_PROMPT = `You are a post-doctoral peer reviewer and experimental physics expert. Your task is to audit extracted manuscript claims against their cited BibTeX entries and verified source context from local PDFs.
 
 You MUST be highly rigorous and clinical. For each claim:
-1. Check if the cited BibTeX entries adequately support the claim.
-2. Identify missing citations, weak citations, hallucinated claims, or misattributions.
-3. If a claim references a citation key that does not exist in the BibTeX database, flag it as MissingCitation.
-4. If a claim makes a strong empirical assertion but the cited reference is only tangentially related, flag it as WeakCitation.
-5. If a claim presents a fact that appears fabricated or unsupported by any provided reference, flag it as Hallucination.
-6. If a claim attributes a result to the wrong paper, flag it as Misattribution.
+1. Check if the cited BibTeX entries and any provided "Verified Source Context" (extracted directly from canonical source PDFs) adequately support the claim.
+2. If "Verified Source Context" is provided for a claim, treat it as ground truth from the cited paper to confirm or dispute empirical assertions.
+3. Identify missing citations, weak citations, hallucinated claims, or misattributions.
+4. If a claim references a citation key that does not exist in the BibTeX database, flag it as MissingCitation.
+5. If a claim makes a strong empirical assertion but the cited reference or verified source context is only tangentially related or contradicts the claim, flag it as WeakCitation.
+6. If a claim presents a fact that appears fabricated or unsupported by any provided reference or verified source context, flag it as Hallucination.
+7. If a claim attributes a result to the wrong paper, flag it as Misattribution.
 
 For each finding, provide:
 - A unique ID (e.g., "audit-1", "audit-2")
@@ -104,6 +111,8 @@ export interface AuditResult {
 // § LLM ORCHESTRATOR — Multi-Call Parallel Architecture
 // ─────────────────────────────────────────────────────────────────────────────
 
+const rateLimiter = new ProviderRateLimiter(4000, 400000);
+
 export class LLMOrchestrator {
   /**
    * Executes the citation pre-flight audit using a 4-chunk parallel
@@ -131,9 +140,20 @@ export class LLMOrchestrator {
       );
     }
 
-    // ── Phase 1: Chunk the AST ─────────────────────────────────────────────
+    // ── Phase 1: Validate Metadata (Parallel Dispatch) ───────────────────────
+    onProgress?.('Validating citations across federated cascade...');
+    const uniqueKeys = Array.from(new Set(extractedClaims.flatMap(c => c.citations || [])));
+    if (uniqueKeys.length > 0) {
+      await Promise.allSettled(uniqueKeys.map(key => validateCitation(key)));
+    }
+
+    // ── Phase 1.5: Enrich claims with local PDF context via Semantic RAG ─────
+    onProgress?.('Locating Zotero PDFs & extracting semantic context...');
+    const enrichedClaims = await this.enrichClaimsWithPdfContext(extractedClaims, onProgress);
+
+    // ── Phase 2: Chunk the AST ─────────────────────────────────────────────
     onProgress?.('Chunking AST...');
-    const chunks = chunkClaims(extractedClaims, 4);
+    const chunks = chunkClaims(enrichedClaims, 4);
     const totalChunks = chunks.length;
 
     if (totalChunks === 0) {
@@ -141,9 +161,9 @@ export class LLMOrchestrator {
       return { claims: [], latencyMs: 0 };
     }
 
-    console.log(`[LLMOrchestrator] Split ${extractedClaims.length} claims into ${totalChunks} chunks`);
+    console.log(`[LLMOrchestrator] Split ${enrichedClaims.length} claims into ${totalChunks} chunks`);
 
-    // ── Phase 2: Build per-chunk promises ──────────────────────────────────
+    // ── Phase 3: Build per-chunk promises ──────────────────────────────────
     const resolvedModel = model || resolveDefaultModel(provider);
     const t0 = performance.now();
     let completedCount = 0;
@@ -167,13 +187,13 @@ export class LLMOrchestrator {
       });
     });
 
-    // ── Phase 3: Execute all in parallel with graceful degradation ────────
+    // ── Phase 4: Execute all in parallel with graceful degradation ────────
     onProgress?.(`Auditing section 1 of ${totalChunks}...`);
     const results = await Promise.allSettled(chunkPromises);
 
     const latencyMs = Math.round(performance.now() - t0);
 
-    // ── Phase 4: Aggregate results ─────────────────────────────────────────
+    // ── Phase 5: Aggregate results ─────────────────────────────────────────
     const allFindings: AuditClaim[] = [];
     let globalIdCounter = 1;
 
@@ -214,6 +234,65 @@ export class LLMOrchestrator {
     return { claims: allFindings, latencyMs };
   }
 
+  /**
+   * Enriches claims with local PDF context via the Zotero bridge, text chunker,
+   * and local in-memory semantic vector search.
+   */
+  private static async enrichClaimsWithPdfContext(
+    claims: ExtractedClaim[],
+    onProgress?: (msg: string) => void
+  ): Promise<ExtractedClaim[]> {
+    const pdfTextCache = new Map<string, string>();
+    const pdfChunksCache = new Map<string, string[]>();
+    const enriched: ExtractedClaim[] = [];
+
+    for (let i = 0; i < claims.length; i++) {
+      const claim = claims[i];
+      const sourceContexts: string[] = [];
+
+      if (claim.citations && claim.citations.length > 0) {
+        for (const key of claim.citations) {
+          try {
+            let chunks = pdfChunksCache.get(key);
+
+            if (!chunks) {
+              let pdfText = pdfTextCache.get(key);
+              if (!pdfText) {
+                const resolved = await resolvePdfContext(key);
+                if (resolved && resolved.trim()) {
+                  pdfText = resolved;
+                  pdfTextCache.set(key, pdfText);
+                }
+              }
+
+              if (pdfText) {
+                chunks = chunkText(pdfText, 250, 50);
+                pdfChunksCache.set(key, chunks);
+              }
+            }
+
+            if (chunks && chunks.length > 0) {
+              onProgress?.(`Semantic search in PDF context for [${key}]...`);
+              const topPassages = await searchPdfContext(claim.rawText, chunks, 3);
+              if (topPassages.length > 0) {
+                sourceContexts.push(...topPassages);
+              }
+            }
+          } catch (err) {
+            console.warn(`[LLMOrchestrator] Error extracting PDF context for "${key}":`, err);
+          }
+        }
+      }
+
+      enriched.push({
+        ...claim,
+        verifiedSourceContext: sourceContexts.length > 0 ? sourceContexts : undefined,
+      });
+    }
+
+    return enriched;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // § SINGLE CHUNK AUDITOR — Isolated fetch for one claim chunk
   // ─────────────────────────────────────────────────────────────────────────
@@ -230,7 +309,7 @@ export class LLMOrchestrator {
   ): Promise<AuditClaim[]> {
     const bibtexEntries = Object.fromEntries(prunedBib.entries());
 
-    const userPayload = [
+    const userPayloadParts: string[] = [
       `## Extracted Claims from Manuscript (Section ${chunkIndex + 1} of ${totalChunks})\n`,
       '```json',
       JSON.stringify(chunk, null, 2),
@@ -239,8 +318,31 @@ export class LLMOrchestrator {
       '```json',
       JSON.stringify(bibtexEntries, null, 2),
       '```\n',
-      'Audit every claim above against the BibTeX references. Report ALL findings using the report_audit_findings tool.',
-    ].join('\n');
+    ];
+
+    const claimsWithContext = chunk.filter(
+      (c) => c.verifiedSourceContext && c.verifiedSourceContext.length > 0
+    );
+    if (claimsWithContext.length > 0) {
+      userPayloadParts.push(
+        '## Verified Source Context (Locally Extracted from Zotero PDFs)\n',
+        claimsWithContext
+          .map((c) => {
+            const passages = c.verifiedSourceContext!
+              .map((p, idx) => `[Passage ${idx + 1}]\n${p}`)
+              .join('\n\n');
+            return `### Claim ${c.id}: "${c.rawText}"\nCitations: [${c.citations.join(', ')}]\n${passages}`;
+          })
+          .join('\n\n---\n\n'),
+        '\n'
+      );
+    }
+
+    userPayloadParts.push(
+      'Audit every claim above against the BibTeX references and any Verified Source Context. Report ALL findings using the report_audit_findings tool.'
+    );
+
+    const userPayload = userPayloadParts.join('\n');
 
     let response: Response;
     try {
@@ -255,6 +357,14 @@ export class LLMOrchestrator {
         totalChunks,
         ollamaEndpoint
       );
+
+      const estimatedTokens = Math.ceil(userPayload.length / 4);
+      await rateLimiter.acquire(estimatedTokens);
+      
+      useReciteStore.getState().updateTelemetry({ 
+        tokenPressure: rateLimiter.getCurrentTokens() 
+      });
+
       response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     } catch (networkError: any) {
       throw new Error(
@@ -326,9 +436,21 @@ export class LLMOrchestrator {
     }
 
     // Parse findings from either Anthropic (input) or OpenAI (function.arguments) format
-    const rawFindings =
-      toolUseBlock.input?.findings ??
-      JSON.parse(toolUseBlock.function?.arguments ?? '{}')?.findings;
+    let rawFindings;
+    if (toolUseBlock.input?.findings) {
+      rawFindings = toolUseBlock.input.findings;
+    } else {
+      const rawArgs = toolUseBlock.function?.arguments ?? '{}';
+      // Preserve raw LaTeX backslashes from JSON.parse collapse (e.g. \text -> ext)
+      // Double escape all backslashes except for JSON structure quotes
+      const safeArgs = rawArgs.replace(/\\/g, '\\\\').replace(/\\\\"/g, '\\"');
+      try {
+        rawFindings = JSON.parse(safeArgs)?.findings;
+      } catch {
+        // Fallback if double escaping broke valid JSON escapes
+        rawFindings = JSON.parse(rawArgs)?.findings;
+      }
+    }
 
     return validateFindings(rawFindings);
   }

@@ -130,7 +130,7 @@ export default function Sidebar() {
     license.status === 'ACTIVE'
       ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/30'
       : license.status === 'UNVERIFIED'
-      ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30'
+      ? 'text-yellow-400 bg-yellow-400/10 border border-yellow-400/30'
       : 'text-rose-500 bg-rose-500/10 border border-rose-500/30';
 
   // Sections outline for the loaded document
@@ -179,7 +179,7 @@ export default function Sidebar() {
             onClick={toggleTheme}
             icon={
               resolvedTheme === 'dark' ? (
-                <Sun size={18} strokeWidth={1.5} className="text-amber-400" />
+                <Sun size={18} strokeWidth={1.5} className="text-yellow-400" />
               ) : (
                 <Moon size={18} strokeWidth={1.5} className="text-indigo-500" />
               )

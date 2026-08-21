@@ -25,3 +25,11 @@ export async function load(_path: string, _password: string): Promise<never> {
 export async function appDataDir(): Promise<never> {
   throw new Error('[ReciteAI] appDataDir() is only available inside the Tauri desktop shell.');
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @tauri-apps/api/core stubs
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function invoke<T>(_cmd: string, _args?: unknown): Promise<T> {
+  throw new Error('[ReciteAI] invoke() is only available inside the Tauri desktop shell.');
+}
