@@ -113,6 +113,25 @@ export interface AuditResult {
 
 const rateLimiter = new ProviderRateLimiter(4000, 400000);
 
+import { useSettingsStore } from '@/store/useSettingsStore';
+
+export function resolveActiveApiKey(): { key: string; provider: LLMProvider; model: string } {
+  const state = useSettingsStore.getState();
+  const key = state.getActiveKey();
+  const provider = state.activeProvider;
+  const model = state.activeModelId;
+
+  const noKeyProviders: LLMProvider[] = ['ollama', 'openrouter'];
+  const isFreeRouter = provider === 'openrouter' && model === 'openrouter/free';
+
+  if (!isFreeRouter && !noKeyProviders.includes(provider) && (!key || key.trim().length === 0)) {
+    state.openSettings();
+    throw new Error(`Missing API key for ${provider}. Open Settings (Ctrl+,) and enter your API key.`);
+  }
+
+  return { key, provider, model };
+}
+
 export class LLMOrchestrator {
   /**
    * Executes the citation pre-flight audit using a 4-chunk parallel
@@ -131,13 +150,15 @@ export class LLMOrchestrator {
     onProgress?: (msg: string) => void,
     ollamaEndpoint?: string
   ): Promise<AuditResult> {
-    // For providers that require an API key, validate it is present
+    // Note: The caller should ideally use resolveActiveApiKey() to get provider/key/model.
+    // If apiKey is missing but required, we'll try to resolve it from the store.
     const noKeyProviders: LLMProvider[] = ['ollama', 'openrouter'];
     const isFreeRouter = provider === 'openrouter' && model === 'openrouter/free';
-    if (!isFreeRouter && !noKeyProviders.includes(provider) && (!apiKey || apiKey.trim().length === 0)) {
-      throw new Error(
-        'No API key configured. Open Settings (Ctrl+,) and enter your API key.'
-      );
+    
+    let resolvedApiKey = apiKey;
+    if (!isFreeRouter && !noKeyProviders.includes(provider) && (!resolvedApiKey || resolvedApiKey.trim().length === 0)) {
+       const resolved = resolveActiveApiKey();
+       resolvedApiKey = resolved.key;
     }
 
     // ── Phase 1: Validate Metadata (Parallel Dispatch) ───────────────────────
@@ -175,7 +196,7 @@ export class LLMOrchestrator {
         chunk,
         prunedBib,
         provider,
-        apiKey,
+        resolvedApiKey,
         resolvedModel,
         idx,
         totalChunks,

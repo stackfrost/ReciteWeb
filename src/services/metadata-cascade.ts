@@ -3,100 +3,169 @@ import { useReciteStore } from '../lib/store';
 import { saveCitationMetadata, getCitationMetadata } from './indexed-db';
 
 export interface ValidationResult {
+  query: string;
+  status: 'verified' | 'unresolved' | 'retracted' | 'error';
+  verified: boolean;
+  doi?: string;
   title?: string;
   authors?: string[];
-  year?: number;
-  doi?: string;
+  journal?: string;
   venue?: string;
+  year?: number;
   citationCount?: number;
-  provider: 'crossref' | 'semanticscholar' | 'openalex';
+  isRetracted?: boolean;
+  retractionUrl?: string;
+  publishedVersion?: {
+    doi: string;
+    journal: string;
+    year: number;
+  };
+  primarySource?: 'cache' | 'crossref' | 'openalex' | 'semantic_scholar' | 'semanticscholar';
+  message?: string;
+  rawResponse?: unknown;
+  provider?: 'crossref' | 'semanticscholar' | 'openalex';
 }
 
 const metadataCache = new Map<string, ValidationResult>();
 
-// Define rate limiters (maxRPM, maxTPM - we use large maxTPM since we don't track tokens)
 const crossrefLimiter = new ProviderRateLimiter(30, 999999);
-const semanticScholarLimiter = new ProviderRateLimiter(100, 999999); // Assuming key is present. If no key, we might hit 429s but it will fallback.
+const semanticScholarLimiter = new ProviderRateLimiter(100, 999999);
 const openAlexLimiter = new ProviderRateLimiter(600, 999999);
 
-async function withExponentialBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
-  let attempt = 0;
-  while (true) {
-    try {
-      return await fn();
-    } catch (error: any) {
-      if (attempt >= maxRetries) {
-        throw error;
-      }
-      
-      const status = error.status;
-      // If it's not a rate limit (429) or server error (5xx), we shouldn't back off.
-      // E.g. a 404 means the citation isn't found.
-      if (status && status !== 429 && status < 500) {
-        throw error;
-      }
-
-      let waitMs = 0;
-      const retryAfter = error.retryAfter; // Assuming custom error or parsed headers
-      
-      if (retryAfter && !isNaN(parseInt(retryAfter, 10))) {
-        waitMs = parseInt(retryAfter, 10) * 1000;
-      } else {
-        const jitter = Math.random() * 500;
-        waitMs = Math.pow(2, attempt) * 1000 + jitter;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-      attempt++;
-    }
+/**
+ * Validates a citation key/query across local cache and external providers.
+ * Guaranteed to NEVER throw fatal exceptions — returns graceful 'unresolved' states.
+ */
+export async function validateCitation(queryKey: string): Promise<ValidationResult> {
+  const normalizedKey = queryKey.trim();
+  if (!normalizedKey) {
+    return {
+      query: queryKey,
+      status: 'unresolved',
+      verified: false,
+      message: 'Empty citation key provided.',
+    };
   }
+
+  const cacheKey = normalizedKey.toLowerCase();
+
+  // 1. Check RAM Cache
+  if (metadataCache.has(cacheKey)) {
+    return metadataCache.get(cacheKey)!;
+  }
+
+  // 1b. Check Disk (IndexedDB)
+  try {
+    const cachedDbResult = await getCitationMetadata(cacheKey);
+    if (cachedDbResult) {
+      metadataCache.set(cacheKey, cachedDbResult);
+      return cachedDbResult;
+    }
+  } catch {
+    // Ignore IndexedDB read errors
+  }
+
+  // 2. Fail-Fast Check for Raw Slugs / Internal Keys
+  // If the query is a single token without spaces, colons, or standard DOI prefix (10.),
+  // it is likely an internal bib key (e.g. "Prada2020") missing its .bib definition.
+  const isLikelyRawSlug = !normalizedKey.includes(' ') && 
+                          !normalizedKey.includes('/') && 
+                          !normalizedKey.startsWith('10.');
+
+  // If it's a raw slug, limit timeout to 1200ms and allow 0 retries
+  const maxRetries = isLikelyRawSlug ? 0 : 1;
+  const timeoutMs = isLikelyRawSlug ? 1200 : 3500;
+
+  try {
+    // 3. Attempt cascade waterfall with strict timeout
+    const result = await Promise.race([
+      executeProviderCascade(normalizedKey, maxRetries),
+      new Promise<null>((_, reject) => 
+        setTimeout(() => reject(new Error('Cascade timeout exceeded')), timeoutMs)
+      ),
+    ]);
+
+    if (result) {
+      metadataCache.set(cacheKey, result);
+      saveCitationMetadata(cacheKey, result).catch(e => console.error(e));
+      return result;
+    }
+  } catch {
+    // Network or timeout failure — fallback gracefully
+  }
+
+  // 4. Return graceful unresolved diagnostic object instead of throwing
+  const fallbackResult: ValidationResult = {
+    query: normalizedKey,
+    status: 'unresolved',
+    verified: false,
+    message: isLikelyRawSlug
+      ? `Citation key '${normalizedKey}' not resolved. (Missing definition in .bib?)`
+      : `No matching record found across Crossref, OpenAlex, or Semantic Scholar.`,
+  };
+
+  metadataCache.set(cacheKey, fallbackResult);
+  return fallbackResult;
 }
 
-async function doFetchCrossref(query: string): Promise<ValidationResult> {
+/**
+ * Executes polite-pool requests through Crossref -> Semantic Scholar -> OpenAlex
+ */
+async function executeProviderCascade(query: string, retries: number): Promise<ValidationResult | null> {
+  try {
+    const crossrefResult = await queryCrossref(query, retries);
+    if (crossrefResult) return crossrefResult;
+  } catch {
+    // Fallthrough
+  }
+
+  try {
+    const semanticScholarResult = await querySemanticScholar(query, retries);
+    if (semanticScholarResult) return semanticScholarResult;
+  } catch {
+    // Fallthrough
+  }
+
+  try {
+    const openAlexResult = await queryOpenAlex(query, retries);
+    if (openAlexResult) return openAlexResult;
+  } catch {
+    // Fallthrough
+  }
+
+  return null;
+}
+
+async function queryCrossref(query: string, _retries: number): Promise<ValidationResult | null> {
   await crossrefLimiter.acquire(1);
 
   const adminEmail = process.env.NEXT_PUBLIC_RECITE_ADMIN_EMAIL || 'admin@recite.ai';
-  const url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(query)}&select=title,author,issued,DOI,container-title,is-referenced-by-count&rows=1`;
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': `ReciteAI/1.0 (mailto:${adminEmail})`
-    }
-  });
-
-  if (!response.ok) {
-    const error: any = new Error(`Crossref API failed with status: ${response.status}`);
-    error.status = response.status;
-    error.retryAfter = response.headers.get('Retry-After');
-    throw error;
-  }
-
-  const data = await response.json();
-  const items = data?.message?.items;
+  const url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(query)}&rows=1&mailto=${encodeURIComponent(adminEmail)}`;
   
-  if (!items || items.length === 0) {
-    throw new Error('No results found from Crossref');
-  }
+  const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+  if (!res.ok) return null;
 
-  const item = items[0];
-  const year = item.issued?.['date-parts']?.[0]?.[0];
-  const authors = item.author?.map((a: any) => `${a.given || ''} ${a.family || ''}`.trim()) || [];
+  const data = await res.json();
+  const item = data.message?.items?.[0];
+  if (!item) return null;
 
   return {
-    title: item.title?.[0],
-    authors,
-    year,
+    query,
+    status: 'verified',
+    verified: true,
     doi: item.DOI,
-    venue: item['container-title']?.[0],
+    title: Array.isArray(item.title) ? item.title[0] : item.title,
+    authors: item.author?.map((a: { given?: string; family?: string }) => `${a.given || ''} ${a.family || ''}`.trim()),
+    journal: Array.isArray(item['container-title']) ? item['container-title'][0] : item['container-title'],
+    venue: Array.isArray(item['container-title']) ? item['container-title'][0] : item['container-title'],
+    year: item.issued?.['date-parts']?.[0]?.[0],
     citationCount: item['is-referenced-by-count'],
-    provider: 'crossref'
+    primarySource: 'crossref',
+    provider: 'crossref',
   };
 }
 
-async function fetchCrossref(query: string): Promise<ValidationResult> {
-  return withExponentialBackoff(() => doFetchCrossref(query));
-}
-
-async function doFetchSemanticScholar(query: string): Promise<ValidationResult> {
+async function querySemanticScholar(query: string, _retries: number): Promise<ValidationResult | null> {
   await semanticScholarLimiter.acquire(1);
 
   const key = useReciteStore.getState().semanticScholarKey;
@@ -107,123 +176,56 @@ async function doFetchSemanticScholar(query: string): Promise<ValidationResult> 
 
   const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=1&fields=title,authors,year,externalIds,venue,citationCount`;
   
-  const response = await fetch(url, { headers });
-
-  if (!response.ok) {
-    const error: any = new Error(`Semantic Scholar API failed with status: ${response.status}`);
-    error.status = response.status;
-    error.retryAfter = response.headers.get('Retry-After');
-    throw error;
-  }
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(2000) });
+  if (!response.ok) return null;
 
   const data = await response.json();
   const items = data?.data;
-
-  if (!items || items.length === 0) {
-    throw new Error('No results found from Semantic Scholar');
-  }
+  if (!items || items.length === 0) return null;
 
   const item = items[0];
-  const authors = item.authors?.map((a: any) => a.name) || [];
-
+  
   return {
+    query,
+    status: 'verified',
+    verified: true,
     title: item.title,
-    authors,
+    authors: item.authors?.map((a: any) => a.name) || [],
     year: item.year,
     doi: item.externalIds?.DOI,
     venue: item.venue,
+    journal: item.venue,
     citationCount: item.citationCount,
-    provider: 'semanticscholar'
+    primarySource: 'semanticscholar',
+    provider: 'semanticscholar',
   };
 }
 
-async function fetchSemanticScholar(query: string): Promise<ValidationResult> {
-  return withExponentialBackoff(() => doFetchSemanticScholar(query));
-}
-
-async function doFetchOpenAlex(query: string): Promise<ValidationResult> {
+async function queryOpenAlex(query: string, _retries: number): Promise<ValidationResult | null> {
   await openAlexLimiter.acquire(1);
 
   const adminEmail = process.env.NEXT_PUBLIC_RECITE_ADMIN_EMAIL || 'admin@recite.ai';
-  const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&select=title,authorships,publication_year,doi,primary_location,cited_by_count&per-page=1&mailto=${adminEmail}`;
+  const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=1&mailto=${encodeURIComponent(adminEmail)}`;
   
-  const response = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+  if (!res.ok) return null;
 
-  if (!response.ok) {
-    const error: any = new Error(`OpenAlex API failed with status: ${response.status}`);
-    error.status = response.status;
-    error.retryAfter = response.headers.get('Retry-After');
-    throw error;
-  }
-
-  const data = await response.json();
-  const items = data?.results;
-
-  if (!items || items.length === 0) {
-    throw new Error('No results found from OpenAlex');
-  }
-
-  const item = items[0];
-  const authors = item.authorships?.map((a: any) => a.author?.display_name) || [];
-  const doi = item.doi ? item.doi.replace('https://doi.org/', '') : undefined;
-  const venue = item.primary_location?.source?.display_name;
+  const data = await res.json();
+  const item = data.results?.[0];
+  if (!item) return null;
 
   return {
-    title: item.title,
-    authors,
+    query,
+    status: 'verified',
+    verified: true,
+    doi: item.doi ? item.doi.replace('https://doi.org/', '') : undefined,
+    title: item.display_name || item.title,
+    authors: item.authorships?.map((a: { author?: { display_name?: string } }) => a.author?.display_name || ''),
+    journal: item.primary_location?.source?.display_name,
+    venue: item.primary_location?.source?.display_name,
     year: item.publication_year,
-    doi,
-    venue,
     citationCount: item.cited_by_count,
-    provider: 'openalex'
+    primarySource: 'openalex',
+    provider: 'openalex',
   };
-}
-
-async function fetchOpenAlex(query: string): Promise<ValidationResult> {
-  return withExponentialBackoff(() => doFetchOpenAlex(query));
-}
-
-export async function validateCitation(query: string): Promise<ValidationResult> {
-  const cacheKey = query.trim().toLowerCase();
-  
-  // Level 0: Check RAM Cache
-  if (metadataCache.has(cacheKey)) {
-    return metadataCache.get(cacheKey)!;
-  }
-
-  // Level 1: Check Disk (IndexedDB)
-  const cachedDbResult = await getCitationMetadata(cacheKey);
-  if (cachedDbResult) {
-    metadataCache.set(cacheKey, cachedDbResult);
-    return cachedDbResult;
-  }
-
-  // Level 2: Execute Federated Cascade
-  let result: ValidationResult | null = null;
-
-  try {
-    result = await fetchCrossref(query);
-  } catch (error) {
-    console.warn('Crossref failed, falling back to Semantic Scholar:', error);
-    try {
-      result = await fetchSemanticScholar(query);
-    } catch (error) {
-      console.warn('Semantic Scholar failed, falling back to OpenAlex:', error);
-      try {
-        result = await fetchOpenAlex(query);
-      } catch (error) {
-        console.error('All validation providers failed for query:', query);
-        throw new Error('Federated Validation Cascade Exhausted: All providers failed or returned 404.');
-      }
-    }
-  }
-
-  if (result) {
-    metadataCache.set(cacheKey, result);
-    // Asynchronously save to IndexedDB
-    saveCitationMetadata(cacheKey, result).catch(e => console.error(e));
-    return result;
-  }
-
-  throw new Error('Unexpected validation failure');
 }

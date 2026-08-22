@@ -39,6 +39,8 @@ export const metadata: Metadata = {
   authors: [{ name: "ReciteAI Engineering" }],
 };
 
+import { GlobalErrorBoundary } from "@/components/common/GlobalErrorBoundary";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -50,7 +52,9 @@ export default function RootLayout({
       className="dark"
     >
       <body className={`${inter.variable} ${jetbrainsMono.variable} bg-zinc-950 text-zinc-100 font-sans antialiased flex flex-col h-screen overflow-hidden`}>
-        {children}
+        <GlobalErrorBoundary>
+          {children}
+        </GlobalErrorBoundary>
       </body>
     </html>
   );

@@ -34,6 +34,8 @@
     "react-resizable-panels": "^4.12.3",
     "tailwind-merge": "^3.0.1",
     "tweetnacl": "^1.0.3",
+    "y-webrtc": "^10.3.0",
+    "yjs": "^13.6.32",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
