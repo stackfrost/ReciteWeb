@@ -1,13 +1,41 @@
 import type { LLMProvider } from '@/lib/models';
 import type { ExtractedClaim } from './latex-parser';
 import type { BibTeXEntry } from './bibtex-parser';
-import { chunkClaims, pruneBibTeXForChunk } from './latex-parser';
+import { chunkClaims, pruneBibTeXForChunk, parseLatexChunk } from './latex-parser';
 import { resolvePdfContext } from './pdf-bridge';
 import { chunkText } from './text-chunker';
+import { splitStitchedDocument } from '@/utils/text-chunker';
 import { searchPdfContext } from './vector-search';
 import { ProviderRateLimiter } from './rate-limiter';
 import { useReciteStore } from '../lib/store';
 import { validateCitation } from './metadata-cascade';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import { generateSemanticId } from '@/utils/hash';
+
+function safelyParseLLMResponse(rawContent: string): any[] {
+  try {
+    const match = rawContent.match(/\[[\s\S]*\]/);
+    if (!match) {
+      console.warn('[LLMOrchestrator] No JSON array found. Degrading gracefully.');
+      return [];
+    }
+    let cleaned = match[0].replace(/\\/g, '\\\\');
+    return JSON.parse(cleaned);
+  } catch (error) {
+    console.warn('[LLMOrchestrator] JSON Parse Failed due to truncation.', error);
+    return [];
+  }
+}
+
+// Utility to ensure standard HTTP schemas for API gateways
+function getValidReferer(): string {
+  if (typeof window === 'undefined') return 'http://localhost:3000';
+  const url = window.location.href;
+  if (url.startsWith('tauri://') || url.startsWith('asset://')) {
+    return 'https://desktop.recite.ai';
+  }
+  return url;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § SYSTEM PROMPT — Post-doctoral peer-review audit persona
@@ -96,10 +124,11 @@ const AUDIT_TOOL = {
 export interface AuditClaim {
   id: string;
   severity: 'Critical' | 'High' | 'Medium' | 'Low';
-  type: 'MissingCitation' | 'WeakCitation' | 'Hallucination' | 'Misattribution';
+  type: 'MissingCitation' | 'WeakCitation' | 'Hallucination' | 'Misattribution' | 'Needs Literature';
   text: string;
   context: string;
   suggestedFix?: string;
+  searchQuery?: string;
 }
 
 export interface AuditResult {
@@ -113,7 +142,6 @@ export interface AuditResult {
 
 const rateLimiter = new ProviderRateLimiter(4000, 400000);
 
-import { useSettingsStore } from '@/store/useSettingsStore';
 
 export function resolveActiveApiKey(): { key: string; provider: LLMProvider; model: string } {
   const state = useSettingsStore.getState();
@@ -216,16 +244,17 @@ export class LLMOrchestrator {
 
     // ── Phase 5: Aggregate results ─────────────────────────────────────────
     const allFindings: AuditClaim[] = [];
-    let globalIdCounter = 1;
 
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
       if (result.status === 'fulfilled') {
         // Re-ID findings to ensure global uniqueness across chunks
         for (const finding of result.value) {
+          const type = finding.type || 'finding';
+          const text = finding.text || finding.context || '';
           allFindings.push({
             ...finding,
-            id: `audit-${globalIdCounter++}`,
+            id: generateSemanticId(type, text),
           });
         }
       } else {
@@ -462,15 +491,8 @@ export class LLMOrchestrator {
       rawFindings = toolUseBlock.input.findings;
     } else {
       const rawArgs = toolUseBlock.function?.arguments ?? '{}';
-      // Preserve raw LaTeX backslashes from JSON.parse collapse (e.g. \text -> ext)
-      // Double escape all backslashes except for JSON structure quotes
-      const safeArgs = rawArgs.replace(/\\/g, '\\\\').replace(/\\\\"/g, '\\"');
-      try {
-        rawFindings = JSON.parse(safeArgs)?.findings;
-      } catch {
-        // Fallback if double escaping broke valid JSON escapes
-        rawFindings = JSON.parse(rawArgs)?.findings;
-      }
+      const parsed = safelyParseLLMResponse(rawArgs);
+      rawFindings = Array.isArray(parsed) ? parsed : (parsed as any)?.findings || [];
     }
 
     return validateFindings(rawFindings);
@@ -497,18 +519,28 @@ function validateFindings(rawFindings: any): AuditClaim[] {
     'WeakCitation',
     'Hallucination',
     'Misattribution',
+    'Needs Literature',
   ]);
 
   return rawFindings
     .filter((f: any) => f && typeof f === 'object')
-    .map((f: any, idx: number) => ({
-      id: typeof f.id === 'string' ? f.id : `audit-${idx + 1}`,
-      severity: validSeverities.has(f.severity) ? f.severity : 'Medium',
-      type: validTypes.has(f.type) ? f.type : 'WeakCitation',
-      text: typeof f.text === 'string' ? f.text : '',
-      context: typeof f.context === 'string' ? f.context : '',
-      suggestedFix: typeof f.suggestedFix === 'string' ? f.suggestedFix : undefined,
-    }));
+    .map((f: any) => {
+      const text = typeof f.text === 'string' && f.text ? f.text : (typeof f.claim === 'string' ? f.claim : '');
+      const context = typeof f.context === 'string' ? f.context : '';
+      const type = validTypes.has(f.type) ? f.type : 'Needs Literature';
+      const id = typeof f.id === 'string' && f.id.length > 5 
+        ? f.id 
+        : generateSemanticId(type, text || context);
+      return {
+        id,
+        severity: validSeverities.has(f.severity) ? f.severity : 'Medium',
+        type,
+        text,
+        context,
+        suggestedFix: typeof f.suggestedFix === 'string' ? f.suggestedFix : (typeof f.searchQuery === 'string' ? `Search query: ${f.searchQuery}` : undefined),
+        searchQuery: typeof f.searchQuery === 'string' ? f.searchQuery : undefined,
+      };
+    });
 }
 
 /**
@@ -604,7 +636,7 @@ function buildProviderRequest(
         url: 'https://openrouter.ai/api/v1/chat/completions',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://reciteai.app',
+          'HTTP-Referer': getValidReferer(),
           'X-Title': 'ReciteAI Citation Auditor',
           'content-type': 'application/json',
         },
@@ -654,4 +686,70 @@ function buildOpenAIBody(
     ],
     tool_choice: { type: 'function', function: { name: auditTool.name } },
   };
+}
+
+export async function callOpenRouter(chunkText: string): Promise<any[]> {
+  const store = useSettingsStore.getState();
+  const apiKey = store.openRouterApiKey || store.getActiveKey();
+  
+  const discoveryPrompt = `You are an expert academic literature discovery engine. 
+Analyze the manuscript text. Ignore existing LaTeX citations. Your job is to find bold scientific assertions, empirical claims, or theoretical assumptions that LACK citations.
+
+CRITICAL FILTERING RULES:
+1. DO NOT flag standard textbook physics or general scientific consensus (e.g., Pauli exclusion principle, basic Hamiltonians, standard model definitions).
+2. ONLY flag specific empirical claims, measured numerical quantities, claims of novelty, specific experimental protocols, or critiques of prior literature.
+3. For each valid claim, generate an optimized academic search query for Crossref.
+
+CRITICAL INSTRUCTION: You must respond ONLY with a valid JSON array of objects in this exact format:
+[{"claim": "The exact sentence from the text", "searchQuery": "keywords", "severity": "Medium", "type": "Needs Literature"}]`;
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': getValidReferer(),
+      'X-Title': 'ReciteAI Workbench',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: store.activeModelId || 'google/gemini-3.5-flash-lite',
+      max_tokens: 8000, 
+      messages: [
+        { role: 'system', content: discoveryPrompt },
+        { role: 'user', content: chunkText }
+      ],
+      temperature: 0.1
+    })
+  });
+  
+  const data = await response.json();
+  const rawContent = data.choices?.[0]?.message?.content || '';
+  return safelyParseLLMResponse(rawContent);
+}
+
+export async function executeThesisSweep(stitchedText: string, sourceMap: any) {
+  const chunks = splitStitchedDocument(stitchedText);
+  let allFindings: any[] = [];
+
+  console.log(`[Orchestrator] Splitting document into ${chunks.length} chunks for parallel analysis.`);
+
+  const chunkPromises = chunks.map(async (chunk) => {
+    try {
+      const llmJson = await callOpenRouter(chunk.text); 
+      // Map 'claim' from prompt to 'text' for parseLatexChunk if needed
+      const normalizedJson = llmJson.map(item => ({...item, text: item.text || item.claim }));
+      return parseLatexChunk(normalizedJson, chunk.text, chunk.globalStartIndex, sourceMap);
+    } catch (err) {
+      console.warn(`[Orchestrator] Chunk ${chunk.id} failed:`, err);
+      return [];
+    }
+  });
+
+  const results = await Promise.all(chunkPromises);
+  
+  results.forEach(chunkFindings => {
+    allFindings = allFindings.concat(chunkFindings);
+  });
+
+  return allFindings;
 }

@@ -26,10 +26,46 @@ export async function appDataDir(): Promise<never> {
   throw new Error('[ReciteAI] appDataDir() is only available inside the Tauri desktop shell.');
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// @tauri-apps/api/core stubs
-// ─────────────────────────────────────────────────────────────────────────────
-
 export async function invoke<T>(_cmd: string, _args?: unknown): Promise<T> {
   throw new Error('[ReciteAI] invoke() is only available inside the Tauri desktop shell.');
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @tauri-apps/plugin-dialog stubs
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function open(_options?: any): Promise<string | null> {
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @tauri-apps/plugin-fs stubs
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function readDir(_path: string, _options?: any): Promise<any[]> {
+  return [];
+}
+
+export async function readTextFile(_path: string): Promise<string> {
+  return '';
+}
+
+export async function writeTextFile(_path: string, _contents: string): Promise<void> {}
+
+export async function watch(
+  _paths: any,
+  _cb: (event: any) => void,
+  _options?: any
+): Promise<() => void> {
+  return () => {};
+}
+
+export async function watchImmediate(
+  _paths: any,
+  _cb: (event: any) => void,
+  _options?: any
+): Promise<() => void> {
+  return () => {};
+}
+
+

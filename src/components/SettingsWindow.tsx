@@ -25,6 +25,7 @@ import {
   getDefaultModel,
   type ProviderDescriptor,
 } from '@/lib/models';
+import { useSettingsStore } from '@/store/useSettingsStore';
 
 interface SettingsWindowProps {
   isOpen?: boolean;
@@ -92,6 +93,24 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
     getDefaultModel(llmRouter.activeProvider)
   );
 
+  // Sync state whenever the settings window opens or the active provider changes
+  React.useEffect(() => {
+    if (isOpen) {
+      const activeProv = llmRouter.activeProvider;
+      setSelectedProvider(activeProv);
+      setSelectedModel(
+        llmRouter.providerMatrix[activeProv]?.model || getDefaultModel(activeProv)
+      );
+      setKeyDrafts({
+        anthropic:  llmRouter.providerMatrix.anthropic?.apiKey  || '',
+        openai:     llmRouter.providerMatrix.openai?.apiKey     || '',
+        google:     llmRouter.providerMatrix.google?.apiKey     || '',
+        openrouter: llmRouter.providerMatrix.openrouter?.apiKey || '',
+        ollama:     '',
+      });
+    }
+  }, [isOpen, llmRouter.activeProvider, llmRouter.providerMatrix]);
+
   const providerDescriptor: ProviderDescriptor | undefined = MODEL_REGISTRY.find(
     (p) => p.id === selectedProvider
   );
@@ -110,6 +129,7 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
     setSelectedModel(defaultModel);
     setLLMProvider(prov);
     setLLMModel(prov, defaultModel);
+    useSettingsStore.getState().setActiveEngine(prov, defaultModel);
     setShowKey(false);
   };
 
@@ -117,13 +137,25 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
   const handleModelChange = (model: string) => {
     setSelectedModel(model);
     setLLMModel(selectedProvider, model);
+    useSettingsStore.getState().setActiveEngine(selectedProvider, model);
   };
 
-  // ── Apply credentials: writes key to in-memory store (NOT persisted) ───────
+  // ── Apply credentials: writes key to in-memory store & settings store ────
   const handleApply = () => {
     if (!isOllama) {
       const draft = keyDrafts[selectedProvider] || '';
       setLLMApiKey(selectedProvider, draft);
+      const settings = useSettingsStore.getState();
+      if (selectedProvider === 'openrouter') {
+        settings.setKeys({ openRouterApiKey: draft });
+      } else if (selectedProvider === 'google') {
+        settings.setKeys({ googleApiKey: draft });
+      } else if (selectedProvider === 'anthropic') {
+        settings.setKeys({ anthropicApiKey: draft });
+      } else if (selectedProvider === 'openai') {
+        settings.setKeys({ openaiApiKey: draft });
+      }
+      settings.setActiveEngine(selectedProvider, selectedModel);
     }
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 1500);
@@ -307,38 +339,41 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                       Fully air-gapped. No API key required. Ensure Ollama is running locally.
                     </p>
                   </div>
-                ) : isFreeRouter ? (
-                  <div className="p-3 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40">
-                    <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
-                      Using OpenRouter's free tier. No API key deduction. Rate limits apply.
-                    </p>
-                  </div>
                 ) : (
-                  <div>
-                    <label className={labelCls}>
-                      {providerDescriptor?.label} API Key
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showKey ? 'text' : 'password'}
-                        value={keyDrafts[selectedProvider]}
-                        onChange={(e) =>
-                          setKeyDrafts((prev) => ({ ...prev, [selectedProvider]: e.target.value }))
-                        }
-                        placeholder={providerDescriptor?.keyPlaceholder ?? 'API key...'}
-                        className={cn(selectCls, 'pr-10 font-mono text-[12px]')}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowKey((v) => !v)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
-                      >
-                        {showKey ? <EyeOff size={13} /> : <Eye size={13} />}
-                      </button>
+                  <div className="space-y-3">
+                    {isFreeRouter && (
+                      <div className="p-3 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40">
+                        <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
+                          OpenRouter requires an API key to authenticate requests, even for free-tier models. Usage is free, but standard rate limits apply.
+                        </p>
+                      </div>
+                    )}
+                    <div>
+                      <label className={labelCls}>
+                        {providerDescriptor?.label} API Key
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showKey ? 'text' : 'password'}
+                          value={keyDrafts[selectedProvider]}
+                          onChange={(e) =>
+                            setKeyDrafts((prev) => ({ ...prev, [selectedProvider]: e.target.value }))
+                          }
+                          placeholder={providerDescriptor?.keyPlaceholder ?? 'API key...'}
+                          className={cn(selectCls, 'pr-10 font-mono text-[12px]')}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowKey((v) => !v)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                        >
+                          {showKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-1.5">
+                        Stored in session memory only. Never synced to cloud or written to disk.
+                      </p>
                     </div>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-1.5">
-                      Stored in session memory only. Never synced to cloud or written to disk.
-                    </p>
                   </div>
                 )}
 

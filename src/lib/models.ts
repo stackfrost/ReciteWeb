@@ -53,6 +53,7 @@ export const MODEL_REGISTRY: ProviderDescriptor[] = [
     keyPlaceholder: 'AIzaSy...',
     models: [
       { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash', contextWindow: '1M', note: 'Fast' },
+      { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite', contextWindow: '1M', note: 'Ultra Fast' },
       { id: 'gemini-3.1-pro',   label: 'Gemini 3.1 Pro',   contextWindow: '1M', note: 'Flagship' },
     ],
   },
@@ -63,12 +64,12 @@ export const MODEL_REGISTRY: ProviderDescriptor[] = [
     models: [
       {
         id: 'openrouter/free',
-        label: 'Free Auto-Router',
-        note: 'No API key deduction',
+        label: 'Openrouter/free',
       },
       { id: 'openai/gpt-5.6-sol',             label: 'OpenAI: GPT-5.6 Sol',       contextWindow: '256k' },
       { id: 'anthropic/claude-5-sonnet',       label: 'Anthropic: Claude 5 Sonnet', contextWindow: '200k' },
       { id: 'google/gemini-3.7-flash',         label: 'Google: Gemini 3.7 Flash',   contextWindow: '1M'  },
+      { id: 'google/gemini-3.5-flash-lite',    label: 'Google: Gemini 3.5 Flash Lite', contextWindow: '1M' },
       { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Meta: Llama 3.3 70B',     contextWindow: '128k' },
     ],
   },

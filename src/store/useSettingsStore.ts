@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { LLMProvider } from '@/lib/models';
+import { useReciteStore } from '@/lib/store';
 
 interface SettingsState {
   googleApiKey: string;
@@ -28,12 +29,23 @@ export const useSettingsStore = create<SettingsState>()(
       openaiApiKey: '',
       openRouterApiKey: '',
       politePoolEmail: 'admin@recite.ai',
-      activeProvider: 'google',
-      activeModelId: 'gemini-3.7-flash',
+      activeProvider: 'anthropic',
+      activeModelId: 'claude-5-sonnet',
       isSettingsOpen: false,
 
       setKeys: (newKeys) => set((state) => ({ ...state, ...newKeys })),
-      setActiveEngine: (activeProvider, activeModelId) => set({ activeProvider, activeModelId }),
+      setActiveEngine: (activeProvider, activeModelId) => {
+        set({ activeProvider, activeModelId });
+        if (typeof window !== 'undefined') {
+          const recite = useReciteStore.getState();
+          if (recite.llmRouter.activeProvider !== activeProvider) {
+            recite.setLLMProvider(activeProvider);
+          }
+          if (activeModelId) {
+            recite.setLLMModel(activeProvider, activeModelId);
+          }
+        }
+      },
       openSettings: () => set({ isSettingsOpen: true }),
       closeSettings: () => set({ isSettingsOpen: false }),
 

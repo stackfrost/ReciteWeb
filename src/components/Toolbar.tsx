@@ -11,6 +11,7 @@ import {
   Cpu,
   Link2,
   Download,
+  X,
 } from 'lucide-react';
 import { LaTeXParser } from '@/services/latex-parser';
 import { BibTeXParser } from '@/services/bibtex-parser';
@@ -105,7 +106,7 @@ export default function Toolbar() {
   const engineName = PROVIDER_NAMES[llmRouter.activeProvider] || llmRouter.activeProvider;
 
   return (
-    <header className="h-10 w-full border-b border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur flex items-center justify-between px-3 select-none flex-shrink-0 font-sans text-xs z-30 transition-colors">
+    <header className="h-10 w-full border-b border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur flex items-center justify-between px-3 select-none flex-shrink-0 font-sans text-xs z-30 transition-colors overflow-hidden whitespace-nowrap">
       {/* Hidden File Input */}
       <input
         ref={fileInputRef}
@@ -116,14 +117,14 @@ export default function Toolbar() {
       />
 
       {/* ── LEFT SECTION: Primary Action & Document I/O ─────────────────────── */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0 shrink">
         {/* Primary Run Audit Button */}
         <button
           id="btn-analyze-document"
           onClick={runAudit}
           disabled={!isMounted || isAuditing}
           className={cn(
-            'flex items-center gap-2 font-sans text-sm font-medium px-4 py-1.5 rounded-md transition-colors duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50',
+            'shrink-0 flex items-center gap-1.5 font-sans text-xs font-semibold px-3 py-1.5 rounded-md transition-colors duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 shadow-xs',
             !isMounted
               ? 'bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 border border-zinc-200 dark:border-zinc-800 cursor-not-allowed'
               : isAuditing
@@ -133,47 +134,56 @@ export default function Toolbar() {
         >
           {isAuditing ? (
             <>
-              <RotateCcw size={12} className="animate-spin text-yellow-500" />
-              <span>Auditing Manuscript...</span>
+              <RotateCcw size={12} className="animate-spin text-yellow-500 shrink-0" />
+              <span>Auditing...</span>
             </>
           ) : (
             <>
-              <Play size={12} fill="currentColor" />
+              <Play size={11} fill="currentColor" className="shrink-0" />
               <span>Run Audit</span>
-              <kbd className="hidden sm:inline px-1 py-0.2 text-[10px] font-mono bg-black/20 text-white/90 rounded">
+              <kbd className="hidden xl:inline px-1 py-0.2 text-[9px] font-mono bg-black/20 text-white/90 rounded">
                 Ctrl+↵
               </kbd>
             </>
           )}
         </button>
 
-        <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-800 mx-1" />
+        <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-800 mx-0.5 shrink-0" />
 
-        {/* File Open / Switcher */}
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          title="Open Manuscript File (Ctrl+O)"
-          className="flex items-center gap-1.5 p-1.5 rounded bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 transition-colors duration-150 cursor-pointer"
+        {/* Restricted Filename Tab / Switcher Pill */}
+        <div
+          onClick={() => {
+            if (!isMounted) fileInputRef.current?.click();
+          }}
+          className={cn(
+            'group flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium border transition-colors min-w-0 max-w-[130px] sm:max-w-[160px] md:max-w-[180px] shrink cursor-pointer select-none',
+            isMounted
+              ? 'bg-zinc-100/90 dark:bg-zinc-900/90 border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 shadow-xs'
+              : 'bg-transparent border-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-900'
+          )}
+          title={isMounted ? `${workspace.fileName} (Click to switch, Ctrl+O)` : 'Open Manuscript File (Ctrl+O)'}
         >
-          <FolderOpen size={14} />
-          <span className="truncate max-w-[180px] text-xs font-medium">
+          <FolderOpen size={13} className="shrink-0 text-zinc-400 group-hover:text-emerald-500 transition-colors" />
+          <span className="truncate min-w-0 text-xs">
             {isMounted ? workspace.fileName || 'Document' : 'Open File...'}
           </span>
-        </button>
-
-        {isMounted && (
-          <button
-            onClick={unmountWorkspace}
-            title="Close document (Ctrl+W)"
-            className="p-1.5 rounded bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 transition-colors duration-150 cursor-pointer text-xs font-medium"
-          >
-            Close
-          </button>
-        )}
+          {isMounted && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                unmountWorkspace();
+              }}
+              title="Close document (Ctrl+W)"
+              className="ml-auto shrink-0 p-0.5 rounded text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── MIDDLE SECTION: Diagnostics Summary ─────────────────────────────── */}
-      <div className="hidden md:flex items-center gap-2 text-zinc-500 dark:text-zinc-400 text-xs">
+      <div className="hidden lg:flex items-center gap-2 text-zinc-500 dark:text-zinc-400 text-xs shrink-0">
         {auditProgress ? (
           <span className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400 font-medium animate-pulse">
             <RotateCcw size={11} className="animate-spin" />
@@ -232,36 +242,36 @@ export default function Toolbar() {
       </div>
 
       {/* ── RIGHT SECTION: Telemetry & Engine Pill ──────────────────────────── */}
-      <div className="flex items-center gap-3 text-zinc-500 dark:text-zinc-400">
+      <div className="flex items-center gap-2.5 text-zinc-500 dark:text-zinc-400 shrink-0">
         {/* Linked references count */}
-        <span className="hidden lg:flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+        <span className="hidden xl:flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
           <Link2 size={12} className="text-zinc-400" />
           <span>
             <strong className="text-zinc-800 dark:text-zinc-200 font-medium">{boundRefsCount}/{totalCitationsCount}</strong> references linked
           </span>
         </span>
 
-        <span className="hidden lg:inline text-zinc-300 dark:text-zinc-800">|</span>
+        <span className="hidden xl:inline text-zinc-300 dark:text-zinc-800">|</span>
 
         {/* Flat Engine Pill */}
         <button
           onClick={() => setShowSettings(true)}
-          className="flex items-center gap-1.5 p-1.5 rounded bg-transparent text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 transition-colors duration-150 cursor-pointer text-xs font-medium"
+          className="flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors duration-150 cursor-pointer text-xs font-medium shadow-xs"
           title="Configure LLM Inference Engine & API Keys"
         >
-          <Cpu size={14} />
-          <span>Engine: <strong className="font-semibold">{engineName} (BYOK)</strong></span>
+          <Cpu size={13} className="text-emerald-500" />
+          <span>Engine: <strong className="font-semibold">{engineName}</strong></span>
         </button>
 
-        <span className="hidden lg:inline text-zinc-300 dark:text-zinc-800">|</span>
+        <span className="hidden sm:inline text-zinc-300 dark:text-zinc-800">|</span>
 
         {/* Export Button */}
         <button
           onClick={() => setShowExportModal(true)}
-          className="flex items-center gap-1.5 p-1.5 rounded bg-indigo-500/10 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/20 transition-colors duration-150 cursor-pointer text-xs font-medium"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors duration-150 cursor-pointer text-xs font-medium border border-indigo-500/20 shadow-xs"
           title="Export Publication Package"
         >
-          <Download size={14} />
+          <Download size={13} />
           <span>Export</span>
         </button>
       </div>

@@ -50,6 +50,10 @@ const nextConfig: NextConfig = {
         "onnxruntime-node": false,
         // Tauri stubs
         '@tauri-apps/plugin-stronghold': tauriStub,
+        '@tauri-apps/plugin-dialog': tauriStub,
+        '@tauri-apps/plugin-fs': tauriStub,
+        '@tauri-apps/api/dialog': tauriStub,
+        '@tauri-apps/api/fs': tauriStub,
         '@tauri-apps/api/path': tauriStub,
         '@tauri-apps/api$': tauriStub,
       };

@@ -31,7 +31,7 @@ import Toolbar from '@/components/Toolbar';
 import Sidebar from '@/components/Sidebar';
 import CommandPalette from '@/components/CommandPalette';
 import SettingsWindow from '@/components/SettingsWindow';
-import { ExportModal } from '@/components/editor/ExportModal';
+import ExportModal from '@/components/ExportModal';
 import LegalWindow from '@/components/LegalWindow';
 import ConfirmModal from '@/components/ConfirmModal';
 import ToastContainer from '@/components/ToastContainer';
@@ -105,7 +105,7 @@ function StatusBar() {
     lic === 'ACTIVE'
       ? 'text-emerald-600 dark:text-emerald-400 hover:underline'
       : lic === 'UNVERIFIED'
-      ? 'text-yellow-600 dark:text-yellow-400 hover:underline'
+      ? 'text-amber-600 dark:text-amber-400 hover:underline'
       : 'text-rose-600 dark:text-rose-400 hover:underline';
 
   return (
@@ -222,7 +222,7 @@ function SterileEditorEmptyState({
         <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1 text-xs">
           <button
             onClick={onMountClick}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-md font-medium transition-colors shadow-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-white rounded font-medium transition-colors shadow-xs cursor-pointer"
           >
             <FolderOpen size={14} />
             <span>Open Document...</span>
@@ -230,9 +230,9 @@ function SterileEditorEmptyState({
 
           <button
             onClick={onLoadDemo}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-md font-medium transition-colors cursor-pointer"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded font-medium transition-colors cursor-pointer"
           >
-            <FileText size={14} className="text-zinc-500" />
+            <Sparkles size={14} className="text-amber-500" />
             <span>Sample Manuscript</span>
           </button>
         </div>
@@ -365,7 +365,7 @@ function IDEWorkbench() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans antialiased transition-colors">
+    <div className="flex flex-col h-screen w-screen bg-zinc-100 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200 overflow-hidden font-sans select-none antialiased transition-colors">
       {/* Vault Unlock Gate — displayed until Stronghold is unlocked */}
       {!isVaultUnlocked && <VaultUnlockModal />}
 
@@ -477,7 +477,10 @@ function IDEWorkbench() {
       <LegalWindow />
       <ConfirmModal />
       <ToastContainer />
-      <ExportModal />
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+      />
     </div>
   );
 }

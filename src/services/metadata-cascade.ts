@@ -24,6 +24,7 @@ export interface ValidationResult {
   message?: string;
   rawResponse?: unknown;
   provider?: 'crossref' | 'semanticscholar' | 'openalex';
+  lastAccessed?: number;
 }
 
 const metadataCache = new Map<string, ValidationResult>();
@@ -51,14 +52,18 @@ export async function validateCitation(queryKey: string): Promise<ValidationResu
 
   // 1. Check RAM Cache
   if (metadataCache.has(cacheKey)) {
-    return metadataCache.get(cacheKey)!;
+    const cached = metadataCache.get(cacheKey)!;
+    cached.lastAccessed = Date.now();
+    return cached;
   }
 
   // 1b. Check Disk (IndexedDB)
   try {
     const cachedDbResult = await getCitationMetadata(cacheKey);
     if (cachedDbResult) {
+      cachedDbResult.lastAccessed = Date.now();
       metadataCache.set(cacheKey, cachedDbResult);
+      saveCitationMetadata(cacheKey, cachedDbResult).catch(e => console.error(e));
       return cachedDbResult;
     }
   } catch {
@@ -86,6 +91,7 @@ export async function validateCitation(queryKey: string): Promise<ValidationResu
     ]);
 
     if (result) {
+      result.lastAccessed = Date.now();
       metadataCache.set(cacheKey, result);
       saveCitationMetadata(cacheKey, result).catch(e => console.error(e));
       return result;

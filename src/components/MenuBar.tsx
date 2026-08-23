@@ -254,12 +254,7 @@ export default function MenuBar() {
     >
       {/* Left OS Frame & Menus */}
       <div className="flex items-center" data-tauri-drag-region>
-        {/* macOS Traffic Lights */}
-        <div className="flex items-center gap-1.5 mr-3 px-1">
-          <div className="w-2.5 h-2.5 rounded-full bg-red-500/80 hover:bg-red-400 cursor-pointer transition-colors shadow-sm" />
-          <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80 hover:bg-yellow-400 cursor-pointer transition-colors shadow-sm" />
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80 hover:bg-emerald-400 cursor-pointer transition-colors shadow-sm" />
-        </div>
+
 
         {/* Menu Buttons */}
         <div className="flex items-center gap-0.5">
@@ -531,22 +526,9 @@ export default function MenuBar() {
         </button>
       </div>
 
-      {/* Right License & Status Pill */}
-      <div className="flex items-center gap-3 font-sans text-xs text-zinc-500" data-tauri-drag-region>
-        <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs truncate max-w-[220px]">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
-          {isMounted ? documentTitle : 'No Document Loaded'}
-        </span>
-        <span className={cn(
-          "hidden sm:inline px-2 py-0.5 rounded text-xs",
-          license.status === 'ACTIVE'
-            ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30'
-            : license.status === 'UNVERIFIED'
-            ? 'text-yellow-600 dark:text-yellow-400 bg-yellow-500/10 border border-yellow-500/30'
-            : 'text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/30'
-        )}>
-          License: {license.status === 'ACTIVE' ? 'Active' : 'Unverified'}
-        </span>
+      {/* Right Drag Region / Spacer */}
+      <div className="flex items-center" data-tauri-drag-region>
+        <div className="w-16 h-full" />
       </div>
     </header>
   );

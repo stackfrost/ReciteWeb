@@ -47,8 +47,6 @@ export default function Sidebar() {
     filteredClaims,
     mathBlocks,
     license,
-    activeClaimIndex,
-    jumpToClaim,
     bibtexContent,
     bibtexFileName,
     mountBibTex,
@@ -133,15 +131,6 @@ export default function Sidebar() {
       ? 'text-yellow-400 bg-yellow-400/10 border border-yellow-400/30'
       : 'text-rose-500 bg-rose-500/10 border border-rose-500/30';
 
-  // Sections outline for the loaded document
-  const sections = [
-    { title: 'Abstract & Overview', claimIdx: 0 },
-    { title: '1. Theoretical Framework', claimIdx: 1 },
-    { title: '2. Experimental Methodology', claimIdx: 2 },
-    { title: '3. Quantum Spin Analysis', claimIdx: 3 },
-    { title: '4. Discussion & Outlook', claimIdx: 4 },
-  ];
-
   return (
     <div className="flex h-full flex-shrink-0 z-20 select-none">
       {/* 1. Activity Rail (48px fixed) */}
@@ -221,7 +210,7 @@ export default function Sidebar() {
 
         {/* Explorer Content */}
         <div className="flex-1 overflow-y-auto p-3 space-y-4 text-xs">
-          {/* Active File / Outline */}
+          {/* Active File / Bibliography */}
           {isMounted ? (
             <>
               {/* Document Info Card */}
@@ -244,63 +233,49 @@ export default function Sidebar() {
                 </div>
               </div>
 
-              {/* Database Link Section */}
-              <div className="p-2.5 rounded border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-950/60 shadow-xs space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
-                    <Database size={12} className="text-zinc-400" />
-                    <span>Linked Database</span>
+              {/* BibTeX Database Card */}
+              {bibtexFileName ? (
+                <div className="p-2.5 rounded border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-950/20 shadow-xs space-y-2">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <Database size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <div className="font-mono text-xs font-medium text-emerald-800 dark:text-emerald-300 truncate">
+                          {bibtexFileName}
+                        </div>
+                        <div className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80">
+                          {parsedBibEntries.size} entries loaded
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  {bibtexContent ? (
-                    <span className="px-1.5 py-0.2 text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 rounded flex items-center gap-1">
-                      <CheckCircle2 size={10} />
-                      Linked
-                    </span>
-                  ) : (
-                    <span className="px-1.5 py-0.2 text-[10px] text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-900 rounded border border-zinc-200 dark:border-zinc-800">
-                      Unattached
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1.5 pt-1 border-t border-emerald-500/20">
+                    <button
+                      onClick={handleMountBibClick}
+                      className="flex-1 py-1 px-2 bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded text-xs font-medium transition-colors flex items-center justify-center gap-1 border border-zinc-200 dark:border-zinc-800 cursor-pointer"
+                    >
+                      Replace .bib
+                    </button>
+                    <button
+                      onClick={unmountBibTex}
+                      className="py-1 px-2 text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 rounded text-xs transition-colors cursor-pointer"
+                      title="Detach .bib Database"
+                    >
+                      Detach
+                    </button>
+                  </div>
                 </div>
+              ) : (
+                <button
+                  onClick={handleMountBibClick}
+                  className="w-full py-1.5 px-2.5 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Database size={13} className="text-zinc-400" />
+                  <span>Attach .bib Database</span>
+                </button>
+              )}
 
-                {bibtexContent ? (
-                  <div className="space-y-2 pt-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-800 dark:text-zinc-200">
-                        {bibtexFileName || 'references.bib'}
-                      </div>
-                      <div className="text-[11px] text-zinc-500">
-                        {parsedBibEntries.size} entries
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={handleMountBibClick}
-                        className="flex-1 py-1 px-2 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded text-xs font-medium transition-colors flex items-center justify-center gap-1 border border-zinc-200 dark:border-zinc-800 cursor-pointer"
-                      >
-                        Replace .bib
-                      </button>
-                      <button
-                        onClick={unmountBibTex}
-                        className="py-1 px-2 text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 rounded text-xs transition-colors cursor-pointer"
-                        title="Detach .bib Database"
-                      >
-                        Detach
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    onClick={handleMountBibClick}
-                    className="w-full py-1.5 px-2.5 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    <Database size={13} className="text-zinc-400" />
-                    <span>Attach .bib Database</span>
-                  </button>
-                )}
-              </div>
-
-              {workspace.type === 'directory' ? (
+              {workspace.type === 'directory' && (
                 <div className="space-y-1">
                   <div className="px-1 text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
                     Project Files
@@ -329,33 +304,6 @@ export default function Sidebar() {
                     })}
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-1">
-                  <div className="px-1 text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
-                    Document Outline
-                  </div>
-
-                  <div className="space-y-0.5">
-                    {sections.map((sec, idx) => {
-                      const isCurrent = activeClaimIndex === sec.claimIdx;
-                      return (
-                        <button
-                          key={idx}
-                          onClick={() => jumpToClaim(sec.claimIdx)}
-                          className={cn(
-                            'w-full flex items-center justify-between px-2.5 py-1.5 rounded text-left transition-colors text-xs',
-                            isCurrent
-                              ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-medium'
-                              : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-zinc-900 dark:hover:text-zinc-200'
-                          )}
-                        >
-                          <span className="truncate">{sec.title}</span>
-                          {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
               )}
             </>
           ) : (
@@ -378,6 +326,13 @@ export default function Sidebar() {
                   className="w-full py-1.5 px-3 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded text-xs font-medium transition-colors shadow-xs cursor-pointer"
                 >
                   Open Folder...
+                </button>
+                <button
+                  onClick={handleMountBibClick}
+                  className="w-full py-1.5 px-3 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded text-xs font-medium transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Database size={13} className="text-zinc-400" />
+                  <span>Attach .bib Database...</span>
                 </button>
               </div>
             </div>

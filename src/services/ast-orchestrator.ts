@@ -1,16 +1,30 @@
 import type { NormalizedASTDocument, DocumentFormat } from './universal-ast';
 import type { ASTWorkerRequest, ASTWorkerResponse } from '@/workers/ast-engine.worker';
+import { parseDocxDocument } from './docx-parser';
+import { parseTypstDocument } from './typst-parser';
+import { parseScientificMarkdown } from './markdown-parser';
 
 class ASTOrchestrator {
   private worker: Worker | null = null;
   private pendingJobs = new Map<string, { resolve: (ast: NormalizedASTDocument) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private jobIdCounter = 0;
+  private workerFailed = false;
 
   private initWorker() {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || this.workerFailed) return;
     if (!this.worker) {
-      this.worker = new Worker(new URL('../workers/ast-engine.worker.ts', import.meta.url), { type: 'module' });
-      this.worker.onmessage = this.handleWorkerMessage.bind(this);
+      try {
+        this.worker = new Worker(new URL('../workers/ast-engine.worker.ts', import.meta.url), { type: 'module' });
+        this.worker.onmessage = this.handleWorkerMessage.bind(this);
+        this.worker.onerror = () => {
+          this.workerFailed = true;
+          this.worker = null;
+        };
+      } catch (err) {
+        console.warn('[ASTOrchestrator] Worker initialization fallback to main thread:', err);
+        this.workerFailed = true;
+        this.worker = null;
+      }
     }
   }
 
@@ -30,10 +44,33 @@ class ASTOrchestrator {
     }
   }
 
+  private async parseDirect(format: DocumentFormat, content: string | ArrayBuffer): Promise<NormalizedASTDocument> {
+    switch (format) {
+      case 'latex':
+        return {
+          format: 'latex',
+          rawContent: content as string,
+          sanitizedContent: content as string,
+          citations: [],
+          mathBlocks: [],
+          crossReferences: [],
+          mathTokenMap: new Map()
+        };
+      case 'typst':
+        return parseTypstDocument(content as string);
+      case 'markdown':
+        return parseScientificMarkdown(content as string);
+      case 'docx':
+        return await parseDocxDocument(content as ArrayBuffer);
+      default:
+        throw new Error(`Unsupported format: ${format}`);
+    }
+  }
+
   public async parse(format: DocumentFormat, content: string | ArrayBuffer): Promise<NormalizedASTDocument> {
     this.initWorker();
-    if (!this.worker) {
-      throw new Error('Web Worker not supported or running on server.');
+    if (!this.worker || this.workerFailed) {
+      return this.parseDirect(format, content);
     }
 
     const id = `ast-job-${++this.jobIdCounter}`;
@@ -41,17 +78,24 @@ class ASTOrchestrator {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingJobs.delete(id);
-        reject(new Error('AST processing timed out (30s)'));
-      }, 30000);
+        // Fallback to direct parsing on timeout
+        this.parseDirect(format, content).then(resolve).catch(reject);
+      }, 5000);
 
       this.pendingJobs.set(id, { resolve, reject, timer });
 
       const request: ASTWorkerRequest = { id, format, content };
 
-      if (content instanceof ArrayBuffer) {
-        this.worker!.postMessage(request, [content]);
-      } else {
-        this.worker!.postMessage(request);
+      try {
+        if (content instanceof ArrayBuffer) {
+          this.worker!.postMessage(request, [content]);
+        } else {
+          this.worker!.postMessage(request);
+        }
+      } catch (postErr) {
+        clearTimeout(timer);
+        this.pendingJobs.delete(id);
+        this.parseDirect(format, content).then(resolve).catch(reject);
       }
     });
   }

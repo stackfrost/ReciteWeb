@@ -68,6 +68,9 @@ export const SettingsModal: React.FC = () => {
             <div>
               <label className="text-[11px] text-neutral-400 flex justify-between"><span>OpenRouter API Key</span></label>
               <input type="password" value={localKeys.openrouter} onChange={e => setLocalKeys({...localKeys, openrouter: e.target.value})} className="w-full mt-1 bg-neutral-950 border border-neutral-800 rounded-md px-3 py-1.5 text-white font-mono" placeholder="sk-or-v1..." />
+              <p className="text-[10px] text-neutral-500 mt-1">
+                OpenRouter requires an API key to authenticate requests, even for free-tier models. Usage is free, but standard rate limits apply.
+              </p>
             </div>
             <div>
               <label className="text-[11px] text-neutral-400 flex justify-between"><span>Google Gemini API Key</span></label>

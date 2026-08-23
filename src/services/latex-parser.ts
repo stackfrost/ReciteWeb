@@ -14,13 +14,67 @@ import {
 } from '../lib/parsers/tex-parser';
 import { parseMathBlocks, MathBlock } from '../lib/parsers/math-parser';
 import type { BibTeXEntry } from './bibtex-parser';
+import { getLocalCoordinate, SourceSegment } from './document-stitcher';
 
 export interface ExtractedClaim {
   id: string;
   sectionTitle: string;
   rawText: string;
   citations: string[];
+  fileId?: string;
+  line?: number;
+  index?: number;
+  length?: number;
+  context?: string;
+  key?: string;
   verifiedSourceContext?: string[];
+  isProtected?: boolean;
+}
+
+export interface ProtectedZone {
+  start: number;
+  end: number;
+  type: string;
+}
+
+export function mapProtectedZones(text: string): ProtectedZone[] {
+  const zones: ProtectedZone[] = [];
+  
+  // 1. Map \begin{...} to \end{...} environments (equations, figures, tables, tikz)
+  const envRegex = /\\begin\{([^}]+)\}([\s\S]*?)\\end\{\1\}/g;
+  let match;
+  while ((match = envRegex.exec(text)) !== null) {
+    const envName = match[1];
+    if (['equation', 'align', 'figure', 'tikzpicture', 'tabular', 'math', 'displaymath'].includes(envName)) {
+      zones.push({ start: match.index, end: match.index + match[0].length, type: envName });
+    }
+  }
+
+  // 2. Map display math $$...$$
+  const displayMathRegex = /\$\$[\s\S]*?\$\$/g;
+  while ((match = displayMathRegex.exec(text)) !== null) {
+    zones.push({ start: match.index, end: match.index + match[0].length, type: 'displaymath' });
+  }
+
+  return zones;
+}
+
+export function isInsideProtectedZone(index: number, zones: ProtectedZone[]): boolean {
+  return zones.some(zone => index >= zone.start && index <= zone.end);
+}
+
+export function extractContextSnippet(text: string, startIndex: number, length: number, radius = 60): string {
+  if (!text) return '';
+  const start = Math.max(0, startIndex - radius);
+  const end = Math.min(text.length, startIndex + length + radius);
+  const rawSnippet = text.substring(start, end).replace(/\s+/g, ' ').trim();
+  return `...${rawSnippet}...`;
+}
+
+export function calculateLineNumber(text: string, charIndex: number): number {
+  if (charIndex < 0 || charIndex > text.length) return 1;
+  const textUpToIndex = text.substring(0, charIndex);
+  return (textUpToIndex.match(/\n/g) || []).length + 1;
 }
 
 export interface VirtualProjectFile {
@@ -232,8 +286,8 @@ export class LaTeXParser {
   /**
    * Extracts claims from a LaTeX document string.
    */
-  static extractClaims(texContent: string): ExtractedClaim[] {
-    return LaTeXParser.scanDocument(texContent);
+  static extractClaims(texContent: string, sourceMap?: SourceSegment[]): ExtractedClaim[] {
+    return LaTeXParser.scanDocument(texContent, sourceMap);
   }
 
   /**
@@ -268,20 +322,26 @@ export class LaTeXParser {
   /**
    * Scans a LaTeX document and extracts paragraphs with their structural context and citations.
    */
-  static scanDocument(texContent: string): ExtractedClaim[] {
+  static scanDocument(texContent: string, sourceMap?: SourceSegment[]): ExtractedClaim[] {
     if (!texContent) return [];
     
     const claims: ExtractedClaim[] = [];
     let currentSection = 'Introduction';
     
+    const protectedZones = mapProtectedZones(texContent);
     const paragraphs = texContent.split(/\n\s*\n/);
     const citeRegexGlobal = /\\(?:auto|p|t|page|author|year)?cite[a-z]*\*?(?:\[.*?\])*\{([^}]+)\}/gi;
     const sectionRegex = /\\(section|subsection|chapter)\*?\{([^}]+)\}/i;
 
     let claimCounter = 1;
+    let searchOffset = 0;
 
     for (const paragraph of paragraphs) {
       const p = paragraph.trim();
+      const pIndex = texContent.indexOf(paragraph, searchOffset);
+      if (pIndex !== -1) {
+        searchOffset = pIndex + paragraph.length;
+      }
       if (!p) continue;
 
       // Update current section if found
@@ -293,25 +353,90 @@ export class LaTeXParser {
       // Check for citations
       let match: RegExpExecArray | null;
       const paragraphCitations: string[] = [];
+      let firstMatchIndex = 0;
       
       citeRegexGlobal.lastIndex = 0;
       while ((match = citeRegexGlobal.exec(p)) !== null) {
+        if (paragraphCitations.length === 0) firstMatchIndex = match.index;
         const keys = match[1].split(',').map((k) => k.trim()).filter((k) => k.length > 0);
         paragraphCitations.push(...keys);
       }
 
       if (paragraphCitations.length > 0) {
+        const startIndex = pIndex !== -1 ? pIndex : 0;
+        const actualLine = calculateLineNumber(texContent, startIndex);
+        const snippet = extractContextSnippet(texContent, startIndex, p.length);
+        const uniqueCites = Array.from(new Set(paragraphCitations));
+        
+        let fileId = undefined;
+        let localIndex = startIndex;
+        
+        if (sourceMap) {
+          const coordinate = getLocalCoordinate(startIndex, sourceMap);
+          if (coordinate) {
+            fileId = coordinate.fileId;
+            localIndex = coordinate.localOffset;
+          }
+        }
+
         claims.push({
-          id: `claim-ast-${claimCounter++}`,
+          id: fileId ? `claim-ast-${fileId}-${localIndex}` : `claim-ast-${claimCounter++}`,
           sectionTitle: currentSection,
           rawText: p,
-          citations: Array.from(new Set(paragraphCitations)),
+          citations: uniqueCites,
+          fileId: fileId,
+          line: actualLine,
+          index: localIndex,
+          length: p.length,
+          context: snippet,
+          key: uniqueCites[0],
+          isProtected: isInsideProtectedZone(startIndex + firstMatchIndex, protectedZones),
         });
       }
     }
     
     return claims;
   }
+}
+
+export function parseLatexChunk(
+  llmJson: any[],
+  chunkText: string, 
+  globalStartIndex: number, 
+  sourceMap: SourceSegment[]
+): any[] {
+  const findings: any[] = [];
+  if (!Array.isArray(llmJson)) return findings;
+  
+  const protectedZones = mapProtectedZones(chunkText);
+
+  llmJson.forEach((item: any) => {
+    if (!item || !item.text) return;
+    
+    // Find the claim in the chunk text
+    const index = chunkText.indexOf(item.text);
+    if (index === -1) return; // Not found
+    
+    const globalMatchIndex = globalStartIndex + index;
+    const coordinate = getLocalCoordinate(globalMatchIndex, sourceMap);
+    
+    if (coordinate) {
+      findings.push({
+        id: item.id || `finding-${coordinate.fileId}-${coordinate.localOffset}`,
+        fileId: coordinate.fileId,
+        index: coordinate.localOffset,
+        length: item.text.length,
+        claim: item.text,
+        type: item.type || 'Needs Literature',
+        severity: item.severity || 'Medium',
+        context: item.context,
+        suggestedFix: item.suggestedFix,
+        isProtected: isInsideProtectedZone(index, protectedZones)
+      });
+    }
+  });
+
+  return findings;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -370,3 +495,49 @@ export function rehydrateQuarantinedMath(
     return tokenMap.get(token) || token;
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § TIER 1 DETERMINISTIC BIBLIOGRAPHY LINTER
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BibEntry {
+  key: string;
+  raw: string;
+}
+
+export function parseBibKeys(bibContent: string): Set<string> {
+  const keys = new Set<string>();
+  const regex = /@[a-zA-Z]+\s*\{\s*([^,\s]+)/g;
+  let match;
+  while ((match = regex.exec(bibContent)) !== null) {
+    keys.add(match[1].trim());
+  }
+  return keys;
+}
+
+export function auditDeterministicBib(
+  texContent: string,
+  bibContent: string
+): { missingInBib: string[]; unusedInTex: string[] } {
+  const bibKeys = parseBibKeys(bibContent);
+  const citedKeys = new Set<string>();
+  
+  const citeRegex = /\\(?:cite|citep|citet|autocite)\{([^}]+)\}/g;
+  let match;
+  while ((match = citeRegex.exec(texContent)) !== null) {
+    match[1].split(',').forEach(k => citedKeys.add(k.trim()));
+  }
+
+  const missingInBib: string[] = [];
+  citedKeys.forEach(key => {
+    if (!bibKeys.has(key)) missingInBib.push(key);
+  });
+
+  const unusedInTex: string[] = [];
+  bibKeys.forEach(key => {
+    if (!citedKeys.has(key)) unusedInTex.push(key);
+  });
+
+  return { missingInBib, unusedInTex };
+}
+
