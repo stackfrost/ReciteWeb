@@ -6,13 +6,14 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
     id: 'finding-1',
     line: 64,
     category: 'bib_mismatch',
-    severity: 'medium',
+    streamType: 'integrity',
+    severity: 'Medium',
     type: 'Missing BibTeX Key',
     citationKey: 'zheng2024_unresolved',
     context: 'RF phase coherence was sustained by a custom double-shielded semi-rigid coaxial transmission line designed to maintain insertion loss below 0.45 dB/m at 180 MHz \\cite{zheng2024_unresolved}.',
     suggestedPatch: {
       diffRemove: '\\cite{zheng2024_unresolved}',
-      diffAdd: '\\cite{zheng2017}',
+      diffAdd: '\\cite{lawson2021}',
     },
     verifiedSources: [],
     status: 'unresolved',
@@ -21,8 +22,9 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
     id: 'finding-2',
     line: 82,
     category: 'literature_discovery',
-    severity: 'medium',
-    type: 'Unsupported Claim',
+    streamType: 'discovery',
+    severity: 'Medium',
+    type: 'Unsupported Assertion',
     claimText: 'High-field continuous-wave optical spectroscopy confirms absence of single-particle gap openings',
     context: 'High-field continuous-wave optical spectroscopy confirms the absence of single-particle gap openings or structural dimerization down to 45 mK.',
     suggestedPatch: {
@@ -34,6 +36,7 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
         title: 'Spin Liquid State in an Organic Spin-1/2 Triangular Lattice Antiferromagnet κ-(BEDT-TTF)2Cu2(CN)3',
         authors: ['Shimizu, Y.', 'Miyagawa, K.', 'Kanoda, K.', 'Maesato, M.', 'Saito, G.'],
         year: 2003,
+        venue: 'Physical Review Letters',
         doi: '10.1103/PhysRevLett.91.107001',
         bibtexKey: 'shimizu2003',
         relevanceScore: 0.96,
@@ -44,6 +47,7 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
         title: 'NMR and NQR Studies of Low-Dimensional Spin Liquid and Quantum Frustrated Magnets',
         authors: ['Itoh, Yutaka', 'Machi, Takato', 'Koshizuka, Naoki'],
         year: 1998,
+        venue: 'Physical Review B',
         doi: '10.1103/PhysRevB.58.3458',
         bibtexKey: 'itoh1998',
         relevanceScore: 0.88,
@@ -57,8 +61,9 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
     id: 'finding-3',
     line: 74,
     category: 'literature_discovery',
-    severity: 'critical',
-    type: 'Unverified Physical Claim',
+    streamType: 'discovery',
+    severity: 'Critical',
+    type: 'Weak Attribution',
     claimText: 'directly verifying gapless fermionic spinon excitations with constant density of states',
     context: 'Our high-resolution spectra reveal that K(T) remains finite as T -> 0 K, directly verifying gapless fermionic spinon excitations with a constant density of states at the Fermi level.',
     suggestedPatch: {
@@ -70,6 +75,7 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
         title: '63Cu Spin-Lattice Relaxation Rate and Knight Shift in Underdoped Cuprates and Organic Superconductors',
         authors: ['Imai, Takashi', 'Slichter, Charles P.', 'Yoshimura, K.', 'Kosuge, K.'],
         year: 1993,
+        venue: 'Physical Review Letters',
         doi: '10.1103/PhysRevLett.70.1002',
         bibtexKey: 'imai1993',
         relevanceScore: 0.92,
@@ -83,7 +89,8 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
     id: 'finding-4',
     line: 56,
     category: 'bib_mismatch',
-    severity: 'low',
+    streamType: 'integrity',
+    severity: 'Low',
     type: 'Unreferenced Citation Key',
     citationKey: 'shimizu2003',
     context: 'Frustrated quantum magnets with S = 1/2 degrees of freedom on triangular lattices provide a benchmark platform for realizing gapless quantum spin liquid (QSL) states \\cite{shimizu2003}.',
@@ -104,7 +111,7 @@ interface AuditState {
   activeTab: 'remediation' | 'sources' | 'integrity' | 'zotero';
   setFindings: (findings: AuditFinding[]) => void;
   setSelectedFindingId: (id: string | null) => void;
-  setActiveFilter: (filter: 'all' | FindingCategory) => void;
+  setActiveFilter: (activeFilter: 'all' | FindingCategory) => void;
   setActiveTab: (tab: 'remediation' | 'sources' | 'integrity' | 'zotero') => void;
   resolveFinding: (id: string) => void;
   runAudit: () => Promise<void>;
@@ -129,7 +136,6 @@ export const useAuditStore = create<AuditState>((set, get) => ({
     })),
   runAudit: async () => {
     set({ isAuditing: true });
-    // Simulate high-performance AST scan & literature reconciliation
     await new Promise((r) => setTimeout(r, 600));
     set({
       findings: INITIAL_DEMO_FINDINGS.map((f) => ({ ...f, status: 'unresolved' })),

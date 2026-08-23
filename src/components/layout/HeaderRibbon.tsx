@@ -40,9 +40,9 @@ export const HeaderRibbon: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [runAudit]);
 
-  const criticalCount = findings.filter(f => f.severity === 'critical' && f.status === 'unresolved').length;
-  const mediumCount = findings.filter(f => f.severity === 'medium' && f.status === 'unresolved').length;
-  const lowCount = findings.filter(f => f.severity === 'low' && f.status === 'unresolved').length;
+  const criticalCount = findings.filter(f => (f.severity?.toLowerCase() === 'critical' || f.severity?.toLowerCase() === 'high') && f.status === 'unresolved').length;
+  const mediumCount = findings.filter(f => f.severity?.toLowerCase() === 'medium' && f.status === 'unresolved').length;
+  const lowCount = findings.filter(f => f.severity?.toLowerCase() === 'low' && f.status === 'unresolved').length;
 
   return (
     <header

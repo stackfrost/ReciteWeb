@@ -18,9 +18,9 @@ export default function ASTBreadcrumbs() {
   }, []);
 
   return (
-    <div className="h-7 bg-zinc-900/90 backdrop-blur border-b border-zinc-800 flex items-center px-3 select-none flex-shrink-0">
-      <span ref={textRef} className="font-mono text-[11px] text-zinc-400 tracking-tight flex items-center gap-1.5 whitespace-nowrap">
-        <span>main.tex</span> <span className="text-zinc-600">/</span> <span className="text-zinc-300">Document</span> <span className="text-zinc-600">/</span> <span className="text-zinc-500 font-mono">[Offset: 0]</span>
+    <div className="h-7 bg-zinc-50 dark:bg-zinc-900/90 backdrop-blur border-b border-zinc-200 dark:border-zinc-800 flex items-center px-3 select-none flex-shrink-0 transition-colors">
+      <span ref={textRef} className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 tracking-tight flex items-center gap-1.5 whitespace-nowrap">
+        <span>main.tex</span> <span className="text-zinc-400 dark:text-zinc-600">/</span> <span className="text-zinc-700 dark:text-zinc-300">Document</span> <span className="text-zinc-400 dark:text-zinc-600">/</span> <span className="text-zinc-500 font-mono">[Offset: 0]</span>
       </span>
     </div>
   );

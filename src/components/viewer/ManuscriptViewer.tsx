@@ -6,13 +6,12 @@ import type { Claim } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import MathBlock from './MathBlock';
 import ClaimHighlight from './ClaimHighlight';
-
 import ASTBreadcrumbs from './ASTBreadcrumbs';
 import { BibTeXParser } from '@/services/bibtex-parser';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import DOMPurify from 'dompurify';
-import { FileCode2, ChevronRight } from 'lucide-react';
+import { FileCode2, ChevronRight, WrapText, AlignLeft } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § DOM PURIFY CONFIG
@@ -51,6 +50,9 @@ export default function ManuscriptViewer() {
     fileFormat,
     isAuditing,
     bibtexContent,
+    softWrap,
+    setSoftWrap,
+    activeLineHighlight,
   } = useReciteStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -71,6 +73,34 @@ export default function ManuscriptViewer() {
     return null;
   }, [filteredClaims, activeClaimIndex]);
 
+  // Auto-scroll to active claim
+  useEffect(() => {
+    if (activeClaimRef.current) {
+      activeClaimRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+  }, [activeClaimIndex, activeLineHighlight]);
+
+  // Keyboard shortcuts (J/K for claim stepping)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+
+      if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        nextClaim();
+      } else if (e.key === 'k' || e.key === 'K' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        prevClaim();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [nextClaim, prevClaim]);
+
   // Track scroll progress
   const rafScrollRef = useRef<number | null>(null);
   const rafCursorRef = useRef<number | null>(null);
@@ -84,7 +114,6 @@ export default function ManuscriptViewer() {
         const progress = total > 0 ? (scrollTop / total) * 100 : 0;
         setScrollProgress(progress);
         
-        // Calculate the current scrollLine
         const scrollLine = Math.floor(scrollTop / 24);
         useReciteStore.getState().setScrollLine(scrollLine);
       }
@@ -104,34 +133,6 @@ export default function ManuscriptViewer() {
       rafCursorRef.current = null;
     });
   };
-
-  // Auto-scroll to active claim
-  useEffect(() => {
-    if (activeClaimRef.current) {
-      activeClaimRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      });
-    }
-  }, [activeClaimIndex]);
-
-  // Keyboard shortcuts (J/K for claim stepping)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
-
-      if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        nextClaim();
-      } else if (e.key === 'k' || e.key === 'K' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        prevClaim();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextClaim, prevClaim]);
 
   // ── 1. AST Breadcrumb Computations ─────────────────────────────────────────
   const activeSection = useMemo(() => {
@@ -153,23 +154,10 @@ export default function ManuscriptViewer() {
     return currentSection;
   }, [rawText, parsedText, activeClaim]);
 
-  const activeCitationTag = useMemo(() => {
-    if (!activeClaim) return null;
-    const match = activeClaim.text.match(/\\cite[a-zA-Z]*\{([^}]+)\}/);
-    if (match) return match[0];
-    if (activeClaim.suggestedPapers?.[0]?.doi) {
-      return `[${activeClaim.suggestedPapers[0].authors[0] || 'Ref'}]`;
-    }
-    return null;
-  }, [activeClaim]);
-
-
-  // ── 3. Rich Content Renderer (KaTeX + Citation Peek Hover Cards) ───────────
+  // ── 2. Rich Content Renderer (KaTeX + Citation Peek Hover Cards) ───────────
   const renderRichContent = (rawTextStr: string, keyPrefix: string) => {
-    // 1. Pre-pass: Stitch together broken quarantine tokens and preserve backslashes
-    // If the orchestrator properly rehydrated tokens, this won't match, but we keep it for safety.
     const text = rawTextStr
-      .replace(/\\/g, '\\\\') // Preserve backslashes from being lost in string payload evaluation
+      .replace(/\\/g, '\\\\')
       .replace(/\[\[\s*R\s*E\s*C\s*I\s*T\s*E\s*A\s*I\s*_\s*Q\s*U\s*A\s*R\s*A\s*N\s*T\s*I\s*N\s*E[\s_A-Z0-9]*\]\]/gi, (match) => match.replace(/\s+/g, ''));
 
     // Split on quarantine tokens or math delimiters ($$, \[ \], $, \( \))
@@ -190,7 +178,7 @@ export default function ManuscriptViewer() {
           return (
             <span
               key={pKey}
-              className={mb.type === 'display' ? 'block my-6 text-center overflow-x-auto py-1 bg-zinc-900/60 border border-zinc-800 rounded px-2 text-zinc-100' : 'inline px-1 bg-zinc-900/60 border border-zinc-800 rounded text-zinc-100'}
+              className={mb.type === 'display' ? 'block my-6 text-center max-w-full overflow-x-auto py-2 bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded px-3 text-zinc-900 dark:text-zinc-100' : 'inline px-1 bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded text-zinc-900 dark:text-zinc-100'}
               dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
@@ -211,7 +199,7 @@ export default function ManuscriptViewer() {
           return (
             <span
               key={pKey}
-              className="block my-6 text-center overflow-x-auto py-1 bg-zinc-900/60 border border-zinc-800 rounded px-2 text-zinc-100"
+              className="block my-6 text-center max-w-full overflow-x-auto py-2 bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded px-3 text-zinc-900 dark:text-zinc-100"
               dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
@@ -232,7 +220,7 @@ export default function ManuscriptViewer() {
           return (
             <span
               key={pKey}
-              className="inline px-1 bg-zinc-900/60 border border-zinc-800 rounded text-zinc-100"
+              className="inline px-1 bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded text-zinc-900 dark:text-zinc-100"
               dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
             />
           );
@@ -310,7 +298,7 @@ export default function ManuscriptViewer() {
     });
   };
 
-  // ── 4. Segmentation Engine ────────────────────────────────────────────────
+  // ── 3. Segmentation Engine ────────────────────────────────────────────────
   const renderedContent = useMemo(() => {
     const textToRender = parsedText || rawText;
 
@@ -327,7 +315,7 @@ export default function ManuscriptViewer() {
     interface Segment {
       type: 'text' | 'claim';
       content: string;
-      claim?: any;
+      claim?: Claim;
     }
 
     const segments: Segment[] = [];
@@ -359,19 +347,23 @@ export default function ManuscriptViewer() {
     }
 
     // Split segments into paragraphs by \n\n
-    type SeverityType = 'High' | 'Medium' | 'Low' | null;
+    type SeverityType = 'Critical' | 'High' | 'Medium' | 'Low' | null;
     const paragraphs: { 
       id: string; 
       segments: Segment[]; 
       hasUnresolvedClaim: boolean; 
       severityType: SeverityType;
+      isDiscovery: boolean;
       startLine: number;
+      primaryClaim?: Claim;
     }[] = [];
     let currentParagraph: Segment[] = [];
     let hasUnresolved = false;
     let highestSeverity: SeverityType = null;
+    let isDiscoveryClaim = false;
     let currentLineNumber = 1;
     let currentParagraphStartLine = 1;
+    let primaryClaimInPara: Claim | undefined = undefined;
 
     segments.forEach((seg) => {
       const parts = seg.content.split(/\n\n/);
@@ -383,12 +375,15 @@ export default function ManuscriptViewer() {
             segments: currentParagraph, 
             hasUnresolvedClaim: hasUnresolved,
             severityType: highestSeverity,
-            startLine: currentParagraphStartLine
+            isDiscovery: isDiscoveryClaim,
+            startLine: currentParagraphStartLine,
+            primaryClaim: primaryClaimInPara,
           });
           currentParagraph = [];
           hasUnresolved = false;
           highestSeverity = null;
-          // Splitting by \n\n means we increment line number by 2
+          isDiscoveryClaim = false;
+          primaryClaimInPara = undefined;
           currentLineNumber += 2;
           currentParagraphStartLine = currentLineNumber;
         }
@@ -396,19 +391,23 @@ export default function ManuscriptViewer() {
         if (part.length > 0 || seg.type === 'claim') {
           currentParagraph.push({
             ...seg,
-            content: part
+            content: part,
           });
           
           if (seg.type === 'claim' && seg.claim) {
+            primaryClaimInPara = seg.claim;
             if (seg.claim.status !== 'accepted' && !seg.claim.isRetracted) {
               hasUnresolved = true;
               const sev = seg.claim.severity;
-              if (sev === 'High' || (sev === 'Medium' && highestSeverity !== 'High') || (sev === 'Low' && highestSeverity === null)) {
+              if (sev === 'Critical' || (sev === 'High' && highestSeverity !== 'Critical') || (sev === 'Medium' && highestSeverity !== 'Critical' && highestSeverity !== 'High') || (sev === 'Low' && highestSeverity === null)) {
                 highestSeverity = sev as SeverityType;
+              }
+              if (seg.claim.streamType === 'discovery' || seg.claim.auditType === 'Unsupported Assertion' || seg.claim.auditType === 'Weak Attribution') {
+                isDiscoveryClaim = true;
               }
             } else if (seg.claim.isRetracted) {
               hasUnresolved = true;
-              highestSeverity = 'High';
+              highestSeverity = 'Critical';
             }
           }
         }
@@ -420,33 +419,68 @@ export default function ManuscriptViewer() {
     
     if (currentParagraph.length > 0) {
       paragraphs.push({ 
-        id: `para-${paragraphs.length}`,
+        id: `para-${paragraphs.length}`, 
         segments: currentParagraph, 
         hasUnresolvedClaim: hasUnresolved,
         severityType: highestSeverity,
-        startLine: currentParagraphStartLine
+        isDiscovery: isDiscoveryClaim,
+        startLine: currentParagraphStartLine,
+        primaryClaim: primaryClaimInPara,
       });
     }
 
     return paragraphs.map((para) => {
       const isMathDisplay = para.segments.length === 1 && para.segments[0].content.trim().startsWith('$$') && para.segments[0].content.trim().endsWith('$$');
-      
+      const isHighlightedLine = activeLineHighlight !== null && Math.abs(para.startLine - activeLineHighlight) <= 2;
+      const isParaActive = para.primaryClaim && activeClaim?.id === para.primaryClaim.id;
+
+      // Click handler on gutter indicator dot to focus claim in inspector
+      const handleGutterDotClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (para.primaryClaim) {
+          const targetIdx = filteredClaims.findIndex((c) => c.id === para.primaryClaim!.id);
+          if (targetIdx !== -1) setActiveClaimIndex(targetIdx);
+        }
+      };
+
       return (
-        <div key={para.id} className={`flex group relative ${isMathDisplay ? 'my-6' : 'mb-4'}`}>
-          <div className="w-8 shrink-0 border-r border-zinc-800/80 mr-3 flex flex-col items-end pr-1 pt-0.5 select-none">
-            <span className="text-[9px] font-mono text-zinc-600 leading-none">
-               {para.startLine}
+        <div
+          key={para.id}
+          className={cn(
+            'flex group relative transition-all duration-200 rounded-sm',
+            isMathDisplay ? 'my-6' : 'mb-4',
+            (isHighlightedLine || isParaActive) && 'bg-emerald-500/5 dark:bg-emerald-500/10 ring-1 ring-emerald-500/40'
+          )}
+        >
+          {/* Gutter Line Number & Interactive Diagnostic Dot */}
+          <div className="w-9 shrink-0 border-r border-zinc-200 dark:border-zinc-800/80 mr-3 flex flex-col items-end pr-1.5 pt-0.5 select-none">
+            <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-600 leading-none">
+              {para.startLine}
             </span>
             {para.hasUnresolvedClaim && (
-              <div 
-                className={`w-1.5 h-1.5 rounded-full mt-1.5 ${
-                  para.severityType === 'High' ? 'bg-red-500' : 
-                  para.severityType === 'Medium' ? 'bg-yellow-500' : 'bg-cyan-500'
-                }`} 
+              <button
+                onClick={handleGutterDotClick}
+                title={para.isDiscovery ? 'Literature Discovery Claim (Click to inspect)' : 'Mechanical Citation Fault (Click to inspect)'}
+                className={cn(
+                  'w-2 h-2 rounded-full mt-1.5 cursor-pointer transition-transform hover:scale-150 focus:outline-none',
+                  para.severityType === 'Critical' || para.severityType === 'High'
+                    ? 'bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.6)]'
+                    : para.isDiscovery
+                    ? 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.6)]'
+                    : 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.6)]'
+                )}
+              />
+            )}
+            {!para.hasUnresolvedClaim && para.primaryClaim && para.primaryClaim.status === 'accepted' && (
+              <div
+                title="Citation Verified & Resolved"
+                className="w-1.5 h-1.5 rounded-full mt-1.5 bg-emerald-500"
               />
             )}
           </div>
-          <div className="flex-1 pr-4">
+
+          {/* Paragraph Content Surface */}
+          <div className="flex-1 min-w-0 pr-4 break-words">
             {para.segments.map((seg, sIdx) => {
               const segmentKey = `${para.id}-seg-${sIdx}`;
               if (seg.type === 'claim' && seg.claim) {
@@ -475,39 +509,41 @@ export default function ManuscriptViewer() {
         </div>
       );
     });
-  }, [parsedText, rawText, filteredClaims, mathBlocks, activeClaim, bibtexMap, setActiveClaimIndex]);
-
-  const activeLineNum = activeClaim?.lineIndex || 1;
+  }, [parsedText, rawText, filteredClaims, mathBlocks, activeClaim, bibtexMap, setActiveClaimIndex, activeLineHighlight]);
 
   return (
-    <div className="bg-zinc-950 flex flex-col flex-1 min-h-0 overflow-hidden text-zinc-100 transition-colors">
+    <div className="bg-white dark:bg-zinc-950 flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden text-zinc-900 dark:text-zinc-100 transition-colors">
       {/* ── 1. Sleek AST Breadcrumb Bar (h-7 / 28px) ────────────────────────── */}
       <ASTBreadcrumbs />
 
       {/* ── 2. Main Inspection Canvas with Anomaly Minimap ─────── */}
-      <div className="relative flex-1 flex overflow-hidden">
+      <div className="relative flex-1 flex min-w-0 overflow-hidden bg-white dark:bg-zinc-950 transition-colors">
         {/* Scrollable Text Viewport */}
         <div
           ref={containerRef}
           onScroll={handleScroll}
           onClick={updateCursorOffset}
           onKeyUp={updateCursorOffset}
-          className="font-sans text-[15px] text-zinc-200 leading-relaxed bg-transparent resize-none outline-none border-none focus:ring-0 flex-1 overflow-y-auto whitespace-pre-wrap pt-4"
+          className={cn(
+            'font-sans text-[14px] text-zinc-800 dark:text-zinc-200 leading-relaxed bg-transparent resize-none outline-none border-none focus:ring-0 flex-1 min-w-0 overflow-y-auto pt-4 px-3',
+            softWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre overflow-x-auto'
+          )}
           style={{ tabSize: 2 }}
         >
           {renderedContent}
         </div>
 
         {/* Anomaly Minimap Rail */}
-        <div className="absolute right-0 top-0 bottom-0 w-2.5 bg-zinc-100/50 dark:bg-zinc-900/40 border-l border-zinc-200 dark:border-zinc-800 z-20 select-none overflow-hidden">
+        <div className="absolute right-0 top-0 bottom-0 w-2.5 bg-zinc-100/80 dark:bg-zinc-900/40 border-l border-zinc-200 dark:border-zinc-800 z-20 select-none overflow-hidden">
           {claims.map((claim, idx) => {
             const totalLen = (parsedText || rawText || '').length || 1;
             const topPercent = Math.min(Math.max((claim.startIndex / totalLen) * 100, 1), 98);
             const isCurrent = activeClaim?.id === claim.id;
 
-            let tickColor = 'bg-cyan-400';
-            if (claim.severity === 'High') tickColor = 'bg-rose-500';
-            else if (claim.severity === 'Medium') tickColor = 'bg-yellow-400';
+            let tickColor = 'bg-sky-400';
+            if (claim.status === 'accepted') tickColor = 'bg-emerald-500';
+            else if (claim.severity === 'Critical' || claim.severity === 'High') tickColor = 'bg-rose-500';
+            else if (claim.severity === 'Medium') tickColor = 'bg-amber-400';
 
             return (
               <div
@@ -522,7 +558,7 @@ export default function ManuscriptViewer() {
                 className={cn(
                   'absolute left-0 right-0 h-[2px] cursor-pointer transition-all duration-150 hover:h-[3px] hover:z-30',
                   tickColor,
-                  isCurrent && 'h-[3px] bg-emerald-500 z-30'
+                  isCurrent && 'h-[3px] bg-emerald-500 z-30 ring-1 ring-emerald-400'
                 )}
               />
             );
@@ -531,13 +567,13 @@ export default function ManuscriptViewer() {
           {/* Current Viewport Scroll Indicator */}
           <div
             style={{ top: `${Math.min(Math.max(scrollProgress, 0), 94)}%` }}
-            className="absolute left-0 right-0 h-4 border border-zinc-400/40 dark:border-zinc-500/40 bg-zinc-400/10 pointer-events-none rounded-[1px]"
+            className="absolute left-0 right-0 h-4 border border-zinc-400/50 dark:border-zinc-500/40 bg-zinc-400/20 pointer-events-none rounded-[1px]"
           />
         </div>
       </div>
 
-      {/* ── 3. Footer Bar ──────────────────────────────────────────────────── */}
-      <div className="h-6 px-3 bg-zinc-50/80 dark:bg-zinc-900/40 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-[11px] font-sans text-zinc-500 flex-shrink-0">
+      {/* ── 3. Footer Bar with Wrap Toggle & Progress ───────────────────────── */}
+      <div className="h-6 px-3 bg-zinc-50 dark:bg-zinc-900/40 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-[11px] font-sans text-zinc-500 flex-shrink-0">
         <div className="flex items-center space-x-2">
           <span>Target:</span>
           <span className="text-zinc-700 dark:text-zinc-300 font-mono text-[10px]">
@@ -551,9 +587,23 @@ export default function ManuscriptViewer() {
           )}
         </div>
 
-        <div className="flex items-center space-x-2">
-          <span>Progress:</span>
-          <span className="text-zinc-700 dark:text-zinc-300 font-mono text-[10px]">{Math.round(scrollProgress)}%</span>
+        <div className="flex items-center space-x-3">
+          {/* Soft Wrap Toggle Button */}
+          <button
+            onClick={() => setSoftWrap(!softWrap)}
+            className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+            title="Toggle Soft Wrap"
+          >
+            <WrapText className="w-3 h-3" />
+            <span>Wrap: <strong className="font-semibold">{softWrap ? 'On' : 'Off'}</strong></span>
+          </button>
+
+          <span className="text-zinc-300 dark:text-zinc-700">│</span>
+
+          <div className="flex items-center space-x-1.5">
+            <span>Progress:</span>
+            <span className="text-zinc-700 dark:text-zinc-300 font-mono text-[10px]">{Math.round(scrollProgress)}%</span>
+          </div>
         </div>
       </div>
     </div>

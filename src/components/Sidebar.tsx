@@ -317,9 +317,10 @@ export default function Sidebar() {
               <div className="space-y-1.5 pt-1">
                 <button
                   onClick={handleMountClick}
-                  className="w-full py-1.5 px-3 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded text-xs font-medium transition-colors shadow-xs cursor-pointer"
+                  className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-medium transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  Open Document...
+                  <FolderOpen size={13} />
+                  <span>Open Document...</span>
                 </button>
                 <button
                   onClick={handleMountDirectoryClick}

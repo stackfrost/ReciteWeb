@@ -52,17 +52,25 @@ export interface SuggestedPaper {
   title: string;
   year: number;
   authors: string[];
+  venue?: string;
   doi?: string;
   citationCount?: number;
   influentialCitationCount?: number;
   url?: string;
   paperId?: string;
+  bibtexKey?: string;
+  matchScore?: number;
+  abstractExcerpt?: string;
+  abstractSnippet?: string;
+  verificationStatus?: 'verified' | 'unverified' | 'rejected';
+  bibtexEntry?: string;
 }
 
 export interface Claim {
   id: string;
   text: string;
   category: ClaimCategory;
+  streamType?: 'integrity' | 'discovery';
   severity: ClaimSeverity;
   status: ClaimStatus;
   lineIndex?: number;
@@ -75,13 +83,15 @@ export interface Claim {
   retractedReason?: string;
   suggestedFix?: string;
   context?: string;
-  auditType?: 'MissingCitation' | 'WeakCitation' | 'Hallucination' | 'Misattribution' | 'Needs Literature';
+  auditType?: 'MissingCitation' | 'WeakCitation' | 'Hallucination' | 'Misattribution' | 'Needs Literature' | 'Unsupported Assertion' | 'Weak Attribution' | 'Empirical Gap' | 'Syntax Mismatch';
   searchQuery?: string;
+  citationKey?: string;
 }
 
 export type FilterCategory = 'All' | ClaimCategory;
 export type FilterSeverity = 'All' | ClaimSeverity;
 export type FilterStatus = 'All' | ClaimStatus;
+export type StreamFilter = 'all' | 'integrity' | 'discovery';
 
 interface Stats {
   totalClaims: number;
@@ -235,6 +245,7 @@ interface ReciteState extends EditorState {
   filteredClaims: Claim[];
 
   // ── Filters ───────────────────────────────────────────────────────────────
+  streamFilter: StreamFilter;
   filterCategory: FilterCategory;
   filterSeverity: FilterSeverity;
   filterStatus: FilterStatus;
@@ -252,6 +263,8 @@ interface ReciteState extends EditorState {
   docMetrics: DocMetrics;
   inspectorTab: 'candidates' | 'health' | 'zotero';
   activeActivityView: 'explorer' | 'license' | 'settings' | null;
+  softWrap: boolean;
+  activeLineHighlight: number | null;
 
   // ── Audit Progress ─────────────────────────────────────────────────────
   auditProgress: string | null;
@@ -301,13 +314,14 @@ interface ReciteState extends EditorState {
   jumpToClaim: (index: number) => void;
 
   // ── Filter Actions ────────────────────────────────────────────────────────
+  setStreamFilter: (filter: StreamFilter) => void;
   setFilterCategory: (category: FilterCategory) => void;
   setFilterSeverity: (severity: FilterSeverity) => void;
   setFilterStatus: (status: FilterStatus) => void;
   setSearchQuery: (query: string) => void;
   applyFilters: () => void;
 
-  // ── UI Actions ────────────────────────────────────────────────────────────
+  // ── UI Actions ────────────────────────────────────────────────────
   setIsAuditing: (value: boolean) => void;
   setIsExporting: (value: boolean) => void;
   setShowExportModal: (value: boolean) => void;
@@ -316,6 +330,8 @@ interface ReciteState extends EditorState {
   setInspectorTab: (tab: 'candidates' | 'health' | 'zotero') => void;
   setSidebarOpen: (open: boolean) => void;
   setEditorPaneWidth: (width: number) => void;
+  setSoftWrap: (wrap: boolean) => void;
+  setActiveLineHighlight: (line: number | null) => void;
   toggleSidebar: () => void;
   setActiveActivityView: (view: 'explorer' | 'license' | 'settings' | null) => void;
   setVaultUnlocked: (value: boolean) => void;
@@ -324,6 +340,7 @@ interface ReciteState extends EditorState {
   // ── Claim Mutations ───────────────────────────────────────────────────────
   addSuggestedPapers: (claimId: string, papers: SuggestedPaper[]) => void;
   acceptCitation: (claimId: string, paper: SuggestedPaper) => void;
+  insertCitationAndBib: (claimId: string, paper: SuggestedPaper) => void;
   markAsRetracted: (claimId: string, reason: string) => void;
   dismissClaim: (claimId: string) => void;
   applyFix: (claimId: string) => Promise<void>;
@@ -395,6 +412,7 @@ const initialState = {
   claims: [] as Claim[],
   activeClaimIndex: -1,
   filteredClaims: [] as Claim[],
+  streamFilter: 'all' as StreamFilter,
   filterCategory: 'All' as FilterCategory,
   filterSeverity: 'All' as FilterSeverity,
   filterStatus: 'All' as FilterStatus,
@@ -410,6 +428,8 @@ const initialState = {
   docMetrics: { wordCount: 0, tokenCount: 0 } as DocMetrics,
   inspectorTab: 'candidates' as const,
   activeActivityView: null as 'explorer' | 'license' | 'settings' | null,
+  softWrap: true,
+  activeLineHighlight: null as number | null,
   isVaultUnlocked: false,
   auditProgress: null as string | null,
   stats: { totalClaims: 0, highSeverity: 0, mediumSeverity: 0, lowSeverity: 0, retractedFound: 0, acceptedCount: 0 },
@@ -496,13 +516,21 @@ export const useReciteStore = create<ReciteState>()(
     if (index >= 0 && index < filteredClaims.length) set({ activeClaimIndex: index });
   },
 
+  setStreamFilter: (filter) => { set({ streamFilter: filter }); get().applyFilters(); },
   setFilterCategory: (category) => { set({ filterCategory: category }); get().applyFilters(); },
   setFilterSeverity: (severity) => { set({ filterSeverity: severity }); get().applyFilters(); },
   setFilterStatus: (status) => { set({ filterStatus: status }); get().applyFilters(); },
   setSearchQuery: (query) => { set({ searchQuery: query }); get().applyFilters(); },
+  setSoftWrap: (wrap) => set({ softWrap: wrap }),
+  setActiveLineHighlight: (line) => set({ activeLineHighlight: line }),
   applyFilters: () => {
-    const { claims, filterCategory, filterSeverity, filterStatus, searchQuery, activeClaimIndex } = get();
+    const { claims, streamFilter, filterCategory, filterSeverity, filterStatus, searchQuery, activeClaimIndex } = get();
     let filtered = [...claims];
+    if (streamFilter === 'integrity') {
+      filtered = filtered.filter((c) => c.streamType === 'integrity' || c.auditType === 'MissingCitation' || c.auditType === 'WeakCitation' || c.auditType === 'Syntax Mismatch');
+    } else if (streamFilter === 'discovery') {
+      filtered = filtered.filter((c) => c.streamType === 'discovery' || c.auditType === 'Unsupported Assertion' || c.auditType === 'Weak Attribution' || c.auditType === 'Empirical Gap' || c.auditType === 'Misattribution' || c.auditType === 'Needs Literature');
+    }
     if (filterCategory !== 'All') filtered = filtered.filter((c) => c.category === filterCategory);
     if (filterSeverity !== 'All') filtered = filtered.filter((c) => c.severity === filterSeverity);
     if (filterStatus !== 'All') filtered = filtered.filter((c) => c.status === filterStatus);
@@ -538,6 +566,55 @@ export const useReciteStore = create<ReciteState>()(
     const updatedClaims = get().claims.map((c) => c.id === claimId ? { ...c, status: 'accepted' as const, acceptedPaper: paper } : c);
     set({ claims: updatedClaims, stats: computeStats(updatedClaims) });
     get().applyFilters();
+  },
+  insertCitationAndBib: (claimId, paper) => {
+    const { claims, rawText, parsedText, bibtexContent, addToast } = get();
+    const claim = claims.find((c) => c.id === claimId);
+    if (!claim) return;
+
+    const bibKey = paper.bibtexKey || (paper.authors?.[0]?.toLowerCase()?.replace(/\W/g, '') || 'ref') + (paper.year || '2024');
+    
+    const entry = paper.bibtexEntry || `@article{${bibKey},
+  title = {${paper.title}},
+  author = {${paper.authors.join(' and ')}},
+  journal = {${paper.venue || 'Physical Review Letters'}},
+  year = {${paper.year}}
+}`;
+
+    let newBib = bibtexContent || '';
+    if (!newBib.includes(bibKey)) {
+      newBib = newBib.trim() ? `${newBib.trim()}\n\n${entry}` : entry;
+    }
+
+    let newRaw = rawText || '';
+    let newParsed = parsedText || '';
+    const citeCommand = `\\cite{${bibKey}}`;
+
+    if (newRaw.includes(claim.text)) {
+      if (claim.text.includes('\\cite{')) {
+        const updatedText = claim.text.replace(/\\cite\{[^}]+\}/, citeCommand);
+        newRaw = newRaw.replace(claim.text, updatedText);
+        if (newParsed.includes(claim.text)) newParsed = newParsed.replace(claim.text, updatedText);
+      } else {
+        newRaw = newRaw.replace(claim.text, `${claim.text} ~${citeCommand}`);
+        if (newParsed.includes(claim.text)) newParsed = newParsed.replace(claim.text, `${claim.text} ~${citeCommand}`);
+      }
+    }
+
+    const updatedClaims = claims.map((c) =>
+      c.id === claimId ? { ...c, status: 'accepted' as const, acceptedPaper: paper } : c
+    );
+
+    set({
+      bibtexContent: newBib,
+      rawText: newRaw,
+      parsedText: newParsed,
+      claims: updatedClaims,
+      stats: computeStats(updatedClaims),
+    });
+
+    get().applyFilters();
+    addToast(`Citation @${bibKey} appended to bibliography and inserted into manuscript.`, 'success');
   },
   markAsRetracted: (claimId, reason) => {
     const updatedClaims = get().claims.map((c) => c.id === claimId ? { ...c, isRetracted: true, retractedReason: reason } : c);

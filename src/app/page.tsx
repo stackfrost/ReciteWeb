@@ -222,7 +222,7 @@ function SterileEditorEmptyState({
         <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1 text-xs">
           <button
             onClick={onMountClick}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-white rounded font-medium transition-colors shadow-xs cursor-pointer"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium transition-colors shadow-sm cursor-pointer"
           >
             <FolderOpen size={14} />
             <span>Open Document...</span>
@@ -402,11 +402,11 @@ function IDEWorkbench() {
             {/* Center Pane: Manuscript Viewer */}
             <section
               style={{ width: `${pct}%` }}
-              className="relative flex flex-col overflow-hidden bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 transition-colors"
+              className="relative flex flex-col overflow-hidden bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 transition-colors min-w-0"
             >
               <div
                 className={cn(
-                  'flex-1 overflow-hidden relative flex flex-col',
+                  'flex-1 overflow-hidden relative flex flex-col min-w-0',
                   dragging && 'pointer-events-none'
                 )}
               >
@@ -440,19 +440,20 @@ function IDEWorkbench() {
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               className={cn(
-                'w-1 -ml-[2px] flex-shrink-0 cursor-col-resize z-30 transition-all flex items-center justify-center group relative',
+                'w-1.5 -ml-[3px] flex-shrink-0 cursor-col-resize z-30 transition-all flex items-center justify-center group relative select-none',
                 dragging
-                  ? 'bg-emerald-500 shadow-sm'
-                  : 'bg-transparent hover:bg-emerald-500/50'
+                  ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
+                  : 'bg-zinc-200 dark:bg-zinc-800 hover:bg-emerald-500/80'
               )}
             >
-              <div className="absolute inset-y-0 -left-1.5 -right-1.5" />
+              <div className="h-8 w-0.5 bg-zinc-400 dark:bg-zinc-600 rounded-full group-hover:bg-white transition-colors" />
+              <div className="absolute inset-y-0 -left-2 -right-2" />
             </div>
 
             {/* Right Pane: Action Inspector */}
             <section
               className={cn(
-                'flex-1 flex flex-col overflow-hidden bg-white dark:bg-zinc-950 min-w-[320px] transition-colors',
+                'flex-1 flex flex-col overflow-hidden bg-white dark:bg-zinc-950 min-w-0 transition-colors',
                 dragging && 'pointer-events-none'
               )}
             >

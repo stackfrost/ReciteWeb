@@ -31,10 +31,10 @@ export const AuditInspector: React.FC = () => {
   ).length;
 
   const criticalCount = findings.filter(
-    (f) => f.severity === 'critical' && f.status === 'unresolved'
+    (f) => (f.severity?.toLowerCase() === 'critical' || f.severity?.toLowerCase() === 'high') && f.status === 'unresolved'
   ).length;
   const mediumCount = findings.filter(
-    (f) => f.severity === 'medium' && f.status === 'unresolved'
+    (f) => f.severity?.toLowerCase() === 'medium' && f.status === 'unresolved'
   ).length;
 
   return (
@@ -120,23 +120,23 @@ export const AuditInspector: React.FC = () => {
                     <td className="p-2 truncate">
                       <span
                         className={`inline-flex items-center gap-1 font-semibold ${
-                          item.severity === 'critical'
+                          item.severity?.toLowerCase() === 'critical' || item.severity?.toLowerCase() === 'high'
                             ? 'text-rose-400'
-                            : item.severity === 'medium'
+                            : item.severity?.toLowerCase() === 'medium'
                             ? 'text-amber-400'
                             : 'text-sky-400'
                         }`}
                       >
                         <span
                           className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                            item.severity === 'critical'
+                            item.severity?.toLowerCase() === 'critical' || item.severity?.toLowerCase() === 'high'
                               ? 'bg-rose-400'
-                              : item.severity === 'medium'
+                              : item.severity?.toLowerCase() === 'medium'
                               ? 'bg-amber-400'
                               : 'bg-sky-400'
                           }`}
                         />{' '}
-                        <span className="truncate">{item.severity === 'critical' ? 'Critical' : item.severity === 'medium' ? 'Medium' : 'Low'}</span>
+                        <span className="truncate">{item.severity?.toLowerCase() === 'critical' || item.severity?.toLowerCase() === 'high' ? 'Critical' : item.severity?.toLowerCase() === 'medium' ? 'Medium' : 'Low'}</span>
                       </span>
                     </td>
                     <td className="p-2 text-neutral-300 truncate">{item.type}</td>
