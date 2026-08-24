@@ -376,17 +376,82 @@ interface ReciteState extends EditorState {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § HELPERS
+// § HELPERS — Dual-Stream Classification & Strict Invariant Counters
 // ─────────────────────────────────────────────────────────────────────────────
 
-function computeStats(claims: Claim[]): Stats {
+export function getClaimStream(c: { streamType?: string; category?: string; auditType?: string }): 'integrity' | 'discovery' {
+  if (c.streamType === 'integrity') return 'integrity';
+  if (c.streamType === 'discovery') return 'discovery';
+  if (
+    c.category === 'bib_mismatch' ||
+    c.category === 'Instrumentation/Methodology' ||
+    c.auditType === 'MissingCitation' ||
+    c.auditType === 'WeakCitation' ||
+    c.auditType === 'Syntax Mismatch' ||
+    c.auditType === 'Missing BibTeX Key' ||
+    c.auditType === 'Syntax Error'
+  ) {
+    return 'integrity';
+  }
+  return 'discovery';
+}
+
+export interface IssueStatistics {
+  totalCount: number;
+  integrityCount: number;
+  discoveryCount: number;
+  criticalCount: number;
+  mediumCount: number;
+  lowCount: number;
+  resolvedCount: number;
+  unresolvedCount: number;
+}
+
+export function computeStats(claims: Claim[]): Stats {
+  const high = claims.filter((c) => (c.severity?.toLowerCase() === 'high' || c.severity?.toLowerCase() === 'critical' || c.isRetracted)).length;
+  const med = claims.filter((c) => c.severity?.toLowerCase() === 'medium').length;
+  const low = claims.filter((c) => c.severity?.toLowerCase() === 'low').length;
+  const accepted = claims.filter((c) => c.status === 'accepted').length;
+
   return {
     totalClaims: claims.length,
-    highSeverity: claims.filter((c) => c.severity === 'High' || c.severity === 'Critical').length,
-    mediumSeverity: claims.filter((c) => c.severity === 'Medium').length,
-    lowSeverity: claims.filter((c) => c.severity === 'Low').length,
+    highSeverity: high,
+    mediumSeverity: med,
+    lowSeverity: low,
     retractedFound: claims.filter((c) => c.isRetracted).length,
-    acceptedCount: claims.filter((c) => c.status === 'accepted').length,
+    acceptedCount: accepted,
+  };
+}
+
+export function computeIssueStatistics(claims: Claim[]): IssueStatistics {
+  let integrity = 0;
+  let discovery = 0;
+  let critical = 0;
+  let medium = 0;
+  let low = 0;
+  let resolved = 0;
+
+  for (const c of claims) {
+    if (getClaimStream(c) === 'integrity') integrity++;
+    else discovery++;
+
+    const sev = (c.severity || 'Medium').toLowerCase();
+    if (sev === 'critical' || sev === 'high' || c.isRetracted) critical++;
+    else if (sev === 'medium') medium++;
+    else low++;
+
+    if (c.status === 'accepted') resolved++;
+  }
+
+  return {
+    totalCount: claims.length,
+    integrityCount: integrity,
+    discoveryCount: discovery,
+    criticalCount: critical,
+    mediumCount: medium,
+    lowCount: low,
+    resolvedCount: resolved,
+    unresolvedCount: claims.length - resolved,
   };
 }
 
@@ -528,9 +593,9 @@ export const useReciteStore = create<ReciteState>()(
     const { claims, streamFilter, filterCategory, filterSeverity, filterStatus, searchQuery, activeClaimIndex } = get();
     let filtered = [...claims];
     if (streamFilter === 'integrity') {
-      filtered = filtered.filter((c) => c.streamType === 'integrity' || c.auditType === 'MissingCitation' || c.auditType === 'WeakCitation' || c.auditType === 'Syntax Mismatch');
+      filtered = filtered.filter((c) => getClaimStream(c) === 'integrity');
     } else if (streamFilter === 'discovery') {
-      filtered = filtered.filter((c) => c.streamType === 'discovery' || c.auditType === 'Unsupported Assertion' || c.auditType === 'Weak Attribution' || c.auditType === 'Empirical Gap' || c.auditType === 'Misattribution' || c.auditType === 'Needs Literature');
+      filtered = filtered.filter((c) => getClaimStream(c) === 'discovery');
     }
     if (filterCategory !== 'All') filtered = filtered.filter((c) => c.category === filterCategory);
     if (filterSeverity !== 'All') filtered = filtered.filter((c) => c.severity === filterSeverity);

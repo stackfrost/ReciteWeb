@@ -57,17 +57,15 @@ export default function Toolbar() {
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
 
   // ── Synchronized Diagnostics Counts ────────────────────────────────────────
-  const activeFindings = findings.length > 0 ? findings : [];
-  const totalClaims = activeFindings.length > 0 ? activeFindings.length : (claims?.length || 0);
-  const criticalCount = activeFindings.length > 0
-    ? activeFindings.filter((f) => f.severity?.toLowerCase() === 'critical' || f.severity?.toLowerCase() === 'high').length
-    : (claims?.filter((c) => c.severity === 'High' || c.severity === 'Critical').length || 0);
-  const medCount = activeFindings.length > 0
-    ? activeFindings.filter((f) => f.severity?.toLowerCase() === 'medium').length
-    : (claims?.filter((c) => c.severity === 'Medium').length || 0);
-  const lowCount = activeFindings.length > 0
-    ? activeFindings.filter((f) => f.severity?.toLowerCase() === 'low').length
-    : (claims?.filter((c) => c.severity === 'Low').length || 0);
+  const stats = useMemo(() => {
+    const { computeIssueStatistics } = require('@/lib/store');
+    return computeIssueStatistics(claims || []);
+  }, [claims]);
+
+  const totalClaims = stats.totalCount;
+  const criticalCount = stats.criticalCount;
+  const medCount = stats.mediumCount;
+  const lowCount = stats.lowCount;
 
   // ── Bound References Calculation ───────────────────────────────────────────
   const { boundRefsCount, totalCitationsCount } = useMemo(() => {

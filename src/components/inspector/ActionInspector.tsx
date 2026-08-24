@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useReciteStore, StreamFilter } from '@/lib/store';
+import { useReciteStore, StreamFilter, getClaimStream, computeIssueStatistics } from '@/lib/store';
 import type { Claim } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import {
@@ -27,10 +27,14 @@ const TYPE_LABELS: Record<string, string> = {
   WeakCitation: 'Weak Citation',
   Hallucination: 'Hallucination',
   Misattribution: 'Misattribution',
+  'Missing BibTeX Key': 'Missing BibTeX Key',
+  'Missing Key': 'Missing BibTeX Key',
   'Unsupported Assertion': 'Unsupported Claim',
   'Weak Attribution': 'Weak Attribution',
   'Empirical Gap': 'Empirical Gap',
   'Syntax Mismatch': 'Syntax Mismatch',
+  'Citation Contradiction': 'Contradiction',
+  'Outdated Benchmark': 'Outdated Benchmark',
 };
 
 export default function ActionInspector() {
@@ -59,14 +63,8 @@ export default function ActionInspector() {
   const hasSuggestedFix = !!activeClaim?.suggestedFix;
   const auditTypeLabel = activeClaim?.auditType ? TYPE_LABELS[activeClaim.auditType] || activeClaim.auditType : null;
 
-  // Real-time counter badges for the 3-way toggle
-  const totalCount = claims.length;
-  const integrityCount = claims.filter(
-    (c) => c.streamType === 'integrity' || c.auditType === 'MissingCitation' || c.auditType === 'WeakCitation' || c.auditType === 'Syntax Mismatch'
-  ).length;
-  const discoveryCount = claims.filter(
-    (c) => c.streamType === 'discovery' || c.auditType === 'Unsupported Assertion' || c.auditType === 'Weak Attribution' || c.auditType === 'Empirical Gap' || c.auditType === 'Misattribution' || c.auditType === 'Needs Literature'
-  ).length;
+  // Real-time strictly conserved counter badges for the 3-way toggle
+  const stats = computeIssueStatistics(claims);
 
   const handleRowSelect = (idx: number, lineIndex?: number) => {
     setActiveClaimIndex(idx);
@@ -91,16 +89,16 @@ export default function ActionInspector() {
               className={cn(
                 'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer',
                 streamFilter === 'all'
-                  ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs'
+                  ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs font-bold'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
               )}
             >
               <span>All Issues</span>
               <span className={cn(
-                'px-1 py-0.2 rounded-full text-[9px] font-mono font-bold',
+                'px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold',
                 streamFilter === 'all' ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200' : 'text-zinc-500'
               )}>
-                {totalCount}
+                {stats.totalCount}
               </span>
             </button>
 
@@ -109,7 +107,7 @@ export default function ActionInspector() {
               className={cn(
                 'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer',
                 streamFilter === 'integrity'
-                  ? 'bg-white dark:bg-zinc-900 text-rose-600 dark:text-rose-400 shadow-xs'
+                  ? 'bg-white dark:bg-zinc-900 text-rose-600 dark:text-rose-400 shadow-xs font-bold'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400'
               )}
               title="Stream A: Missing .bib keys, syntax mismatches, orphaned records"
@@ -117,10 +115,10 @@ export default function ActionInspector() {
               <AlertTriangle className="w-3 h-3 text-rose-500" />
               <span>Integrity Faults</span>
               <span className={cn(
-                'px-1 py-0.2 rounded-full text-[9px] font-mono font-bold',
+                'px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold',
                 streamFilter === 'integrity' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400' : 'text-zinc-500'
               )}>
-                {integrityCount}
+                {stats.integrityCount}
               </span>
             </button>
 
@@ -129,7 +127,7 @@ export default function ActionInspector() {
               className={cn(
                 'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer',
                 streamFilter === 'discovery'
-                  ? 'bg-white dark:bg-zinc-900 text-sky-600 dark:text-sky-400 shadow-xs'
+                  ? 'bg-white dark:bg-zinc-900 text-sky-600 dark:text-sky-400 shadow-xs font-bold'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-sky-600 dark:hover:text-sky-400'
               )}
               title="Stream B: Unsupported assertions and empirical literature candidates"
@@ -137,16 +135,16 @@ export default function ActionInspector() {
               <Sparkles className="w-3 h-3 text-sky-500" />
               <span>Discoveries</span>
               <span className={cn(
-                'px-1 py-0.2 rounded-full text-[9px] font-mono font-bold',
+                'px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold',
                 streamFilter === 'discovery' ? 'bg-sky-500/20 text-sky-600 dark:text-sky-400' : 'text-zinc-500'
               )}>
-                {discoveryCount}
+                {stats.discoveryCount}
               </span>
             </button>
           </div>
 
           <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-zinc-400">
-            <span>{filteredClaims.filter((c) => c.status === 'accepted').length} Resolved</span>
+            <span>{stats.resolvedCount} Resolved</span>
           </div>
         </div>
 
@@ -155,14 +153,14 @@ export default function ActionInspector() {
           <div className="col-span-2">Line</div>
           <div className="col-span-2">Severity</div>
           <div className="col-span-3">Pipeline / Type</div>
-          <div className="col-span-3">Citation Key</div>
+          <div className="col-span-3">Citation / Key</div>
           <div className="col-span-2 text-right">Status</div>
         </div>
 
         {/* Dense Problems Rows */}
         <div className="flex-1 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-900 text-xs">
           {filteredClaims.length === 0 ? (
-            <div className="py-8 text-center text-zinc-400 text-xs">
+            <div className="py-8 text-center text-zinc-400 text-xs font-mono">
               No matching problems in selected stream.
             </div>
           ) : (
@@ -170,31 +168,39 @@ export default function ActionInspector() {
               const isSelected = activeClaimIndex === idx;
               const lineNum = claim.lineIndex || Math.floor(claim.startIndex / 75) + 1;
               const citeMatch = claim.text.match(/\\cite[a-zA-Z]*\{([^}]+)\}/);
+              const isIntegrity = getClaimStream(claim) === 'integrity';
+              
               const citeKey = claim.citationKey
                 ? claim.citationKey
                 : citeMatch
                 ? citeMatch[1].split(',')[0].trim()
-                : claim.suggestedPapers?.[0]?.authors?.[0]
-                ? `${claim.suggestedPapers[0].authors[0]} (${claim.suggestedPapers[0].year || 'n.d.'})`
+                : claim.acceptedPaper?.bibtexKey
+                ? `@${claim.acceptedPaper.bibtexKey}`
+                : claim.suggestedPapers?.[0]?.bibtexKey
+                ? `@${claim.suggestedPapers[0].bibtexKey}`
+                : isIntegrity
+                ? 'Missing Key'
                 : 'Unlinked';
 
-              const isDiscovery = claim.streamType === 'discovery' || claim.auditType === 'Unsupported Assertion' || claim.auditType === 'Weak Attribution' || claim.auditType === 'Empirical Gap';
               const isResolved = claim.status === 'accepted';
+              const sev = (claim.severity || 'Medium').toLowerCase();
+              const isCritical = sev === 'critical' || sev === 'high' || claim.isRetracted;
+              const isMedium = sev === 'medium';
 
-              const sevLabel = claim.severity === 'High' || claim.severity === 'Critical' ? 'Critical' : claim.severity;
+              const sevLabel = isCritical ? 'Critical' : isMedium ? 'Medium' : 'Low';
               
-              let sevDotColor = 'bg-yellow-400';
-              let sevTextColor = 'text-yellow-600 dark:text-yellow-400';
+              let sevDotColor = 'bg-sky-400';
+              let sevTextColor = 'text-sky-600 dark:text-sky-400';
 
               if (isResolved) {
                 sevDotColor = 'bg-emerald-500';
                 sevTextColor = 'text-emerald-600 dark:text-emerald-400';
-              } else if (isDiscovery) {
-                sevDotColor = 'bg-sky-400';
-                sevTextColor = 'text-sky-600 dark:text-sky-400';
-              } else if (claim.severity === 'High' || claim.severity === 'Critical' || claim.isRetracted) {
+              } else if (isCritical) {
                 sevDotColor = 'bg-rose-500';
                 sevTextColor = 'text-rose-600 dark:text-rose-400';
+              } else if (isMedium) {
+                sevDotColor = 'bg-yellow-400';
+                sevTextColor = 'text-yellow-600 dark:text-yellow-400';
               }
 
               const statusText = claim.isRetracted ? 'Flagged' : isResolved ? 'Resolved' : 'Unresolved';
@@ -228,7 +234,7 @@ export default function ActionInspector() {
 
                   {/* Type */}
                   <div className="col-span-3 truncate text-[11px] text-zinc-600 dark:text-zinc-400">
-                    {auditTypeLabel || claim.auditType || claim.category || 'Claim'}
+                    {TYPE_LABELS[claim.auditType || ''] || claim.auditType || claim.category || 'Claim'}
                   </div>
 
                   {/* Citation Key */}

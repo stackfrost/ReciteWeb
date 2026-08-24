@@ -582,17 +582,20 @@ ${texContent.slice(0, 14000)}`;
 
       let status: ClaimStatus = f.status === 'resolved' || f.status === 'accepted' ? 'accepted' : 'pending';
       const category: ClaimCategory = f.category === 'bib_mismatch' ? 'Theoretical Assertion' : 'Literature Claim';
+      const streamType: 'integrity' | 'discovery' = f.streamType || (f.category === 'bib_mismatch' ? 'integrity' : 'discovery');
 
       return {
         id: f.id,
         text,
         category,
+        streamType,
         severity: (f.severity?.toLowerCase() === 'critical' ? 'Critical' : f.severity?.toLowerCase() === 'high' ? 'High' : f.severity?.toLowerCase() === 'medium' ? 'Medium' : 'Low') as any,
         status,
         lineIndex: f.line,
         startIndex,
         endIndex: startIndex + text.length,
         context: f.context,
+        citationKey: f.citationKey,
         auditType: f.type as any,
         searchQuery: text.slice(0, 80),
         suggestedFix: f.suggestedFix || f.suggestedPatch?.diffAdd,
