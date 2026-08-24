@@ -24,6 +24,7 @@ export default function KeyboardShortcuts() {
     setShowSettings,
     setShowExportModal,
     addToast,
+    runAudit,
   } = useReciteStore();
 
   const { toggleTheme } = useTheme();
@@ -36,6 +37,14 @@ export default function KeyboardShortcuts() {
       if (!isCtrlOrMeta) return;
 
       const key = e.key.toLowerCase();
+
+      // 0. Run Audit (Ctrl/Cmd + Enter)
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        runAudit();
+        return;
+      }
 
       // 1. Save (Ctrl/Cmd + S) - Intercepts browser save dialog
       if (key === 's') {
@@ -230,6 +239,7 @@ export default function KeyboardShortcuts() {
     setShowExportModal,
     toggleTheme,
     addToast,
+    runAudit,
   ]);
 
   return null;

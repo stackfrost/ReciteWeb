@@ -136,11 +136,35 @@ export const useAuditStore = create<AuditState>((set, get) => ({
     })),
   runAudit: async () => {
     set({ isAuditing: true });
-    await new Promise((r) => setTimeout(r, 600));
-    set({
-      findings: INITIAL_DEMO_FINDINGS.map((f) => ({ ...f, status: 'unresolved' })),
-      selectedFindingId: INITIAL_DEMO_FINDINGS[0]?.id || null,
-      isAuditing: false,
-    });
+    try {
+      const { useReciteStore } = await import('@/lib/store');
+      const reciteStore = useReciteStore.getState();
+      const rawText = reciteStore.rawText;
+      const bibtexContent = reciteStore.bibtexContent;
+
+      const { ClaimExtractionOrchestrator } = await import('@/services/claim-extraction-orchestrator');
+      const result = await ClaimExtractionOrchestrator.runFullDiscoveryPipeline(
+        rawText || '',
+        bibtexContent,
+        (msg: string) => reciteStore.setAuditProgress(msg)
+      );
+
+      set({
+        findings: result.allFindings,
+        selectedFindingId: result.allFindings[0]?.id || null,
+        isAuditing: false,
+      });
+
+      reciteStore.setClaims(result.reciteClaims);
+      reciteStore.setIsAuditing(false);
+      reciteStore.setAuditProgress(null);
+    } catch (err) {
+      console.error('[useAuditStore] Audit failed:', err);
+      set({ isAuditing: false });
+      if (typeof window !== 'undefined') {
+        const { useReciteStore } = require('@/lib/store');
+        useReciteStore.getState().setIsAuditing(false);
+      }
+    }
   },
 }));

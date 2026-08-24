@@ -235,46 +235,107 @@ export const AuditInspector: React.FC = () => {
             )}
 
             {selectedFinding && activeTab === 'sources' && (
-              <div className="space-y-2 min-w-0">
-                <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider">
-                  Cross-Verified Literature Candidates
-                </span>
-                {selectedFinding.verifiedSources &&
-                selectedFinding.verifiedSources.length > 0 ? (
-                  selectedFinding.verifiedSources.map((source, i) => (
-                    <div
-                      key={i}
-                      className="p-3 bg-[#14181D] border border-[#21262D] rounded-md space-y-2 min-w-0"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="font-semibold text-neutral-100 text-xs break-words">{source.title}</h4>
-                        <span className="px-1.5 py-0.5 bg-sky-950 text-sky-400 rounded text-[9px] font-mono font-bold shrink-0">
-                          Match {(source.relevanceScore * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-neutral-400 break-words">
-                        {source.authors.join(', ')} ({source.year})
-                      </p>
-                      <p className="text-[11px] text-neutral-300 italic bg-[#0A0C0E] p-2 rounded border border-[#1C2229] break-words">
-                        "{source.abstractSnippet}"
-                      </p>
-                      <div className="flex items-center justify-between pt-1 border-t border-[#1C2229] text-[10px] font-mono">
-                        <span className="text-neutral-400 truncate">
-                          Key: <code className="text-amber-400">@{source.bibtexKey}</code>
-                        </span>
-                        {source.doi && (
-                          <a
-                            href={`https://doi.org/${source.doi}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-1 text-sky-400 hover:underline shrink-0 ml-2"
-                          >
-                            <span>DOI</span> <ExternalLink className="w-2.5 h-2.5" />
-                          </a>
+              <div className="space-y-2.5 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider">
+                    Cross-Verified Literature Candidates
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-mono">
+                    {selectedFinding.verifiedSources?.length || 0} Candidates Found
+                  </span>
+                </div>
+
+                {selectedFinding.verifiedSources && selectedFinding.verifiedSources.length > 0 ? (
+                  selectedFinding.verifiedSources.map((source, i) => {
+                    const matchPct = Math.round(source.relevanceScore * 100);
+
+                    const handleInsert = () => {
+                      if (typeof window !== 'undefined') {
+                        const { useReciteStore } = require('@/lib/store');
+                        const reciteStore = useReciteStore.getState();
+                        reciteStore.insertCitationAndBib(selectedFinding.id, {
+                          title: source.title,
+                          year: source.year,
+                          authors: source.authors,
+                          venue: source.venue,
+                          doi: source.doi,
+                          bibtexKey: source.bibtexKey,
+                          matchScore: matchPct,
+                          abstractExcerpt: source.abstractExcerpt || source.abstractSnippet,
+                          verificationStatus: source.verificationStatus,
+                          bibtexEntry: source.bibtexEntry,
+                        });
+                        resolveFinding(selectedFinding.id);
+                      }
+                    };
+
+                    return (
+                      <div
+                        key={i}
+                        className="p-3 bg-[#14181D] border border-[#21262D] rounded-md space-y-2 min-w-0 hover:border-sky-500/40 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="px-1.5 py-0.2 bg-sky-950/80 border border-sky-500/30 text-sky-400 rounded text-[9px] font-mono font-bold">
+                                {matchPct}% Match
+                              </span>
+                              {source.venue && (
+                                <span className="text-[10px] text-neutral-400 truncate max-w-[200px]">
+                                  {source.venue}
+                                </span>
+                              )}
+                            </div>
+                            <h4 className="font-semibold text-neutral-100 text-xs leading-snug break-words">
+                              {source.title}
+                            </h4>
+                          </div>
+
+                          {source.doi && (
+                            <a
+                              href={`https://doi.org/${source.doi}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-1 text-neutral-400 hover:text-sky-400 transition-colors shrink-0"
+                              title="Open DOI on publisher site"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+
+                        <p className="text-[11px] text-neutral-400 truncate">
+                          {source.authors.join(', ')} • {source.year}
+                        </p>
+
+                        {(source.abstractExcerpt || source.abstractSnippet) && (
+                          <div className="p-2 bg-[#0A0C0E] rounded border border-[#1C2229] space-y-1">
+                            <span className="text-[9px] font-mono text-neutral-500 uppercase">
+                              Abstract Anchor Excerpt:
+                            </span>
+                            <p className="text-[11px] font-serif italic text-neutral-300 leading-relaxed border-l border-sky-500/50 pl-1.5">
+                              "{source.abstractExcerpt || source.abstractSnippet}"
+                            </p>
+                          </div>
                         )}
+
+                        <div className="flex items-center justify-between pt-1.5 border-t border-[#1C2229] text-[10px] font-mono">
+                          <span className="text-neutral-400 truncate">
+                            Key: <code className="text-amber-400 font-bold">@{source.bibtexKey}</code>
+                          </span>
+
+                          <button
+                            onClick={handleInsert}
+                            className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-sans font-semibold transition-colors cursor-pointer shrink-0"
+                            title="Append @article to .bib and update citation key in manuscript"
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>Insert & Append .bib</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="p-6 text-center text-neutral-500 font-mono text-xs">
                     No external literature candidate required for this mismatch.
