@@ -129,11 +129,17 @@ export const useAuditStore = create<AuditState>((set, get) => ({
   setActiveFilter: (activeFilter) => set({ activeFilter }),
   setActiveTab: (activeTab) => set({ activeTab }),
   resolveFinding: (id) =>
-    set((state) => ({
-      findings: state.findings.map((f) =>
-        f.id === id ? { ...f, status: 'resolved' } : f
-      ),
-    })),
+    set((state) => {
+      const nextFindings = state.findings.map((f) =>
+        f.id === id ? { ...f, status: 'resolved' as const } : f
+      );
+      // Auto-select the next unresolved finding to maintain review velocity
+      const nextUnresolved = nextFindings.find((f) => f.status === 'unresolved');
+      return {
+        findings: nextFindings,
+        selectedFindingId: nextUnresolved ? nextUnresolved.id : id,
+      };
+    }),
   runAudit: async () => {
     set({ isAuditing: true });
     try {

@@ -341,6 +341,7 @@ interface ReciteState extends EditorState {
   addSuggestedPapers: (claimId: string, papers: SuggestedPaper[]) => void;
   acceptCitation: (claimId: string, paper: SuggestedPaper) => void;
   insertCitationAndBib: (claimId: string, paper: SuggestedPaper) => void;
+  undoLastPatch: () => void;
   markAsRetracted: (claimId: string, reason: string) => void;
   dismissClaim: (claimId: string) => void;
   applyFix: (claimId: string) => Promise<void>;
@@ -568,53 +569,67 @@ export const useReciteStore = create<ReciteState>()(
     get().applyFilters();
   },
   insertCitationAndBib: (claimId, paper) => {
-    const { claims, rawText, parsedText, bibtexContent, addToast } = get();
+    const { claims, rawText, parsedText, bibtexContent, workspace, addToast } = get();
     const claim = claims.find((c) => c.id === claimId);
     if (!claim) return;
 
-    const bibKey = paper.bibtexKey || (paper.authors?.[0]?.toLowerCase()?.replace(/\W/g, '') || 'ref') + (paper.year || '2024');
+    const { AtomicPatchEngine } = require('@/services/atomic-patch-engine');
     
-    const entry = paper.bibtexEntry || `@article{${bibKey},
-  title = {${paper.title}},
-  author = {${paper.authors.join(' and ')}},
-  journal = {${paper.venue || 'Physical Review Letters'}},
-  year = {${paper.year}}
-}`;
+    // 1. Deduplicate & format BibTeX entry
+    const { updatedBib, assignedKey } = AtomicPatchEngine.appendBibtexWithDeduplication(bibtexContent, paper);
 
-    let newBib = bibtexContent || '';
-    if (!newBib.includes(bibKey)) {
-      newBib = newBib.trim() ? `${newBib.trim()}\n\n${entry}` : entry;
-    }
-
-    let newRaw = rawText || '';
-    let newParsed = parsedText || '';
-    const citeCommand = `\\cite{${bibKey}}`;
-
-    if (newRaw.includes(claim.text)) {
-      if (claim.text.includes('\\cite{')) {
-        const updatedText = claim.text.replace(/\\cite\{[^}]+\}/, citeCommand);
-        newRaw = newRaw.replace(claim.text, updatedText);
-        if (newParsed.includes(claim.text)) newParsed = newParsed.replace(claim.text, updatedText);
-      } else {
-        newRaw = newRaw.replace(claim.text, `${claim.text} ~${citeCommand}`);
-        if (newParsed.includes(claim.text)) newParsed = newParsed.replace(claim.text, `${claim.text} ~${citeCommand}`);
-      }
-    }
-
-    const updatedClaims = claims.map((c) =>
-      c.id === claimId ? { ...c, status: 'accepted' as const, acceptedPaper: paper } : c
+    // 2. Inject citation tag into manuscript text before punctuation or merged into \cite
+    const { updatedTex } = AtomicPatchEngine.injectCitationIntoClaim(
+      rawText || parsedText || '',
+      bibtexContent,
+      claim.text,
+      assignedKey,
+      claimId
     );
 
+    const { text: parsed, mathBlocks } = parseMathBlocks(updatedTex);
+    const docMetrics = calculateDocMetrics(parsed || updatedTex);
+
+    // 3. Mark claim as accepted with paper details
+    const updatedClaims = claims.map((c) =>
+      c.id === claimId ? { ...c, status: 'accepted' as const, acceptedPaper: { ...paper, bibtexKey: assignedKey } } : c
+    );
+
+    // Auto-advance to the next unresolved finding
+    const nextUnresolvedIdx = updatedClaims.findIndex((c) => c.status !== 'accepted');
+    const nextIndex = nextUnresolvedIdx !== -1 ? nextUnresolvedIdx : 0;
+
     set({
-      bibtexContent: newBib,
-      rawText: newRaw,
-      parsedText: newParsed,
+      bibtexContent: updatedBib,
+      rawText: updatedTex,
+      parsedText: parsed,
+      mathBlocks,
+      docMetrics,
       claims: updatedClaims,
+      activeClaimIndex: nextIndex,
       stats: computeStats(updatedClaims),
     });
 
     get().applyFilters();
-    addToast(`Citation @${bibKey} appended to bibliography and inserted into manuscript.`, 'success');
+
+    // 4. Synchronize useAuditStore
+    if (typeof window !== 'undefined') {
+      try {
+        const { useAuditStore } = require('@/store/useAuditStore');
+        useAuditStore.getState().resolveFinding(claimId);
+      } catch {}
+    }
+
+    // 5. Persist to disk
+    const { bibtexFileName } = get();
+    AtomicPatchEngine.persistToDisk(
+      workspace.fileName || 'main.tex',
+      updatedTex,
+      bibtexFileName || 'references.bib',
+      updatedBib
+    );
+
+    addToast(`Citation @${assignedKey} appended to bibliography and injected into manuscript.`, 'success');
   },
   markAsRetracted: (claimId, reason) => {
     const updatedClaims = get().claims.map((c) => c.id === claimId ? { ...c, isRetracted: true, retractedReason: reason } : c);
@@ -628,220 +643,122 @@ export const useReciteStore = create<ReciteState>()(
   },
 
   applyFix: async (claimId) => {
-    const { claims, rawText, workspace, addToast } = get();
+    const { claims, rawText, parsedText, bibtexContent, bibtexFileName, workspace, addToast } = get();
     const claim = claims.find((c) => c.id === claimId);
     if (!claim || !claim.suggestedFix) {
       addToast('No suggested fix available for this claim.', 'warning');
       return;
     }
 
+    const { AtomicPatchEngine } = require('@/services/atomic-patch-engine');
+
     const targetText = claim.text;
     const replacement = claim.suggestedFix;
 
-    if (workspace.type === 'directory') {
-      let targetFilePath = null;
-      let targetFileData = null;
-      let updatedFileText = '';
-      let scopedSuccess = false;
+    const { updatedTex } = AtomicPatchEngine.applyPatchToManuscript(
+      rawText || parsedText || '',
+      bibtexContent,
+      targetText,
+      replacement,
+      claimId
+    );
 
-      for (const [path, fileData] of Object.entries(workspace.projectFiles)) {
-        let scoped = false;
-        let fileText = fileData.text;
-        
-        if (claim.context && claim.context.trim().length > 0) {
-          const contextStr = claim.context.trim();
-          const contextIndex = fileText.indexOf(contextStr);
-          if (contextIndex !== -1 && contextStr.includes(targetText)) {
-            const modifiedContext = contextStr.replace(targetText, replacement);
-            fileText = fileText.slice(0, contextIndex) + modifiedContext + fileText.slice(contextIndex + contextStr.length);
-            scoped = true;
-          } else {
-            const paragraphs = fileText.split(/\\n\\s*\\n/);
-            let foundIdx = -1;
-            for (let i = 0; i < paragraphs.length; i++) {
-              const p = paragraphs[i];
-              if (p.includes(targetText) && (contextStr.includes(p.slice(0, 30)) || p.includes(contextStr.slice(0, 30)))) {
-                paragraphs[i] = p.replace(targetText, replacement);
-                foundIdx = i;
-                break;
-              }
-            }
-            if (foundIdx !== -1) {
-              fileText = paragraphs.join('\\n\\n');
-              scoped = true;
-            }
-          }
-        }
-        
-        if (!scoped) {
-          const occurrences = fileText.split(targetText).length - 1;
-          if (occurrences > 0) {
-            fileText = fileText.replace(targetText, replacement);
-            scoped = true;
-          }
-        }
+    const { text: parsed, mathBlocks } = parseMathBlocks(updatedTex);
+    const docMetrics = calculateDocMetrics(parsed || updatedTex);
 
-        if (scoped && fileText !== fileData.text) {
-          targetFilePath = path;
-          targetFileData = fileData;
-          updatedFileText = fileText;
-          break;
-        }
-      }
+    const updatedClaims = claims.map((c) =>
+      c.id === claimId ? { ...c, status: 'accepted' as const } : c
+    );
 
-      if (!targetFilePath || !targetFileData) {
-        addToast('Could not locate the original claim text in any project file.', 'error');
-        return;
-      }
-
-      try {
-        await FileSystemService.saveFile(targetFileData.fileHandle, updatedFileText);
-        addToast(`Remediation applied and saved to ${targetFileData.fileName}.`, 'success');
-      } catch (err: any) {
-        addToast(`Failed to save ${targetFileData.fileName}: ${err.message}`, 'warning');
-        return;
-      }
-
-      const updatedClaims = claims.filter((c) => c.id !== claimId);
-      
-      set((s) => {
-        const nextProjectFiles = { ...s.workspace.projectFiles };
-        nextProjectFiles[targetFilePath as string] = { ...targetFileData, text: updatedFileText };
-        
-        const updates: Partial<typeof s> = {
-          claims: updatedClaims,
-          stats: computeStats(updatedClaims),
-          workspace: { ...s.workspace, projectFiles: nextProjectFiles }
-        };
-        
-        if (s.workspace.activeFilePath === targetFilePath) {
-          const { text: parsed, mathBlocks } = parseMathBlocks(updatedFileText);
-          updates.rawText = updatedFileText;
-          updates.parsedText = parsed;
-          updates.mathBlocks = mathBlocks;
-          updates.docMetrics = calculateDocMetrics(parsed || updatedFileText);
-        }
-        return updates;
-      });
-      get().applyFilters();
-      return;
-    }
-
-    let updatedRawText = rawText;
-    let scopedSuccess = false;
-
-    // 1. Context-Scoped Block Replacement
-    if (claim.context && claim.context.trim().length > 0) {
-      const contextStr = claim.context.trim();
-      const contextIndex = rawText.indexOf(contextStr);
-
-      if (contextIndex !== -1 && contextStr.includes(targetText)) {
-        const modifiedContext = contextStr.replace(targetText, replacement);
-        updatedRawText =
-          rawText.slice(0, contextIndex) +
-          modifiedContext +
-          rawText.slice(contextIndex + contextStr.length);
-        scopedSuccess = true;
-      } else {
-        // Search by paragraph boundaries if exact context string isn't continuous
-        const paragraphs = rawText.split(/\n\s*\n/);
-        let foundIdx = -1;
-
-        for (let i = 0; i < paragraphs.length; i++) {
-          const p = paragraphs[i];
-          if (
-            p.includes(targetText) &&
-            (contextStr.includes(p.slice(0, 30)) || p.includes(contextStr.slice(0, 30)))
-          ) {
-            paragraphs[i] = p.replace(targetText, replacement);
-            foundIdx = i;
-            break;
-          }
-        }
-
-        if (foundIdx !== -1) {
-          updatedRawText = paragraphs.join('\n\n');
-          scopedSuccess = true;
-        }
-      }
-    }
-
-    // 2. Fallback if context scoping could not be established
-    if (!scopedSuccess) {
-      const occurrences = rawText.split(targetText).length - 1;
-
-      if (occurrences === 0) {
-        addToast('Could not locate the original claim text in manuscript. Please review manually.', 'error');
-        return;
-      } else if (occurrences === 1) {
-        updatedRawText = rawText.replace(targetText, replacement);
-        addToast('Context block not found. Replaced unique text match — verify manuscript.', 'info');
-      } else {
-        updatedRawText = rawText.replace(targetText, replacement);
-        addToast(
-          `Warning: Multiple matches (${occurrences}) found without scoped context. Replaced first match — please manually review.`,
-          'warning'
-        );
-      }
-    }
-
-    // Re-parse the document & update docMetrics
-    const { text: parsed, mathBlocks } = parseMathBlocks(updatedRawText);
-    const docMetrics = calculateDocMetrics(parsed || updatedRawText);
-
-    // Remove the claim from the list
-    const updatedClaims = claims.filter((c) => c.id !== claimId);
+    // Auto-advance to the next unresolved finding
+    const nextUnresolvedIdx = updatedClaims.findIndex((c) => c.status !== 'accepted');
+    const nextIndex = nextUnresolvedIdx !== -1 ? nextUnresolvedIdx : 0;
 
     set({
-      rawText: updatedRawText,
+      rawText: updatedTex,
       parsedText: parsed,
       mathBlocks,
       docMetrics,
       claims: updatedClaims,
+      activeClaimIndex: nextIndex,
       stats: computeStats(updatedClaims),
     });
+
     get().applyFilters();
 
-    // Persist to disk if file handle exists
-    if (workspace.fileHandle) {
+    // Synchronize useAuditStore
+    if (typeof window !== 'undefined') {
       try {
-        await FileSystemService.saveFile(workspace.fileHandle, updatedRawText);
-        addToast('Remediation applied and saved to disk.', 'success');
-      } catch (err: any) {
-        addToast(`Remediation applied in memory but failed to save: ${err.message}`, 'warning');
-      }
-    } else {
-      // Prompt local save via showSaveFilePicker
-      try {
-        if ('showSaveFilePicker' in window) {
-          const handle = await (window as any).showSaveFilePicker({
-            suggestedName: workspace.fileName || 'manuscript.tex',
-            types: [{
-              description: 'LaTeX Files',
-              accept: { 'text/plain': ['.tex', '.txt'] },
-            }],
-          });
-          await FileSystemService.saveFile(handle, updatedRawText);
-          addToast('Remediation applied and saved to new file.', 'success');
-        } else {
-          // Fallback: Blob download
-          const blob = new Blob([updatedRawText], { type: 'text/plain' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = workspace.fileName || 'manuscript.tex';
-          a.click();
-          URL.revokeObjectURL(url);
-          addToast('Remediation applied. File downloaded.', 'success');
-        }
-      } catch (err: any) {
-        if (err.message !== 'USER_ABORTED' && err.name !== 'AbortError') {
-          addToast(`Remediation applied in memory: ${err.message}`, 'warning');
-        } else {
-          addToast('Remediation applied in memory. Disk save cancelled.', 'info');
-        }
-      }
+        const { useAuditStore } = require('@/store/useAuditStore');
+        useAuditStore.getState().resolveFinding(claimId);
+      } catch {}
     }
+
+    // Persist to disk
+    AtomicPatchEngine.persistToDisk(
+      workspace.fileName || 'main.tex',
+      updatedTex,
+      bibtexFileName || 'references.bib',
+      bibtexContent
+    );
+
+    addToast('Remediation patch applied to manuscript.', 'success');
+  },
+
+  undoLastPatch: () => {
+    const { AtomicPatchEngine } = require('@/services/atomic-patch-engine');
+    const snapshot = AtomicPatchEngine.undoLastPatch();
+
+    if (!snapshot) {
+      get().addToast('No applied patches to undo.', 'info');
+      return;
+    }
+
+    const { claims, addToast, workspace, bibtexFileName } = get();
+    const { text: parsed, mathBlocks } = parseMathBlocks(snapshot.previousTex);
+    const docMetrics = calculateDocMetrics(parsed || snapshot.previousTex);
+
+    const updatedClaims = claims.map((c) =>
+      c.id === snapshot.findingId ? { ...c, status: 'pending' as const, acceptedPaper: undefined } : c
+    );
+
+    const targetIdx = updatedClaims.findIndex((c) => c.id === snapshot.findingId);
+
+    set({
+      rawText: snapshot.previousTex,
+      parsedText: parsed,
+      bibtexContent: snapshot.previousBib,
+      mathBlocks,
+      docMetrics,
+      claims: updatedClaims,
+      activeClaimIndex: targetIdx !== -1 ? targetIdx : 0,
+      stats: computeStats(updatedClaims),
+    });
+
+    get().applyFilters();
+
+    // Synchronize useAuditStore
+    if (typeof window !== 'undefined') {
+      try {
+        const { useAuditStore } = require('@/store/useAuditStore');
+        useAuditStore.setState((state: any) => ({
+          findings: state.findings.map((f: any) =>
+            f.id === snapshot.findingId ? { ...f, status: 'unresolved' } : f
+          ),
+          selectedFindingId: snapshot.findingId,
+        }));
+      } catch {}
+    }
+
+    // Persist rolled-back state to disk
+    AtomicPatchEngine.persistToDisk(
+      workspace.fileName || 'main.tex',
+      snapshot.previousTex,
+      bibtexFileName || 'references.bib',
+      snapshot.previousBib
+    );
+
+    addToast('Undid last patch and restored previous document state.', 'info');
   },
 
   // ── Global Modals & Notifications Actions ───────────────────────────────

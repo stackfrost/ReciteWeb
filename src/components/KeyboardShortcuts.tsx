@@ -25,6 +25,7 @@ export default function KeyboardShortcuts() {
     setShowExportModal,
     addToast,
     runAudit,
+    undoLastPatch,
   } = useReciteStore();
 
   const { toggleTheme } = useTheme();
@@ -44,6 +45,17 @@ export default function KeyboardShortcuts() {
         e.stopPropagation();
         runAudit();
         return;
+      }
+
+      // 0.5 Undo Last Patch (Ctrl/Cmd + Z)
+      if (key === 'z' && !isInput && !e.shiftKey) {
+        const { AtomicPatchEngine } = require('@/services/atomic-patch-engine');
+        if (AtomicPatchEngine.canUndo()) {
+          e.preventDefault();
+          e.stopPropagation();
+          undoLastPatch();
+          return;
+        }
       }
 
       // 1. Save (Ctrl/Cmd + S) - Intercepts browser save dialog
@@ -240,6 +252,7 @@ export default function KeyboardShortcuts() {
     toggleTheme,
     addToast,
     runAudit,
+    undoLastPatch,
   ]);
 
   return null;

@@ -3,7 +3,7 @@
 import React from 'react';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import { useAuditStore } from '@/store/useAuditStore';
-import { Check, Sparkles, BookOpen, GitCompare, Database, ExternalLink } from 'lucide-react';
+import { Check, Sparkles, BookOpen, GitCompare, Database, ExternalLink, RotateCcw } from 'lucide-react';
 
 export const AuditInspector: React.FC = () => {
   const {
@@ -50,6 +50,18 @@ export const AuditInspector: React.FC = () => {
                 <span className="px-1.5 py-0.5 bg-neutral-800 text-neutral-300 rounded font-mono text-[10px]">
                   {findings.length}
                 </span>
+                <button
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      const { useReciteStore } = require('@/lib/store');
+                      useReciteStore.getState().undoLastPatch();
+                    }
+                  }}
+                  className="flex items-center gap-1 px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white rounded font-mono text-[10px] transition-colors cursor-pointer ml-1"
+                  title="Undo last applied patch (Ctrl+Z)"
+                >
+                  <RotateCcw className="w-2.5 h-2.5" /> Undo
+                </button>
               </div>
               <div className="flex items-center gap-1 font-mono text-[10px]">
                 <span className="text-rose-400 font-semibold">{criticalCount} Critical</span>
@@ -206,7 +218,32 @@ export const AuditInspector: React.FC = () => {
                     </span>
                     {selectedFinding.status !== 'resolved' ? (
                       <button
-                        onClick={() => resolveFinding(selectedFinding.id)}
+                        onClick={() => {
+                          if (typeof window !== 'undefined') {
+                            const { useReciteStore } = require('@/lib/store');
+                            const reciteStore = useReciteStore.getState();
+                            if (selectedFinding.suggestedPatch) {
+                              const { AtomicPatchEngine } = require('@/services/atomic-patch-engine');
+                              const { updatedTex } = AtomicPatchEngine.applyPatchToManuscript(
+                                reciteStore.rawText || reciteStore.parsedText || '',
+                                reciteStore.bibtexContent,
+                                selectedFinding.suggestedPatch.diffRemove,
+                                selectedFinding.suggestedPatch.diffAdd,
+                                selectedFinding.id
+                              );
+                              reciteStore.setRawText(updatedTex);
+                              reciteStore.setParsedText(updatedTex);
+                              AtomicPatchEngine.persistToDisk(
+                                reciteStore.workspace.fileName || 'main.tex',
+                                updatedTex,
+                                reciteStore.workspace.bibPath || 'references.bib',
+                                reciteStore.bibtexContent
+                              );
+                              reciteStore.addToast('Remediation patch applied to manuscript.', 'success');
+                            }
+                            resolveFinding(selectedFinding.id);
+                          }
+                        }}
                         className="flex items-center gap-1 px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-mono text-[10px] font-semibold transition-colors cursor-pointer shrink-0"
                       >
                         <Check className="w-3 h-3" /> Apply Patch
