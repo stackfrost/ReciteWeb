@@ -16,6 +16,7 @@ import {
 import { LaTeXParser } from '@/services/latex-parser';
 import { BibTeXParser } from '@/services/bibtex-parser';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
+import { useAuditStore } from '@/store/useAuditStore';
 
 const PROVIDER_NAMES: Record<LLMProvider, string> = {
   anthropic:  'Claude',
@@ -51,14 +52,22 @@ export default function Toolbar() {
     unmountWorkspace,
   } = useReciteStore();
 
+  const { findings, runAudit: runAuditStore } = useAuditStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
 
-  // ── Diagnostics Counts ─────────────────────────────────────────────────────
-  const totalClaims = claims?.length || 0;
-  const criticalCount = claims?.filter((c) => c.severity === 'High' || c.severity === 'Critical').length || 0;
-  const medCount = claims?.filter((c) => c.severity === 'Medium').length || 0;
-  const lowCount = claims?.filter((c) => c.severity === 'Low').length || 0;
+  // ── Synchronized Diagnostics Counts ────────────────────────────────────────
+  const activeFindings = findings.length > 0 ? findings : [];
+  const totalClaims = activeFindings.length > 0 ? activeFindings.length : (claims?.length || 0);
+  const criticalCount = activeFindings.length > 0
+    ? activeFindings.filter((f) => f.severity?.toLowerCase() === 'critical' || f.severity?.toLowerCase() === 'high').length
+    : (claims?.filter((c) => c.severity === 'High' || c.severity === 'Critical').length || 0);
+  const medCount = activeFindings.length > 0
+    ? activeFindings.filter((f) => f.severity?.toLowerCase() === 'medium').length
+    : (claims?.filter((c) => c.severity === 'Medium').length || 0);
+  const lowCount = activeFindings.length > 0
+    ? activeFindings.filter((f) => f.severity?.toLowerCase() === 'low').length
+    : (claims?.filter((c) => c.severity === 'Low').length || 0);
 
   // ── Bound References Calculation ───────────────────────────────────────────
   const { boundRefsCount, totalCitationsCount } = useMemo(() => {

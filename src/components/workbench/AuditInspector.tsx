@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { ZoteroBridgeService, ZoteroItem, ZoteroCollection, KeyDriftResult } from '@/services/zotero-bridge-service';
 import { PdfEvidenceDrawer } from './PdfEvidenceDrawer';
+import { FindingCategory } from '@/types/audit';
 
 export const AuditInspector: React.FC = () => {
   const {
@@ -88,8 +89,15 @@ export const AuditInspector: React.FC = () => {
     return () => { isMounted = false; };
   }, []);
 
+  const filteredFindings = findings.filter(
+    (f) => activeFilter === 'all' || f.category === activeFilter
+  );
+
   const selectedFinding =
-    findings.find((f) => f.id === selectedFindingId) || findings[0];
+    filteredFindings.find((f) => f.id === selectedFindingId) ||
+    findings.find((f) => f.id === selectedFindingId) ||
+    filteredFindings[0] ||
+    findings[0];
 
   // Check for citation key drift against Zotero whenever finding changes
   useEffect(() => {
@@ -102,10 +110,6 @@ export const AuditInspector: React.FC = () => {
     }
   }, [selectedFinding]);
 
-  const filteredFindings = findings.filter(
-    (f) => activeFilter === 'all' || f.category === activeFilter
-  );
-
   const bibMismatchCount = findings.filter(
     (f) => f.category === 'bib_mismatch'
   ).length;
@@ -113,12 +117,20 @@ export const AuditInspector: React.FC = () => {
     (f) => f.category === 'literature_discovery'
   ).length;
 
-  const criticalCount = findings.filter(
-    (f) => (f.severity?.toLowerCase() === 'critical' || f.severity?.toLowerCase() === 'high') && f.status === 'unresolved'
+  const activeCriticalCount = filteredFindings.filter(
+    (f) => (f.severity?.toLowerCase() === 'critical' || f.severity?.toLowerCase() === 'high')
   ).length;
-  const mediumCount = findings.filter(
-    (f) => f.severity?.toLowerCase() === 'medium' && f.status === 'unresolved'
+  const activeMediumCount = filteredFindings.filter(
+    (f) => f.severity?.toLowerCase() === 'medium'
   ).length;
+
+  const handleFilterChange = (filter: 'all' | FindingCategory) => {
+    setActiveFilter(filter);
+    const nextList = findings.filter((f) => filter === 'all' || f.category === filter);
+    if (nextList.length > 0 && (!selectedFindingId || !nextList.some((f) => f.id === selectedFindingId))) {
+      setSelectedFindingId(nextList[0].id);
+    }
+  };
 
   return (
     <aside className="w-[480px] shrink-0 h-full bg-[#0E1114] flex flex-col overflow-hidden text-xs select-none">
@@ -129,9 +141,11 @@ export const AuditInspector: React.FC = () => {
           <div className="p-2.5 border-b border-[#21262D] space-y-2 bg-[#12161A] shrink-0 min-w-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="font-bold text-neutral-200">Problems</span>
+                <span className="font-bold text-neutral-200">
+                  {activeFilter === 'all' ? 'All Findings' : activeFilter === 'bib_mismatch' ? 'Bib Mismatches' : 'Literature Discoveries'}
+                </span>
                 <span className="px-1.5 py-0.5 bg-neutral-800 text-neutral-300 rounded font-mono text-[10px]">
-                  {findings.length}
+                  {filteredFindings.length}
                 </span>
                 <button
                   onClick={() => {
@@ -147,16 +161,16 @@ export const AuditInspector: React.FC = () => {
                 </button>
               </div>
               <div className="flex items-center gap-1 font-mono text-[10px]">
-                <span className="text-rose-400 font-semibold">{criticalCount} Critical</span>
+                <span className="text-rose-400 font-semibold">{activeCriticalCount} Critical</span>
                 <span className="text-neutral-600">·</span>
-                <span className="text-amber-400 font-semibold">{mediumCount} Medium</span>
+                <span className="text-amber-400 font-semibold">{activeMediumCount} Medium</span>
               </div>
             </div>
 
             {/* Dual-Stream Filter Buttons */}
             <div className="grid grid-cols-3 gap-1 bg-[#0A0C0E] p-1 rounded border border-[#21262D] font-mono text-[10px]">
               <button
-                onClick={() => setActiveFilter('all')}
+                onClick={() => handleFilterChange('all')}
                 className={`py-1 rounded text-center truncate transition-colors cursor-pointer ${
                   activeFilter === 'all'
                     ? 'bg-[#21262D] text-white font-bold'
@@ -166,7 +180,7 @@ export const AuditInspector: React.FC = () => {
                 All ({findings.length})
               </button>
               <button
-                onClick={() => setActiveFilter('bib_mismatch')}
+                onClick={() => handleFilterChange('bib_mismatch')}
                 className={`py-1 rounded text-center truncate flex items-center justify-center gap-1 transition-colors cursor-pointer ${
                   activeFilter === 'bib_mismatch'
                     ? 'bg-[#21262D] text-amber-400 font-bold'
@@ -176,7 +190,7 @@ export const AuditInspector: React.FC = () => {
                 <Database className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">Bib Mismatches ({bibMismatchCount})</span>
               </button>
               <button
-                onClick={() => setActiveFilter('literature_discovery')}
+                onClick={() => handleFilterChange('literature_discovery')}
                 className={`py-1 rounded text-center truncate flex items-center justify-center gap-1 transition-colors cursor-pointer ${
                   activeFilter === 'literature_discovery'
                     ? 'bg-[#21262D] text-sky-400 font-bold'
