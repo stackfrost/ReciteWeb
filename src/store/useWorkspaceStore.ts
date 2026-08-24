@@ -27,6 +27,8 @@ interface WorkspaceState {
   files: Record<string, VirtualFile>;
   isLoading?: boolean;
 
+  openTabs: string[];
+
   // Native Disk Actions
   mountLocalProject: () => Promise<void>;
   resetWorkspace: () => void;
@@ -39,6 +41,8 @@ interface WorkspaceState {
   renameFile: (id: string, newName: string) => void;
   setContent: (id: string, content: string) => void;
   setActiveFile: (id: string | null) => void;
+  openFileTab: (id: string) => void;
+  closeFileTab: (id: string) => void;
   toggleFolder: (id: string) => void;
   ingestFiles: (files: File[]) => Promise<void>;
   appendToBibFile: (bibtexString: string) => void;
@@ -54,6 +58,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   activeTexContent: DEMO_MANUSCRIPT,
   fileTree: {},
   activeFileId: 'main.tex',
+  openTabs: ['main.tex', 'references.bib'],
   isLoading: false,
   files: {
     'root': {
@@ -385,7 +390,59 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }));
   },
 
-  setActiveFile: (id) => set({ activeFileId: id }),
+  setActiveFile: (id) => {
+    if (!id) {
+      set({ activeFileId: null, activeTexPath: null, activeTexContent: null });
+      return;
+    }
+    const state = get();
+    const diskFile = state.fileTree[id] || Object.values(state.fileTree).find((f) => f.name === id || f.path === id);
+    const virtFile = state.files[id] || Object.values(state.files).find((f) => f.name === id || f.id === id);
+
+    const content = diskFile?.content || virtFile?.content || '';
+    const filePath = diskFile?.path || virtFile?.path || id;
+
+    set({
+      activeFileId: id,
+      activeTexPath: filePath,
+      activeTexContent: content,
+    });
+
+    if (typeof window !== 'undefined') {
+      try {
+        const { useEditorStore } = require('@/store/useEditorStore');
+        const { useReciteStore } = require('@/lib/store');
+        useEditorStore.getState().updateContent(content);
+        useEditorStore.getState().setActiveFileId(id);
+        useReciteStore.getState().setRawText(content);
+        useReciteStore.getState().setParsedText(content);
+        useReciteStore.getState().setDocumentTitle(filePath.split(/[/\\]/).pop() || id);
+      } catch (err) {
+        console.warn('[WorkspaceStore] Sync error on setActiveFile:', err);
+      }
+    }
+  },
+
+  openFileTab: (id) => {
+    const { openTabs } = get();
+    if (!openTabs.includes(id)) {
+      set({ openTabs: [...openTabs, id] });
+    }
+    get().setActiveFile(id);
+  },
+
+  closeFileTab: (id) => {
+    const { openTabs, activeFileId } = get();
+    const nextTabs = openTabs.filter((t) => t !== id);
+    let nextActive = activeFileId;
+    if (activeFileId === id) {
+      nextActive = nextTabs.length > 0 ? nextTabs[nextTabs.length - 1] : null;
+    }
+    set({ openTabs: nextTabs });
+    if (nextActive !== activeFileId) {
+      get().setActiveFile(nextActive);
+    }
+  },
 
   toggleFolder: (id) => {
     set((state) => ({

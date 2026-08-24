@@ -3,8 +3,29 @@
 import React, { useState, useEffect } from 'react';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import { useAuditStore } from '@/store/useAuditStore';
-import { Check, Sparkles, BookOpen, GitCompare, Database, ExternalLink, RotateCcw, FolderSync, Search, FileText, Layers, FolderOpen, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
+import {
+  Check,
+  Sparkles,
+  BookOpen,
+  GitCompare,
+  Database,
+  ExternalLink,
+  RotateCcw,
+  FolderSync,
+  Search,
+  FileText,
+  Layers,
+  FolderOpen,
+  AlertCircle,
+  CheckCircle2,
+  RefreshCw,
+  ShieldCheck,
+  AlertOctagon,
+  AlertTriangle,
+  Scale,
+} from 'lucide-react';
 import { ZoteroBridgeService, ZoteroItem, ZoteroCollection, KeyDriftResult } from '@/services/zotero-bridge-service';
+import { PdfEvidenceDrawer } from './PdfEvidenceDrawer';
 
 export const AuditInspector: React.FC = () => {
   const {
@@ -26,6 +47,23 @@ export const AuditInspector: React.FC = () => {
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [keyDrift, setKeyDrift] = useState<KeyDriftResult | null>(null);
   const [isLoadingZotero, setIsLoadingZotero] = useState(false);
+
+  // In-App PDF Evidence Drawer State
+  const [pdfEvidence, setPdfEvidence] = useState<{
+    isOpen: boolean;
+    title: string;
+    authors: string[];
+    year?: number | string;
+    doi?: string;
+    pdfPath?: string;
+    evidenceQuote?: string;
+    abstractText?: string;
+    provenance?: 'zotero' | 'openalex' | 'crossref' | 'arxiv';
+  }>({
+    isOpen: false,
+    title: '',
+    authors: [],
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -323,6 +361,66 @@ export const AuditInspector: React.FC = () => {
                     )}
                   </div>
                 </div>
+
+                {/* NLI Contrastive Evidence Box (if available) */}
+                {selectedFinding.contrastiveEvidence && (
+                  <div
+                    className={`p-3 rounded-md border space-y-2 min-w-0 ${
+                      selectedFinding.entailmentStatus === 'contradicted'
+                        ? 'bg-rose-950/20 border-rose-500/40 text-rose-200'
+                        : selectedFinding.entailmentStatus === 'tenuous'
+                        ? 'bg-amber-950/20 border-amber-500/40 text-amber-200'
+                        : 'bg-emerald-950/20 border-emerald-500/40 text-emerald-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-bold font-mono text-[11px]">
+                        <Scale className="w-3.5 h-3.5" />
+                        <span>
+                          NLI Entailment:{' '}
+                          {selectedFinding.entailmentStatus === 'contradicted'
+                            ? 'Contradicted / Misattributed 🔴'
+                            : selectedFinding.entailmentStatus === 'tenuous'
+                            ? 'Tenuous / Extrapolated 🟡'
+                            : 'Strongly Supported 🟢'}
+                        </span>
+                      </div>
+                      {selectedFinding.contrastiveEvidence.hedgingSuggestion && selectedFinding.status !== 'resolved' && (
+                        <button
+                          onClick={() => {
+                            if (typeof window !== 'undefined') {
+                              const { useReciteStore } = require('@/lib/store');
+                              const reciteStore = useReciteStore.getState();
+                              const targetText = selectedFinding.claimText || selectedFinding.context;
+                              const fix = selectedFinding.contrastiveEvidence?.hedgingSuggestion;
+                              if (fix && reciteStore.rawText.includes(targetText)) {
+                                const updatedTex = reciteStore.rawText.replace(targetText, fix);
+                                reciteStore.setRawText(updatedTex);
+                                reciteStore.setParsedText(updatedTex);
+                                reciteStore.addToast('Applied calibrated hedging adjustment.', 'success');
+                                resolveFinding(selectedFinding.id);
+                              }
+                            }
+                          }}
+                          className="px-2 py-0.5 bg-amber-600 hover:bg-amber-500 text-white rounded font-mono text-[10px] font-semibold transition-colors cursor-pointer"
+                        >
+                          Apply Hedging
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] leading-relaxed">
+                      {selectedFinding.contrastiveEvidence.reason}
+                    </p>
+
+                    <div className="p-2 bg-[#0A0D10]/80 rounded border border-[#21262D] space-y-1 font-serif italic text-neutral-300">
+                      <span className="font-sans font-semibold text-[9px] uppercase tracking-wider text-neutral-500 not-italic block">
+                        Source Evidence Anchor:
+                      </span>
+                      "{selectedFinding.contrastiveEvidence.sourceQuote}"
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
@@ -416,14 +514,36 @@ export const AuditInspector: React.FC = () => {
                             Key: <code className="text-amber-400 font-bold">@{source.bibtexKey}</code>
                           </span>
 
-                          <button
-                            onClick={handleInsert}
-                            className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-sans font-semibold transition-colors cursor-pointer shrink-0"
-                            title="Append @article to .bib and update citation key in manuscript"
-                          >
-                            <Check className="w-3 h-3" />
-                            <span>Insert & Append .bib</span>
-                          </button>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() =>
+                                setPdfEvidence({
+                                  isOpen: true,
+                                  title: source.title,
+                                  authors: source.authors,
+                                  year: source.year,
+                                  doi: source.doi,
+                                  evidenceQuote: source.abstractExcerpt || source.abstractSnippet,
+                                  abstractText: source.abstractSnippet,
+                                  provenance: source.provenance || 'openalex',
+                                })
+                              }
+                              className="flex items-center gap-1 px-2 py-1 bg-[#21262D] hover:bg-[#30363D] text-neutral-300 hover:text-white rounded text-[10px] font-sans font-medium transition-colors cursor-pointer"
+                              title="Inspect source paper PDF and evidence quote in drawer"
+                            >
+                              <FileText className="w-3 h-3 text-rose-400" />
+                              <span>Inspect PDF</span>
+                            </button>
+
+                            <button
+                              onClick={handleInsert}
+                              className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-sans font-semibold transition-colors cursor-pointer shrink-0"
+                              title="Append @article to .bib and update citation key in manuscript"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Insert & Append .bib</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -623,14 +743,37 @@ export const AuditInspector: React.FC = () => {
                               Citekey: <code className="text-teal-400 font-bold">@{effectiveKey}</code>
                             </span>
 
-                            <button
-                              onClick={handleInsertZotero}
-                              className="flex items-center gap-1 px-2 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded text-[10px] font-sans font-semibold transition-colors cursor-pointer shrink-0"
-                              title="Append item to .bib and inject citation into manuscript"
-                            >
-                              <Check className="w-3 h-3" />
-                              <span>Insert from Zotero</span>
-                            </button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                onClick={() =>
+                                  setPdfEvidence({
+                                    isOpen: true,
+                                    title: item.title,
+                                    authors: item.creators,
+                                    year: item.year,
+                                    doi: item.doi,
+                                    pdfPath: item.pdfPath,
+                                    evidenceQuote: item.abstractNote ? item.abstractNote.slice(0, 180) : undefined,
+                                    abstractText: item.abstractNote,
+                                    provenance: 'zotero',
+                                  })
+                                }
+                                className="flex items-center gap-1 px-2 py-1 bg-[#21262D] hover:bg-[#30363D] text-neutral-300 hover:text-white rounded text-[10px] font-sans font-medium transition-colors cursor-pointer"
+                                title="Inspect local Zotero PDF attachment"
+                              >
+                                <FileText className="w-3 h-3 text-rose-400" />
+                                <span>Inspect PDF</span>
+                              </button>
+
+                              <button
+                                onClick={handleInsertZotero}
+                                className="flex items-center gap-1 px-2 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded text-[10px] font-sans font-semibold transition-colors cursor-pointer shrink-0"
+                                title="Append item to .bib and inject citation into manuscript"
+                              >
+                                <Check className="w-3 h-3" />
+                                <span>Insert from Zotero</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -641,6 +784,12 @@ export const AuditInspector: React.FC = () => {
           </div>
         </Panel>
       </PanelGroup>
+
+      {/* In-App PDF Evidence Drawer */}
+      <PdfEvidenceDrawer
+        {...pdfEvidence}
+        onClose={() => setPdfEvidence((prev) => ({ ...prev, isOpen: false }))}
+      />
     </aside>
   );
 };

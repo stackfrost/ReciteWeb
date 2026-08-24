@@ -20,9 +20,21 @@ export interface VerifiedLiteratureSource {
   influentialCitationCount?: number;
 }
 
+export type EntailmentStatus = 'entailed' | 'tenuous' | 'contradicted';
+
+export interface ContrastiveEvidence {
+  manuscriptClaim: string;
+  sourceQuote: string;
+  hedgingSuggestion?: string;
+  reason: string;
+}
+
 export interface AuditFinding {
   id: string;
   line: number;
+  globalLine?: number;
+  localLine?: number;
+  filePath?: string;
   category: FindingCategory;
   streamType?: StreamType;
   severity: FindingSeverity;
@@ -30,6 +42,8 @@ export interface AuditFinding {
   citationKey?: string;
   claimText?: string;
   context: string;
+  entailmentStatus?: EntailmentStatus;
+  contrastiveEvidence?: ContrastiveEvidence;
   suggestedPatch?: {
     diffRemove: string;
     diffAdd: string;

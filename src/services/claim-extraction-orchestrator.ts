@@ -120,7 +120,7 @@ export class ClaimExtractionOrchestrator {
         console.warn(`[ClaimExtractionOrchestrator] Academic search failed for claim ${i}:`, err);
       }
 
-      // ── STAGE 4: Synthesizing Evidence Anchors & Patch Generation ──────────
+      // ── STAGE 4: Synthesizing Evidence Anchors & NLI Entailment Evaluation ──
       const bestCandidate = verifiedSources[0];
       const recommendedBibKey = bestCandidate?.bibtexKey || 'ref2024';
 
@@ -129,20 +129,31 @@ export class ClaimExtractionOrchestrator {
         suggestedFix = `${claim.claimText} ~\\cite{${recommendedBibKey}}`;
       }
 
+      // Natural Language Inference (NLI) Evaluation
+      const { SemanticEntailmentEngine } = await import('@/services/semantic-entailment-engine');
+      const nliResult = SemanticEntailmentEngine.evaluateEntailment(claim.claimText, bestCandidate);
+
+      let finalSuggestedFix = suggestedFix;
+      if (nliResult.hedgingPatch && nliResult.status !== 'entailed') {
+        finalSuggestedFix = `${nliResult.hedgingPatch} ~\\cite{${recommendedBibKey}}`;
+      }
+
       const finding: AuditFinding = {
         id: `finding-discovery-${i + 1}`,
         line: claim.line,
         category: 'literature_discovery',
         streamType: 'discovery',
-        severity: claim.severity,
-        type: claim.classification,
+        severity: nliResult.status === 'contradicted' ? 'Critical' : claim.severity,
+        type: nliResult.status === 'contradicted' ? 'Citation Contradiction' : claim.classification,
         claimText: claim.claimText,
         context: claim.contextSnippet,
+        entailmentStatus: nliResult.status,
+        contrastiveEvidence: nliResult.contrastiveEvidence,
         suggestedPatch: {
           diffRemove: claim.claimText,
-          diffAdd: suggestedFix || `${claim.claimText} ~\\cite{${recommendedBibKey}}`,
+          diffAdd: finalSuggestedFix || `${claim.claimText} ~\\cite{${recommendedBibKey}}`,
         },
-        suggestedFix: suggestedFix,
+        suggestedFix: finalSuggestedFix,
         verifiedSources,
         status: 'unresolved',
       };
