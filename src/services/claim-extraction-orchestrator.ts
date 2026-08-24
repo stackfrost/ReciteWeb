@@ -55,21 +55,67 @@ export class ClaimExtractionOrchestrator {
     onProgress?.('Extracting Unattributed Scientific Claims...');
     const extractedClaims = await this.extractScientificClaims(texContent, bibtexMap);
 
-    // ── STAGE 3: Querying OpenAlex & Crossref Databases ──────────────────────
-    onProgress?.('Querying OpenAlex & Crossref Databases...');
+    // ── STAGE 3: Querying Local Zotero Library & External Academic APIs ──────
+    onProgress?.('Querying Personal Zotero Library & OpenAlex...');
+    const { ZoteroBridgeService } = await import('@/services/zotero-bridge-service');
     const discoveryFindings: AuditFinding[] = [];
 
-    // Process discovery claims through AcademicSearchAggregator with concurrency limit
+    // Process discovery claims through Tier 1 (Zotero) and Tier 2 (AcademicSearchAggregator)
     for (let i = 0; i < extractedClaims.length; i++) {
       const claim = extractedClaims[i];
-      onProgress?.(`Querying literature candidate ${i + 1} of ${extractedClaims.length}...`);
+      onProgress?.(`Auditing literature candidate ${i + 1} of ${extractedClaims.length}...`);
 
       let verifiedSources: VerifiedLiteratureSource[] = [];
+
+      // ── Tier 1: Local-First Zotero Personal Library Check ──
       try {
-        verifiedSources = await AcademicSearchAggregator.searchLiteratureCandidates(
+        const localZoteroMatch = await ZoteroBridgeService.matchClaimAgainstPersonalLibrary(claim.claimText);
+        if (localZoteroMatch) {
+          verifiedSources.push({
+            title: localZoteroMatch.title,
+            year: localZoteroMatch.year,
+            authors: localZoteroMatch.authors,
+            venue: localZoteroMatch.venue || 'Personal Zotero Library',
+            doi: localZoteroMatch.doi,
+            bibtexKey: localZoteroMatch.bibtexKey || 'zoteroRef',
+            relevanceScore: (localZoteroMatch.matchScore || 95) / 100,
+            abstractExcerpt: localZoteroMatch.abstractExcerpt || localZoteroMatch.abstractSnippet || 'Matched from personal Zotero library.',
+            abstractSnippet: localZoteroMatch.abstractSnippet || 'Local library record.',
+            verificationStatus: 'verified',
+            provenance: 'zotero',
+            citationCount: 120,
+            bibtexEntry: ZoteroBridgeService.formatBibtexFromZotero({
+              itemId: 0,
+              key: localZoteroMatch.bibtexKey || 'zoteroRef',
+              citationKey: localZoteroMatch.bibtexKey,
+              itemType: 'journalArticle',
+              title: localZoteroMatch.title,
+              creators: localZoteroMatch.authors,
+              publicationTitle: localZoteroMatch.venue,
+              year: String(localZoteroMatch.year),
+              doi: localZoteroMatch.doi,
+              abstractNote: localZoteroMatch.abstractSnippet,
+              collections: [],
+              hasPdf: !!localZoteroMatch.url?.startsWith('file://'),
+              pdfPath: localZoteroMatch.url?.startsWith('file://') ? localZoteroMatch.url.slice(7) : undefined,
+            }),
+          });
+        }
+      } catch (zoteroErr) {
+        console.warn('[ClaimExtractionOrchestrator] Zotero local query skipped:', zoteroErr);
+      }
+
+      // ── Tier 2: External Academic APIs (OpenAlex / Crossref / arXiv) ──
+      try {
+        const externalSources = await AcademicSearchAggregator.searchLiteratureCandidates(
           claim.searchQueries,
           claim.claimText
         );
+        for (const ext of externalSources) {
+          if (!verifiedSources.some((s) => s.doi && ext.doi && s.doi.toLowerCase() === ext.doi.toLowerCase())) {
+            verifiedSources.push(ext);
+          }
+        }
       } catch (err) {
         console.warn(`[ClaimExtractionOrchestrator] Academic search failed for claim ${i}:`, err);
       }

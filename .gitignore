@@ -32,3 +32,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Rust / Tauri Build Artifacts
+src-tauri/target/
+target/

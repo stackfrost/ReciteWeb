@@ -36,6 +36,11 @@ rusqlite         = { version = "0.31", features = ["bundled"] }
 
 # High-speed local PDF text extraction
 pdf-extract      = "0.7"
+tauri-plugin-dialog = "2.0.0-rc.0"
+tauri-plugin-fs = "2.0.0-rc.0"
+
+[build-dependencies]
+tauri-build      = { version = "2", features = [] }
 
 [profile.release]
 # Maximum binary hardening for distribution

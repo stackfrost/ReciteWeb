@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import { useAuditStore } from '@/store/useAuditStore';
-import { Check, Sparkles, BookOpen, GitCompare, Database, ExternalLink, RotateCcw } from 'lucide-react';
+import { Check, Sparkles, BookOpen, GitCompare, Database, ExternalLink, RotateCcw, FolderSync, Search, FileText, Layers, FolderOpen, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { ZoteroBridgeService, ZoteroItem, ZoteroCollection, KeyDriftResult } from '@/services/zotero-bridge-service';
 
 export const AuditInspector: React.FC = () => {
   const {
@@ -17,11 +18,55 @@ export const AuditInspector: React.FC = () => {
     resolveFinding,
   } = useAuditStore();
 
+  // Zotero Bridge State
+  const [zoteroItems, setZoteroItems] = useState<ZoteroItem[]>([]);
+  const [zoteroCollections, setZoteroCollections] = useState<ZoteroCollection[]>([]);
+  const [zoteroPath, setZoteroPath] = useState<string | null>(null);
+  const [zoteroSearchQuery, setZoteroSearchQuery] = useState('');
+  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
+  const [keyDrift, setKeyDrift] = useState<KeyDriftResult | null>(null);
+  const [isLoadingZotero, setIsLoadingZotero] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadZotero() {
+      setIsLoadingZotero(true);
+      try {
+        const path = await ZoteroBridgeService.detectPath();
+        const items = await ZoteroBridgeService.getItems();
+        const collections = await ZoteroBridgeService.getCollections();
+        if (isMounted) {
+          setZoteroPath(path);
+          setZoteroItems(items);
+          setZoteroCollections(collections);
+        }
+      } catch (err) {
+        console.warn('[AuditInspector] Zotero load error:', err);
+      } finally {
+        if (isMounted) setIsLoadingZotero(false);
+      }
+    }
+    loadZotero();
+    return () => { isMounted = false; };
+  }, []);
+
+  const selectedFinding =
+    findings.find((f) => f.id === selectedFindingId) || findings[0];
+
+  // Check for citation key drift against Zotero whenever finding changes
+  useEffect(() => {
+    if (selectedFinding?.citationKey) {
+      ZoteroBridgeService.detectKeyDrift(selectedFinding.citationKey, '')
+        .then((drift) => setKeyDrift(drift))
+        .catch(() => setKeyDrift(null));
+    } else {
+      setKeyDrift(null);
+    }
+  }, [selectedFinding]);
+
   const filteredFindings = findings.filter(
     (f) => activeFilter === 'all' || f.category === activeFilter
   );
-  const selectedFinding =
-    findings.find((f) => f.id === selectedFindingId) || findings[0];
 
   const bibMismatchCount = findings.filter(
     (f) => f.category === 'bib_mismatch'
@@ -193,6 +238,16 @@ export const AuditInspector: React.FC = () => {
               }`}
             >
               <BookOpen className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">Verified Sources ({selectedFinding?.verifiedSources?.length || 0})</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('zotero')}
+              className={`flex items-center gap-1.5 px-3 py-2 border-b-2 transition-colors cursor-pointer truncate ${
+                activeTab === 'zotero'
+                  ? 'border-teal-500 text-teal-400 bg-[#161B20]'
+                  : 'border-transparent hover:text-white'
+              }`}
+            >
+              <FolderSync className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">Zotero Sync</span>
             </button>
           </div>
 
@@ -378,6 +433,209 @@ export const AuditInspector: React.FC = () => {
                     No external literature candidate required for this mismatch.
                   </div>
                 )}
+              </div>
+            )}
+
+            {activeTab === 'zotero' && (
+              <div className="space-y-3 min-w-0">
+                {/* 1. Database Connection Status Bar */}
+                <div className="p-2.5 bg-[#14181D] border border-[#21262D] rounded-md space-y-1.5 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-teal-400 font-mono text-[11px] font-semibold">
+                      <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+                      <span>Zotero SQLite Bridge (Read-Only)</span>
+                    </div>
+                    <span className="px-1.5 py-0.5 bg-teal-950 text-teal-300 rounded font-mono text-[9px]">
+                      {zoteroItems.length} Items Indexed
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-neutral-400 font-mono truncate">
+                    Path: <span className="text-neutral-300">{zoteroPath || '~/Zotero/zotero.sqlite'}</span>
+                  </div>
+                </div>
+
+                {/* 2. Key Drift Diagnostics Alert (if detected) */}
+                {keyDrift && (
+                  <div className="p-2.5 bg-amber-950/40 border border-amber-500/40 rounded-md space-y-1.5 text-amber-200">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-300">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                      <span>Citation Key Drift Detected</span>
+                    </div>
+                    <p className="text-[10px] text-amber-300/90 leading-normal">
+                      {keyDrift.reason}
+                    </p>
+                    <button
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          const { useReciteStore } = require('@/lib/store');
+                          const reciteStore = useReciteStore.getState();
+                          const targetText = `\\cite{${keyDrift.manuscriptKey}}`;
+                          const replacement = keyDrift.suggestedPatch;
+                          if (reciteStore.rawText.includes(targetText)) {
+                            const updatedTex = reciteStore.rawText.replace(targetText, replacement);
+                            reciteStore.setRawText(updatedTex);
+                            reciteStore.setParsedText(updatedTex);
+                            reciteStore.addToast(`Aligned citation key to '${keyDrift.zoteroKey}'.`, 'success');
+                            setKeyDrift(null);
+                          }
+                        }
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[10px] font-semibold transition-colors cursor-pointer"
+                    >
+                      <Check className="w-3 h-3" /> Align to Zotero ({keyDrift.zoteroKey})
+                    </button>
+                  </div>
+                )}
+
+                {/* 3. Search & Collection Filter Bar */}
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-neutral-500" />
+                    <input
+                      type="text"
+                      placeholder="Search personal Zotero library..."
+                      value={zoteroSearchQuery}
+                      onChange={(e) => setZoteroSearchQuery(e.target.value)}
+                      className="w-full bg-[#12161A] border border-[#21262D] rounded px-2.5 py-1.5 pl-8 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-teal-500"
+                    />
+                  </div>
+
+                  {/* Collection Chips */}
+                  {zoteroCollections.length > 0 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[10px] font-mono scrollbar-none">
+                      <button
+                        onClick={() => setSelectedCollection(null)}
+                        className={`px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer ${
+                          selectedCollection === null
+                            ? 'bg-teal-900/60 text-teal-300 border border-teal-500/40'
+                            : 'bg-[#14181D] text-neutral-400 border border-[#21262D] hover:text-white'
+                        }`}
+                      >
+                        All Items
+                      </button>
+                      {zoteroCollections.map((col) => (
+                        <button
+                          key={col.collectionId}
+                          onClick={() => setSelectedCollection(col.name)}
+                          className={`px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer ${
+                            selectedCollection === col.name
+                              ? 'bg-teal-900/60 text-teal-300 border border-teal-500/40'
+                              : 'bg-[#14181D] text-neutral-400 border border-[#21262D] hover:text-white'
+                          }`}
+                        >
+                          {col.name} ({col.itemCount})
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Filtered Items List */}
+                <div className="space-y-2">
+                  {zoteroItems
+                    .filter((item) => {
+                      if (selectedCollection && !item.collections.includes(selectedCollection)) {
+                        return false;
+                      }
+                      if (!zoteroSearchQuery.trim()) return true;
+                      const q = zoteroSearchQuery.toLowerCase();
+                      return (
+                        item.title.toLowerCase().includes(q) ||
+                        item.creators.some((c) => c.toLowerCase().includes(q)) ||
+                        item.citationKey?.toLowerCase().includes(q) ||
+                        item.doi?.toLowerCase().includes(q) ||
+                        item.abstractNote?.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((item) => {
+                      const effectiveKey = item.citationKey || item.key;
+
+                      const handleInsertZotero = () => {
+                        if (typeof window !== 'undefined') {
+                          const { useReciteStore } = require('@/lib/store');
+                          const reciteStore = useReciteStore.getState();
+                          const formattedBib = ZoteroBridgeService.formatBibtexFromZotero(item);
+
+                          reciteStore.insertCitationAndBib(selectedFinding?.id || 'manual', {
+                            title: item.title,
+                            year: parseInt(item.year || '2024', 10),
+                            authors: item.creators.map((c) => c.split(',')[0].trim()),
+                            venue: item.publicationTitle || 'Personal Zotero Library',
+                            doi: item.doi,
+                            bibtexKey: effectiveKey,
+                            matchScore: 99,
+                            abstractExcerpt: item.abstractNote ? item.abstractNote.slice(0, 180) + '...' : undefined,
+                            verificationStatus: 'verified',
+                            bibtexEntry: formattedBib,
+                          });
+
+                          if (selectedFinding) resolveFinding(selectedFinding.id);
+                        }
+                      };
+
+                      return (
+                        <div
+                          key={item.itemId}
+                          className="p-3 bg-[#14181D] border border-[#21262D] rounded-md space-y-2 min-w-0 hover:border-teal-500/40 transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="px-1.5 py-0.2 bg-teal-950/80 border border-teal-500/30 text-teal-300 rounded text-[9px] font-mono font-bold">
+                                  Personal Library Match
+                                </span>
+                                {item.hasPdf && (
+                                  <span className="px-1.5 py-0.2 bg-neutral-800 text-neutral-300 rounded text-[9px] font-mono flex items-center gap-1">
+                                    <FileText className="w-2.5 h-2.5 text-rose-400" /> PDF Attached
+                                  </span>
+                                )}
+                              </div>
+                              <h4 className="font-semibold text-neutral-100 text-xs leading-snug break-words">
+                                {item.title}
+                              </h4>
+                            </div>
+
+                            {item.doi && (
+                              <a
+                                href={`https://doi.org/${item.doi}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1 text-neutral-400 hover:text-sky-400 transition-colors shrink-0"
+                                title="Open DOI"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
+                          </div>
+
+                          <p className="text-[11px] text-neutral-400 truncate">
+                            {item.creators.join('; ')} • {item.year || '2024'} {item.publicationTitle ? `• ${item.publicationTitle}` : ''}
+                          </p>
+
+                          {item.abstractNote && (
+                            <p className="text-[11px] font-serif italic text-neutral-300 leading-relaxed bg-[#0A0C0E] p-2 rounded border border-[#1C2229] break-words line-clamp-3">
+                              "{item.abstractNote}"
+                            </p>
+                          )}
+
+                          <div className="flex items-center justify-between pt-1.5 border-t border-[#1C2229] text-[10px] font-mono">
+                            <span className="text-neutral-400 truncate">
+                              Citekey: <code className="text-teal-400 font-bold">@{effectiveKey}</code>
+                            </span>
+
+                            <button
+                              onClick={handleInsertZotero}
+                              className="flex items-center gap-1 px-2 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded text-[10px] font-sans font-semibold transition-colors cursor-pointer shrink-0"
+                              title="Append item to .bib and inject citation into manuscript"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Insert from Zotero</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
               </div>
             )}
           </div>

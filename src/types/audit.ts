@@ -13,6 +13,8 @@ export interface VerifiedLiteratureSource {
   abstractSnippet: string;
   abstractExcerpt?: string;
   verificationStatus: 'verified' | 'unverified' | 'rejected';
+  provenance?: 'zotero' | 'openalex' | 'crossref' | 'arxiv';
+  isPersonalLibraryMatch?: boolean;
   bibtexEntry?: string;
   citationCount?: number;
   influentialCitationCount?: number;

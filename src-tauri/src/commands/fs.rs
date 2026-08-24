@@ -86,6 +86,7 @@ pub async fn apply_manuscript_patch(
 
     if let Err(write_err) = write_result {
         // Clean up tmp if it was partially created
+        
         let _ = fs::remove_file(&tmp_path);
         // Original file was never mutated, so we can discard the backup
         let _ = fs::remove_file(&bak_path);

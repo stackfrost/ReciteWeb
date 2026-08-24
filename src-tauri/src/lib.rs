@@ -25,6 +25,8 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(
             tauri_plugin_stronghold::Builder::new(|password| {
@@ -56,7 +58,7 @@ pub fn run() {
 
                 let mut key_bytes = [0u8; 32];
                 argon2
-                    .hash_password_into(password, salt.as_bytes(), &mut key_bytes)
+                    .hash_password_into(password.as_bytes(), salt.as_str().as_bytes(), &mut key_bytes)
                     .expect("ReciteAI: Argon2 KDF must not fail for valid inputs");
 
                 key_bytes.to_vec()
@@ -79,6 +81,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            zotero_bridge::detect_zotero_path,
+            zotero_bridge::get_zotero_items,
+            zotero_bridge::search_zotero_library,
+            zotero_bridge::get_zotero_collections,
             zotero_bridge::find_zotero_pdf,
             pdf_engine::extract_pdf_text,
             commands::fs::apply_manuscript_patch,
