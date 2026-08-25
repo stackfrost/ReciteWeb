@@ -604,21 +604,8 @@ export default function MenuBar() {
         </button>
       </div>
 
-      {/* Right: Theme Toggle & Window Controls (Minimize, Maximize, Close) */}
+      {/* Right: Window Controls (Minimize, Maximize, Close) */}
       <div className="flex items-center -mr-2 h-full select-none" data-tauri-drag-region="false">
-        {/* Theme Toggle Button */}
-        <button
-          onClick={toggleTheme}
-          className="h-full px-2.5 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200/60 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-          title={`Switch to ${resolvedTheme === 'dark' ? 'Light' : 'Dark'} Mode (Ctrl+T)`}
-        >
-          {resolvedTheme === 'dark' ? (
-            <Sun size={13} className="text-amber-400" />
-          ) : (
-            <Moon size={13} className="text-zinc-600" />
-          )}
-        </button>
-
         {/* Minimize Button */}
         <button
           onClick={handleMinimize}
