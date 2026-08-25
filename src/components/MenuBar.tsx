@@ -86,8 +86,10 @@ export default function MenuBar() {
         const max = await win.isMaximized();
         setIsMaximized(max);
         const unlistenFn = await win.onResized(async () => {
-          const isMax = await win.isMaximized();
-          setIsMaximized(isMax);
+          try {
+            const isMax = await win.isMaximized();
+            setIsMaximized(isMax);
+          } catch {}
         });
         unlisten = unlistenFn;
       } catch (err) {
@@ -105,7 +107,7 @@ export default function MenuBar() {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().minimize();
     } catch (e) {
-      console.warn('Window minimize only available in desktop app');
+      console.warn('Window minimize only available in desktop app:', e);
     }
   };
 
@@ -113,11 +115,22 @@ export default function MenuBar() {
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const win = getCurrentWindow();
-      await win.toggleMaximize();
-      const max = await win.isMaximized();
-      setIsMaximized(max);
+      const isMax = await win.isMaximized();
+      if (isMax) {
+        await win.unmaximize();
+        setIsMaximized(false);
+      } else {
+        await win.maximize();
+        setIsMaximized(true);
+      }
     } catch (e) {
-      console.warn('Window toggleMaximize only available in desktop app');
+      console.warn('Explicit maximize/unmaximize failed, falling back to toggleMaximize:', e);
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().toggleMaximize();
+      } catch (err) {
+        console.error('Window maximize error:', err);
+      }
     }
   };
 
@@ -126,7 +139,7 @@ export default function MenuBar() {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().close();
     } catch (e) {
-      console.warn('Window close only available in desktop app');
+      console.warn('Window close only available in desktop app:', e);
     }
   };
 
@@ -310,6 +323,11 @@ export default function MenuBar() {
     <header
       ref={menuBarRef}
       data-tauri-drag-region
+      onDoubleClick={(e) => {
+        if (e.target === e.currentTarget || (e.target as HTMLElement).getAttribute('data-tauri-drag-region') !== null) {
+          handleMaximize();
+        }
+      }}
       className="h-8 w-full bg-zinc-100/95 dark:bg-zinc-950/90 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between px-3 text-[12px] font-sans select-none flex-shrink-0 z-50 transition-colors"
     >
       {/* Left OS Frame & Menus */}
