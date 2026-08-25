@@ -44,11 +44,12 @@ export interface AuditFinding {
   context: string;
   entailmentStatus?: EntailmentStatus;
   contrastiveEvidence?: ContrastiveEvidence;
+  sectionTitle?: string;
   suggestedPatch?: {
     diffRemove: string;
     diffAdd: string;
   };
   suggestedFix?: string;
   verifiedSources?: VerifiedLiteratureSource[];
-  status: 'unresolved' | 'resolved' | 'ignored' | 'pending' | 'accepted';
+  status: 'unresolved' | 'resolved' | 'ignored' | 'dismissed' | 'pending' | 'accepted';
 }

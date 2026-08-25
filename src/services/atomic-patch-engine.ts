@@ -8,6 +8,7 @@
 import { BibTeXParser, BibTeXEntry } from './bibtex-parser';
 import { SuggestedPaper } from '@/lib/store';
 import { AuditFinding, VerifiedLiteratureSource } from '@/types/audit';
+import { LatexSanitizer } from '@/lib/latex-sanitizer';
 
 export interface PatchSnapshot {
   id: string;
@@ -106,15 +107,8 @@ export class AtomicPatchEngine {
         replacementText = claimText;
       }
     } else {
-      // Clean placement before trailing punctuation according to LaTeX style conventions
-      const trailingPunctMatch = claimText.match(/([.,;:!?])\s*$/);
-      if (trailingPunctMatch) {
-        const punct = trailingPunctMatch[1];
-        const baseSentence = claimText.slice(0, -trailingPunctMatch[0].length).trimEnd();
-        replacementText = `${baseSentence} ~\\cite{${bibKey}}${punct}`;
-      } else {
-        replacementText = `${claimText} ~\\cite{${bibKey}}`;
-      }
+      // Use LatexSanitizer to safely position citation outside math delimiters and before trailing punctuation
+      replacementText = LatexSanitizer.safeCitationPlacement(claimText, bibKey);
     }
 
     return this.applyPatchToManuscript(
@@ -168,17 +162,15 @@ export class AtomicPatchEngine {
       }
     }
 
-    // 3. Format incoming BibTeX entry with standardized 2-space field indentation
-    const authorString = paper.authors?.length > 0 ? paper.authors.join(' and ') : 'Anonymous';
-    const journalString = paper.venue || 'Journal Publication';
-    const doiField = paper.doi ? `,\n  doi = {${paper.doi}}` : '';
-
-    const formattedEntry = `@article{${assignedKey},
-  title = {${paper.title.replace(/[{}]/g, '')}},
-  author = {${authorString}},
-  journal = {${journalString}},
-  year = {${paper.year || new Date().getFullYear()}}${doiField}
-}`;
+    // 3. Format incoming BibTeX entry using LatexSanitizer
+    const formattedEntry = LatexSanitizer.formatSanitizedBibtex({
+      title: paper.title,
+      authors: paper.authors,
+      venue: paper.venue,
+      year: paper.year,
+      doi: paper.doi,
+      bibtexKey: assignedKey,
+    });
 
     const updatedBib = rawBib.trim().length > 0
       ? `${rawBib.trimEnd()}\n\n${formattedEntry}\n`

@@ -114,6 +114,10 @@ interface AuditState {
   setActiveFilter: (activeFilter: 'all' | FindingCategory) => void;
   setActiveTab: (tab: 'remediation' | 'sources' | 'integrity' | 'zotero') => void;
   resolveFinding: (id: string) => void;
+  dismissFinding: (id: string) => void;
+  restoreFinding: (id: string) => void;
+  copyCitationAndBib: (id: string, source: any) => void;
+  groupFindingsBySection: (texContent: string) => void;
   runAudit: () => Promise<void>;
 }
 
@@ -140,6 +144,70 @@ export const useAuditStore = create<AuditState>((set, get) => ({
         selectedFindingId: nextUnresolved ? nextUnresolved.id : id,
       };
     }),
+  dismissFinding: (id) =>
+    set((state) => {
+      const nextFindings = state.findings.map((f) =>
+        f.id === id ? { ...f, status: 'dismissed' as const } : f
+      );
+      const nextUnresolved = nextFindings.find((f) => f.status === 'unresolved');
+      return {
+        findings: nextFindings,
+        selectedFindingId: nextUnresolved ? nextUnresolved.id : id,
+      };
+    }),
+  restoreFinding: (id) =>
+    set((state) => ({
+      findings: state.findings.map((f) =>
+        f.id === id ? { ...f, status: 'unresolved' as const } : f
+      ),
+    })),
+  copyCitationAndBib: (id, source) => {
+    const { LatexSanitizer } = require('@/lib/latex-sanitizer');
+    const rawKey = source.bibtexKey ||
+      (source.authors?.[0]?.toLowerCase()?.replace(/[^a-z0-9]/g, '') || 'ref') +
+      (source.year || '2024');
+    const bibKey = rawKey.replace(/[^a-zA-Z0-9_\-:]/g, '');
+    const bibEntry = LatexSanitizer.formatSanitizedBibtex({ ...source, bibtexKey: bibKey });
+    const clipText = `% In-text LaTeX Citation:\n\\cite{${bibKey}}\n\n% BibTeX Entry:\n${bibEntry}`;
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(clipText).then(() => {
+        if (typeof window !== 'undefined') {
+          const { useReciteStore } = require('@/lib/store');
+          useReciteStore.getState().addToast(`Copied \\cite{${bibKey}} and BibTeX entry to clipboard`, 'success');
+        }
+      });
+    }
+  },
+  groupFindingsBySection: (texContent: string) => {
+    if (!texContent) return;
+    const lines = texContent.split('\n');
+    const sectionHeaders: { line: number; title: string }[] = [];
+
+    lines.forEach((lineText, idx) => {
+      const match = lineText.match(/\\(?:sub)*section\*?\{([^}]+)\}/);
+      if (match) {
+        sectionHeaders.push({ line: idx + 1, title: match[1].trim() });
+      }
+    });
+
+    if (sectionHeaders.length === 0) return;
+
+    set((state) => ({
+      findings: state.findings.map((f) => {
+        const findingLine = f.line || 1;
+        let matchedSection = 'Document Preamble / General';
+        for (const sec of sectionHeaders) {
+          if (findingLine >= sec.line) {
+            matchedSection = sec.title;
+          } else {
+            break;
+          }
+        }
+        return { ...f, sectionTitle: matchedSection };
+      }),
+    }));
+  },
   runAudit: async () => {
     set({ isAuditing: true });
     try {
@@ -160,6 +228,9 @@ export const useAuditStore = create<AuditState>((set, get) => ({
         selectedFindingId: result.allFindings[0]?.id || null,
         isAuditing: false,
       });
+
+      // Group findings by document sections
+      get().groupFindingsBySection(rawText || '');
 
       reciteStore.setClaims(result.reciteClaims);
       reciteStore.setIsAuditing(false);

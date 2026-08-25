@@ -23,18 +23,18 @@ import CandidateCard from './CandidateCard';
 import ZoteroTab from './ZoteroTab';
 
 const TYPE_LABELS: Record<string, string> = {
-  MissingCitation: 'Missing Citation',
-  WeakCitation: 'Weak Citation',
-  Hallucination: 'Hallucination',
-  Misattribution: 'Misattribution',
-  'Missing BibTeX Key': 'Missing BibTeX Key',
-  'Missing Key': 'Missing BibTeX Key',
-  'Unsupported Assertion': 'Unsupported Claim',
-  'Weak Attribution': 'Weak Attribution',
-  'Empirical Gap': 'Empirical Gap',
-  'Syntax Mismatch': 'Syntax Mismatch',
-  'Citation Contradiction': 'Contradiction',
-  'Outdated Benchmark': 'Outdated Benchmark',
+  MissingCitation: 'Potential Attribution Gap',
+  WeakCitation: 'Candidate Reference',
+  Hallucination: 'Unverified Empirical Claim',
+  Misattribution: 'Potential Key Mismatch',
+  'Missing BibTeX Key': 'Unresolved Reference Key',
+  'Missing Key': 'Unresolved Reference Key',
+  'Unsupported Assertion': 'Potential Empirical Gap',
+  'Weak Attribution': 'Candidate Attribution',
+  'Empirical Gap': 'Uncited Empirical Assertion',
+  'Syntax Mismatch': 'Possible Syntax Drift',
+  'Citation Contradiction': 'Literature Alignment Observation',
+  'Outdated Benchmark': 'Benchmark Horizon Observation',
 };
 
 export default function ActionInspector() {
@@ -49,9 +49,13 @@ export default function ActionInspector() {
     setInspectorTab,
     acceptCitation,
     insertCitationAndBib,
+    copyCitationAndBib,
     dismissClaim,
+    restoreClaim,
     applyFix,
     setActiveLineHighlight,
+    filterStatus,
+    setFilterStatus,
   } = useReciteStore();
 
   const [activeDetailTab, setActiveDetailTab] = useState<'remediation' | 'evidence' | 'health' | 'zotero'>('remediation');
@@ -59,6 +63,7 @@ export default function ActionInspector() {
   const activeClaim: Claim | null = filteredClaims[activeClaimIndex] || null;
 
   const isAccepted = activeClaim?.status === 'accepted';
+  const isDismissed = activeClaim?.status === 'dismissed';
   const isRetracted = activeClaim?.isRetracted;
   const hasSuggestedFix = !!activeClaim?.suggestedFix;
   const auditTypeLabel = activeClaim?.auditType ? TYPE_LABELS[activeClaim.auditType] || activeClaim.auditType : null;
@@ -143,8 +148,23 @@ export default function ActionInspector() {
             </button>
           </div>
 
-          <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-zinc-400">
-            <span>{stats.resolvedCount} Resolved</span>
+          {/* Right Status Counters */}
+          <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-400">
+            <span className="text-emerald-600 dark:text-emerald-400 font-medium">{stats.resolvedCount} Resolved</span>
+            {stats.dismissedCount > 0 && (
+              <button
+                onClick={() => setFilterStatus(filterStatus === 'dismissed' ? 'All' : 'dismissed')}
+                className={cn(
+                  'px-1.5 py-0.5 rounded transition-colors cursor-pointer border',
+                  filterStatus === 'dismissed'
+                    ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-zinc-400'
+                    : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 border-transparent'
+                )}
+                title="View or restore dismissed observations"
+              >
+                {stats.dismissedCount} Dismissed
+              </button>
+            )}
           </div>
         </div>
 
@@ -152,7 +172,7 @@ export default function ActionInspector() {
         <div className="grid grid-cols-12 h-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/20 text-[11px] font-medium text-zinc-500 dark:text-zinc-400 px-2.5 items-center select-none flex-shrink-0">
           <div className="col-span-2">Line</div>
           <div className="col-span-2">Severity</div>
-          <div className="col-span-3">Pipeline / Type</div>
+          <div className="col-span-3">Advisory Observation</div>
           <div className="col-span-3">Citation / Key</div>
           <div className="col-span-2 text-right">Status</div>
         </div>
@@ -161,7 +181,7 @@ export default function ActionInspector() {
         <div className="flex-1 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-900 text-xs">
           {filteredClaims.length === 0 ? (
             <div className="py-8 text-center text-zinc-400 text-xs font-mono">
-              No matching problems in selected stream.
+              {filterStatus === 'dismissed' ? 'No dismissed observations.' : 'No matching problems in selected stream.'}
             </div>
           ) : (
             filteredClaims.map((claim, idx) => {
@@ -182,7 +202,8 @@ export default function ActionInspector() {
                 ? 'Missing Key'
                 : 'Unlinked';
 
-              const isResolved = claim.status === 'accepted';
+              const isItemResolved = claim.status === 'accepted';
+              const isItemDismissed = claim.status === 'dismissed';
               const sev = (claim.severity || 'Medium').toLowerCase();
               const isCritical = sev === 'critical' || sev === 'high' || claim.isRetracted;
               const isMedium = sev === 'medium';
@@ -192,9 +213,12 @@ export default function ActionInspector() {
               let sevDotColor = 'bg-sky-400';
               let sevTextColor = 'text-sky-600 dark:text-sky-400';
 
-              if (isResolved) {
+              if (isItemResolved) {
                 sevDotColor = 'bg-emerald-500';
                 sevTextColor = 'text-emerald-600 dark:text-emerald-400';
+              } else if (isItemDismissed) {
+                sevDotColor = 'bg-zinc-400';
+                sevTextColor = 'text-zinc-500 dark:text-zinc-400';
               } else if (isCritical) {
                 sevDotColor = 'bg-rose-500';
                 sevTextColor = 'text-rose-600 dark:text-rose-400';
@@ -203,11 +227,13 @@ export default function ActionInspector() {
                 sevTextColor = 'text-yellow-600 dark:text-yellow-400';
               }
 
-              const statusText = claim.isRetracted ? 'Flagged' : isResolved ? 'Resolved' : 'Unresolved';
+              const statusText = claim.isRetracted ? 'Flagged' : isItemResolved ? 'Resolved' : isItemDismissed ? 'Dismissed' : 'Unresolved';
               const statusColor = claim.isRetracted
                 ? 'text-rose-500 font-medium'
-                : isResolved
+                : isItemResolved
                 ? 'text-emerald-600 dark:text-emerald-400 font-medium'
+                : isItemDismissed
+                ? 'text-zinc-400 line-through'
                 : 'text-zinc-400';
 
               return (
@@ -233,8 +259,8 @@ export default function ActionInspector() {
                   </div>
 
                   {/* Type */}
-                  <div className="col-span-3 truncate text-[11px] text-zinc-600 dark:text-zinc-400">
-                    {TYPE_LABELS[claim.auditType || ''] || claim.auditType || claim.category || 'Claim'}
+                  <div className="col-span-3 truncate text-[11px] text-zinc-600 dark:text-zinc-400 font-sans">
+                    {TYPE_LABELS[claim.auditType || ''] || claim.auditType || claim.category || 'Observation'}
                   </div>
 
                   {/* Citation Key */}
@@ -258,27 +284,27 @@ export default function ActionInspector() {
         {!activeClaim ? (
           <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-600 text-xs space-y-2 p-6 text-center">
             <FileSearch className="w-8 h-8 text-zinc-300 dark:text-zinc-700" />
-            <p className="font-medium text-zinc-600 dark:text-zinc-400">No finding selected</p>
+            <p className="font-medium text-zinc-600 dark:text-zinc-400">No observation selected</p>
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 max-w-xs">
-              Select any row in the Problems pane above to view details, evidence cards, and patch diffs.
+              Select any row in the Problems pane above to view advisory details, candidate evidence cards, and patch diffs.
             </p>
           </div>
         ) : (
-          <div className="flex flex-col h-full overflow-hidden">
-            {/* Detail Tabs Bar */}
-            <div className="flex-none border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/40">
-              <div className="flex text-xs border-b border-zinc-200 dark:border-zinc-800">
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* Context Header & Detail Tabs */}
+            <div className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex-shrink-0">
+              <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 px-2 pt-1 gap-1">
                 <TabButton
                   active={activeDetailTab === 'remediation'}
                   onClick={() => setActiveDetailTab('remediation')}
-                  icon={<Diff className="w-3.5 h-3.5" />}
-                  label="Remediation & Diff"
+                  icon={<Wrench className="w-3.5 h-3.5" />}
+                  label="Advisory Remediation"
                 />
                 <TabButton
                   active={activeDetailTab === 'evidence'}
                   onClick={() => setActiveDetailTab('evidence')}
                   icon={<BookOpen className="w-3.5 h-3.5" />}
-                  label={`Evidence Cards (${activeClaim.suggestedPapers?.length || 0})`}
+                  label={`Candidate Cards (${activeClaim.suggestedPapers?.length || 0})`}
                 />
                 <TabButton
                   active={activeDetailTab === 'health'}
@@ -304,10 +330,12 @@ export default function ActionInspector() {
                         ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
                         : isAccepted
                         ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                        : isDismissed
+                        ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700'
                         : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700'
                     )}
                   >
-                    {isRetracted ? 'Flagged' : isAccepted ? 'Resolved' : 'Unresolved'}
+                    {isRetracted ? 'Flagged' : isAccepted ? 'Resolved' : isDismissed ? 'Dismissed' : 'Unresolved'}
                   </span>
 
                   <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -321,13 +349,23 @@ export default function ActionInspector() {
                   )}
                 </div>
 
-                <button
-                  onClick={() => dismissClaim(activeClaim.id)}
-                  className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors p-0.5 rounded cursor-pointer"
-                  title="Dismiss finding"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+                {isDismissed ? (
+                  <button
+                    onClick={() => restoreClaim(activeClaim.id)}
+                    className="text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer font-medium"
+                  >
+                    Restore Observation
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => dismissClaim(activeClaim.id)}
+                    className="text-zinc-400 hover:text-rose-500 transition-colors p-0.5 rounded cursor-pointer text-[11px] flex items-center gap-1"
+                    title="Dismiss observation"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Dismiss</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -375,26 +413,43 @@ export default function ActionInspector() {
                         </div>
                       </div>
 
-                      {/* Apply Action Button */}
-                      <div className="p-2.5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40 flex items-center gap-2">
+                      {/* Discretionary 3-Way Action Bar */}
+                      <div className="p-2.5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40 flex items-center justify-between gap-2 flex-wrap">
+                        {/* Action 2: Copy \cite + Bib (if paper exists) */}
+                        {activeClaim.suggestedPapers && activeClaim.suggestedPapers[0] && (
+                          <button
+                            type="button"
+                            onClick={() => copyCitationAndBib(activeClaim.id, activeClaim.suggestedPapers![0])}
+                            className="px-2.5 py-1.5 font-sans text-xs font-medium rounded-md transition-colors bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-300 dark:border-zinc-700 cursor-pointer"
+                            title="Copy \cite{key} & @article block to clipboard"
+                          >
+                            Copy \cite + Bib
+                          </button>
+                        )}
+
+                        {/* Action 3: Dismiss */}
                         <button
+                          type="button"
                           onClick={() => dismissClaim(activeClaim.id)}
-                          className="flex-1 flex items-center justify-center font-sans text-xs font-medium px-3 py-1.5 rounded-md transition-colors bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-300 dark:border-zinc-700 cursor-pointer"
+                          className="px-2.5 py-1.5 font-sans text-xs font-medium rounded-md transition-colors bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-rose-500 border border-zinc-300 dark:border-zinc-700 cursor-pointer ml-auto"
                         >
-                          Reject
+                          Dismiss
                         </button>
+
+                        {/* Action 1: Apply Suggestion */}
                         <button
+                          type="button"
                           onClick={() => applyFix(activeClaim.id)}
-                          className="flex-1 flex items-center justify-center gap-2 font-sans text-xs font-semibold px-3 py-1.5 rounded-md transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs"
+                          className="flex items-center gap-1.5 font-sans text-xs font-semibold px-3 py-1.5 rounded-md transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs"
                         >
                           <Wrench className="w-3.5 h-3.5" />
-                          <span>Accept Fix</span>
+                          <span>Apply Suggestion</span>
                         </button>
                       </div>
                     </div>
                   ) : (
                     <div className="p-4 rounded border border-dashed border-zinc-200 dark:border-zinc-800 text-center text-zinc-400 text-xs">
-                      No automated patch template available. Review evidence cards below.
+                      No automated patch template available. Review candidate cards below.
                     </div>
                   )}
 
@@ -402,7 +457,7 @@ export default function ActionInspector() {
                   {activeClaim.suggestedPapers && activeClaim.suggestedPapers.length > 0 && (
                     <div className="space-y-2">
                       <div className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 flex items-center justify-between">
-                        <span>Discovered Literature Evidence ({activeClaim.suggestedPapers.length})</span>
+                        <span>Candidate Literature References ({activeClaim.suggestedPapers.length})</span>
                       </div>
                       {activeClaim.suggestedPapers.map((paper, pIdx) => (
                         <CandidateCard
@@ -410,6 +465,8 @@ export default function ActionInspector() {
                           paper={paper}
                           onAccept={(selected) => acceptCitation(activeClaim.id, selected)}
                           onInsertAndBib={(selected) => insertCitationAndBib(activeClaim.id, selected)}
+                          onCopy={(selected) => copyCitationAndBib(activeClaim.id, selected)}
+                          onDismiss={() => dismissClaim(activeClaim.id)}
                         />
                       ))}
                     </div>
@@ -427,12 +484,14 @@ export default function ActionInspector() {
                         paper={paper}
                         onAccept={(selected) => acceptCitation(activeClaim.id, selected)}
                         onInsertAndBib={(selected) => insertCitationAndBib(activeClaim.id, selected)}
+                        onCopy={(selected) => copyCitationAndBib(activeClaim.id, selected)}
+                        onDismiss={() => dismissClaim(activeClaim.id)}
                       />
                     ))
                   ) : (
                     <div className="p-8 text-center text-zinc-400 text-xs space-y-1">
                       <BookOpen className="w-6 h-6 mx-auto text-zinc-300 dark:text-zinc-700" />
-                      <p className="font-medium text-zinc-600 dark:text-zinc-400">No candidate papers found</p>
+                      <p className="font-medium text-zinc-600 dark:text-zinc-400">No candidate references found</p>
                       <p className="text-[11px] text-zinc-500">Run audit or configure LLM Router in settings.</p>
                     </div>
                   )}

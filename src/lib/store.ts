@@ -341,9 +341,12 @@ interface ReciteState extends EditorState {
   addSuggestedPapers: (claimId: string, papers: SuggestedPaper[]) => void;
   acceptCitation: (claimId: string, paper: SuggestedPaper) => void;
   insertCitationAndBib: (claimId: string, paper: SuggestedPaper) => void;
+  copyCitationAndBib: (claimId: string, paper: SuggestedPaper) => void;
   undoLastPatch: () => void;
   markAsRetracted: (claimId: string, reason: string) => void;
   dismissClaim: (claimId: string) => void;
+  restoreClaim: (claimId: string) => void;
+  debouncedReindexLines: (texContent: string) => void;
   applyFix: (claimId: string) => Promise<void>;
 
   // ── Global Modals & Notifications Actions ───────────────────────────────
@@ -404,21 +407,23 @@ export interface IssueStatistics {
   mediumCount: number;
   lowCount: number;
   resolvedCount: number;
+  dismissedCount: number;
   unresolvedCount: number;
 }
 
 export function computeStats(claims: Claim[]): Stats {
-  const high = claims.filter((c) => (c.severity?.toLowerCase() === 'high' || c.severity?.toLowerCase() === 'critical' || c.isRetracted)).length;
-  const med = claims.filter((c) => c.severity?.toLowerCase() === 'medium').length;
-  const low = claims.filter((c) => c.severity?.toLowerCase() === 'low').length;
-  const accepted = claims.filter((c) => c.status === 'accepted').length;
+  const active = claims.filter((c) => c.status !== 'dismissed');
+  const high = active.filter((c) => (c.severity?.toLowerCase() === 'high' || c.severity?.toLowerCase() === 'critical' || c.isRetracted)).length;
+  const med = active.filter((c) => c.severity?.toLowerCase() === 'medium').length;
+  const low = active.filter((c) => c.severity?.toLowerCase() === 'low').length;
+  const accepted = active.filter((c) => c.status === 'accepted').length;
 
   return {
-    totalClaims: claims.length,
+    totalClaims: active.length,
     highSeverity: high,
     mediumSeverity: med,
     lowSeverity: low,
-    retractedFound: claims.filter((c) => c.isRetracted).length,
+    retractedFound: active.filter((c) => c.isRetracted).length,
     acceptedCount: accepted,
   };
 }
@@ -430,8 +435,14 @@ export function computeIssueStatistics(claims: Claim[]): IssueStatistics {
   let medium = 0;
   let low = 0;
   let resolved = 0;
+  let dismissed = 0;
 
   for (const c of claims) {
+    if (c.status === 'dismissed') {
+      dismissed++;
+      continue;
+    }
+
     if (getClaimStream(c) === 'integrity') integrity++;
     else discovery++;
 
@@ -443,15 +454,18 @@ export function computeIssueStatistics(claims: Claim[]): IssueStatistics {
     if (c.status === 'accepted') resolved++;
   }
 
+  const activeTotal = integrity + discovery;
+
   return {
-    totalCount: claims.length,
+    totalCount: activeTotal,
     integrityCount: integrity,
     discoveryCount: discovery,
     criticalCount: critical,
     mediumCount: medium,
     lowCount: low,
     resolvedCount: resolved,
-    unresolvedCount: claims.length - resolved,
+    dismissedCount: dismissed,
+    unresolvedCount: activeTotal - resolved,
   };
 }
 
@@ -599,7 +613,11 @@ export const useReciteStore = create<ReciteState>()(
     }
     if (filterCategory !== 'All') filtered = filtered.filter((c) => c.category === filterCategory);
     if (filterSeverity !== 'All') filtered = filtered.filter((c) => c.severity === filterSeverity);
-    if (filterStatus !== 'All') filtered = filtered.filter((c) => c.status === filterStatus);
+    if (filterStatus === 'All') {
+      filtered = filtered.filter((c) => c.status !== 'dismissed');
+    } else {
+      filtered = filtered.filter((c) => c.status === filterStatus);
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter((c) => c.text.toLowerCase().includes(q) || c.category.toLowerCase().includes(q));
@@ -633,6 +651,23 @@ export const useReciteStore = create<ReciteState>()(
     set({ claims: updatedClaims, stats: computeStats(updatedClaims) });
     get().applyFilters();
   },
+  copyCitationAndBib: (claimId, paper) => {
+    const { LatexSanitizer } = require('@/lib/latex-sanitizer');
+    const rawKey = paper.bibtexKey ||
+      (paper.authors?.[0]?.toLowerCase()?.replace(/[^a-z0-9]/g, '') || 'ref') +
+      (paper.year || '2024');
+    const bibKey = rawKey.replace(/[^a-zA-Z0-9_\-:]/g, '');
+    const bibEntry = LatexSanitizer.formatSanitizedBibtex({ ...paper, bibtexKey: bibKey });
+    const clipText = `% In-text LaTeX Citation:\n\\cite{${bibKey}}\n\n% BibTeX Entry:\n${bibEntry}`;
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(clipText).then(() => {
+        get().addToast(`Copied \\cite{${bibKey}} and BibTeX entry to clipboard.`, 'success');
+      }).catch(() => {
+        get().addToast(`Failed to copy to clipboard`, 'error');
+      });
+    }
+  },
   insertCitationAndBib: (claimId, paper) => {
     const { claims, rawText, parsedText, bibtexContent, workspace, addToast } = get();
     const claim = claims.find((c) => c.id === claimId);
@@ -661,7 +696,7 @@ export const useReciteStore = create<ReciteState>()(
     );
 
     // Auto-advance to the next unresolved finding
-    const nextUnresolvedIdx = updatedClaims.findIndex((c) => c.status !== 'accepted');
+    const nextUnresolvedIdx = updatedClaims.findIndex((c) => c.status === 'pending');
     const nextIndex = nextUnresolvedIdx !== -1 ? nextUnresolvedIdx : 0;
 
     set({
@@ -676,6 +711,7 @@ export const useReciteStore = create<ReciteState>()(
     });
 
     get().applyFilters();
+    get().debouncedReindexLines(updatedTex);
 
     // 4. Synchronize useAuditStore
     if (typeof window !== 'undefined') {
@@ -702,9 +738,40 @@ export const useReciteStore = create<ReciteState>()(
     get().applyFilters();
   },
   dismissClaim: (claimId) => {
-    const updatedClaims = get().claims.filter((c) => c.id !== claimId);
+    const updatedClaims = get().claims.map((c) => c.id === claimId ? { ...c, status: 'dismissed' as const } : c);
     set({ claims: updatedClaims, stats: computeStats(updatedClaims) });
     get().applyFilters();
+
+    if (typeof window !== 'undefined') {
+      try {
+        const { useAuditStore } = require('@/store/useAuditStore');
+        useAuditStore.getState().dismissFinding(claimId);
+      } catch {}
+    }
+    get().addToast('Observation dismissed from active list.', 'info');
+  },
+  restoreClaim: (claimId) => {
+    const updatedClaims = get().claims.map((c) => c.id === claimId ? { ...c, status: 'pending' as const } : c);
+    set({ claims: updatedClaims, stats: computeStats(updatedClaims) });
+    get().applyFilters();
+
+    if (typeof window !== 'undefined') {
+      try {
+        const { useAuditStore } = require('@/store/useAuditStore');
+        useAuditStore.getState().restoreFinding(claimId);
+      } catch {}
+    }
+    get().addToast('Observation restored to active list.', 'success');
+  },
+  debouncedReindexLines: (texContent: string) => {
+    if (!texContent) return;
+    const lines = texContent.split('\n');
+    const updated = get().claims.map((c) => {
+      const target = c.text.slice(0, 35);
+      const idx = lines.findIndex((l) => l.includes(target));
+      return idx !== -1 ? { ...c, lineIndex: idx + 1 } : c;
+    });
+    set({ claims: updated });
   },
 
   applyFix: async (claimId) => {

@@ -321,43 +321,81 @@ export const AuditInspector: React.FC = () => {
                 <div className="space-y-1.5 min-w-0">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider">
-                      Suggested Remediation
+                      Advisory Remediation
                     </span>
                     {selectedFinding.status !== 'resolved' ? (
-                      <button
-                        onClick={() => {
-                          if (typeof window !== 'undefined') {
-                            const { useReciteStore } = require('@/lib/store');
-                            const reciteStore = useReciteStore.getState();
-                            if (selectedFinding.suggestedPatch) {
-                              const { AtomicPatchEngine } = require('@/services/atomic-patch-engine');
-                              const { updatedTex } = AtomicPatchEngine.applyPatchToManuscript(
-                                reciteStore.rawText || reciteStore.parsedText || '',
-                                reciteStore.bibtexContent,
-                                selectedFinding.suggestedPatch.diffRemove,
-                                selectedFinding.suggestedPatch.diffAdd,
-                                selectedFinding.id
-                              );
-                              reciteStore.setRawText(updatedTex);
-                              reciteStore.setParsedText(updatedTex);
-                              AtomicPatchEngine.persistToDisk(
-                                reciteStore.workspace.fileName || 'main.tex',
-                                updatedTex,
-                                reciteStore.workspace.bibPath || 'references.bib',
-                                reciteStore.bibtexContent
-                              );
-                              reciteStore.addToast('Remediation patch applied to manuscript.', 'success');
+                      <div className="flex items-center gap-1.5">
+                        {/* Action 2: Copy \cite + Bib */}
+                        {selectedFinding.verifiedSources && selectedFinding.verifiedSources[0] && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const { copyCitationAndBib } = useAuditStore.getState();
+                              copyCitationAndBib(selectedFinding.id, selectedFinding.verifiedSources![0]);
+                            }}
+                            className="flex items-center gap-1 px-2 py-0.5 bg-[#21262D] hover:bg-[#30363D] text-neutral-300 rounded font-mono text-[10px] font-medium transition-colors cursor-pointer"
+                            title="Copy \cite{key} and BibTeX block"
+                          >
+                            Copy \cite + Bib
+                          </button>
+                        )}
+
+                        {/* Action 3: Dismiss */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const { dismissFinding } = useAuditStore.getState();
+                            dismissFinding(selectedFinding.id);
+                            if (typeof window !== 'undefined') {
+                              const { useReciteStore } = require('@/lib/store');
+                              useReciteStore.getState().dismissClaim(selectedFinding.id);
                             }
-                            resolveFinding(selectedFinding.id);
-                          }
-                        }}
-                        className="flex items-center gap-1 px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-mono text-[10px] font-semibold transition-colors cursor-pointer shrink-0"
-                      >
-                        <Check className="w-3 h-3" /> Apply Patch
-                      </button>
+                          }}
+                          className="px-2 py-0.5 bg-[#21262D] hover:bg-rose-950/40 text-neutral-400 hover:text-rose-400 rounded font-mono text-[10px] transition-colors cursor-pointer"
+                          title="Silence and ignore observation"
+                        >
+                          Dismiss
+                        </button>
+
+                        {/* Action 1: Apply Suggestion */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (typeof window !== 'undefined') {
+                              const { useReciteStore } = require('@/lib/store');
+                              const reciteStore = useReciteStore.getState();
+                              if (selectedFinding.suggestedPatch) {
+                                const { AtomicPatchEngine } = require('@/services/atomic-patch-engine');
+                                const { updatedTex } = AtomicPatchEngine.applyPatchToManuscript(
+                                  reciteStore.rawText || reciteStore.parsedText || '',
+                                  reciteStore.bibtexContent,
+                                  selectedFinding.suggestedPatch.diffRemove,
+                                  selectedFinding.suggestedPatch.diffAdd,
+                                  selectedFinding.id
+                                );
+                                reciteStore.setRawText(updatedTex);
+                                reciteStore.setParsedText(updatedTex);
+                                reciteStore.debouncedReindexLines(updatedTex);
+                                AtomicPatchEngine.persistToDisk(
+                                  reciteStore.workspace.fileName || 'main.tex',
+                                  updatedTex,
+                                  reciteStore.workspace.bibPath || 'references.bib',
+                                  reciteStore.bibtexContent
+                                );
+                                reciteStore.addToast('Remediation suggestion applied to manuscript.', 'success');
+                              }
+                              resolveFinding(selectedFinding.id);
+                            }
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-mono text-[10px] font-semibold transition-colors cursor-pointer shrink-0"
+                          title="Apply suggestion to active buffer"
+                        >
+                          <Check className="w-3 h-3" /> Apply Suggestion
+                        </button>
+                      </div>
                     ) : (
                       <span className="flex items-center gap-1 text-emerald-400 font-mono text-[10px] font-semibold shrink-0">
-                        <Check className="w-3 h-3" /> Patch Resolved
+                        <Check className="w-3 h-3" /> Suggestion Applied
                       </span>
                     )}
                   </div>

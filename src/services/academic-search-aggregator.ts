@@ -8,24 +8,32 @@
 
 import { VerifiedLiteratureSource } from '@/types/audit';
 import { SuggestedPaper } from '@/lib/store';
+import { LatexSanitizer } from '@/lib/latex-sanitizer';
 
 // ── In-Memory Session Cache ───────────────────────────────────────────────────
 const searchCache = new Map<string, VerifiedLiteratureSource[]>();
 
-// ── Concurrency Limiter ───────────────────────────────────────────────────────
+// ── Concurrency Limiter with Polite 3-Request Throttle & 429 Backoff ─────────
 class ConcurrencyLimiter {
   private active = 0;
   private queue: (() => void)[] = [];
 
-  constructor(private maxConcurrent: number) {}
+  constructor(private maxConcurrent = 3) {}
 
-  async run<T>(fn: () => Promise<T>): Promise<T> {
+  async run<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
     if (this.active >= this.maxConcurrent) {
       await new Promise<void>((resolve) => this.queue.push(resolve));
     }
     this.active++;
     try {
       return await fn();
+    } catch (err: any) {
+      if (retries > 0 && (err?.status === 429 || err?.message?.includes('429'))) {
+        const backoffMs = 500 * Math.pow(2, 3 - retries);
+        await new Promise((r) => setTimeout(r, backoffMs));
+        return this.run(fn, retries - 1);
+      }
+      throw err;
     } finally {
       this.active--;
       const next = this.queue.shift();
@@ -158,16 +166,14 @@ export function constructBibtexEntry(
   venue?: string,
   doi?: string
 ): string {
-  const authorString = authors.length > 0 ? authors.join(' and ') : 'Anonymous';
-  const journalString = venue || 'Physical Review Letters';
-  const doiLine = doi ? `,\n  doi = {${doi}}` : '';
-
-  return `@article{${bibKey},
-  title = {${title.replace(/[{}]/g, '')}},
-  author = {${authorString}},
-  journal = {${journalString}},
-  year = {${year}}${doiLine}
-}`;
+  return LatexSanitizer.formatSanitizedBibtex({
+    title,
+    authors,
+    year,
+    venue,
+    doi,
+    bibtexKey: bibKey,
+  });
 }
 
 // ── OpenAlex API Query ────────────────────────────────────────────────────────
