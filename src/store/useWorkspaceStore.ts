@@ -31,6 +31,8 @@ interface WorkspaceState {
 
   // Native Disk Actions
   mountLocalProject: () => Promise<void>;
+  mountPathDirect: (dirPath: string, targetActiveFile?: string) => Promise<boolean>;
+  autoRestoreSession: () => Promise<boolean>;
   resetWorkspace: () => void;
   saveFileWithLock: (filePath: string, content: string) => Promise<boolean>;
   appendBibtex: (bibtexString: string) => Promise<void>;
@@ -49,49 +51,38 @@ interface WorkspaceState {
   injectCitationIntoTex: (fileId: string, charOffset: number, citeKey: string) => Promise<void> | void;
 }
 
+const LAST_WORKSPACE_KEY = 'recite_last_workspace_path';
+const LAST_ACTIVE_FILE_KEY = 'recite_last_active_file';
+
 let isInternalWrite = false; // Flag to prevent auto-save from triggering the watcher
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
-  workspacePath: '~/research/quantum-spin-liquid',
-  activeTexPath: 'main.tex',
-  bibPath: 'references.bib',
-  activeTexContent: DEMO_MANUSCRIPT,
+  workspacePath: null,
+  activeTexPath: null,
+  bibPath: null,
+  activeTexContent: null,
   fileTree: {},
-  activeFileId: 'main.tex',
-  openTabs: ['main.tex', 'references.bib'],
+  activeFileId: null,
+  openTabs: [],
   isLoading: false,
   files: {
     'root': {
       id: 'root',
-      name: 'quantum-spin-liquid',
+      name: 'root',
       type: 'folder',
       parentId: null,
       content: '',
       isOpen: true,
     },
-    'main.tex': {
-      id: 'main.tex',
-      name: 'main.tex',
-      type: 'file',
-      parentId: 'root',
-      content: DEMO_MANUSCRIPT,
-      format: 'latex',
-      isOpen: false,
-      path: 'main.tex',
-    },
-    'references.bib': {
-      id: 'references.bib',
-      name: 'references.bib',
-      type: 'file',
-      parentId: 'root',
-      content: DEMO_BIBTEX,
-      format: 'bibtex' as any,
-      isOpen: false,
-      path: 'references.bib',
-    },
   },
 
   resetWorkspace: () => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.removeItem(LAST_WORKSPACE_KEY);
+        localStorage.removeItem(LAST_ACTIVE_FILE_KEY);
+      } catch {}
+    }
     set({
       workspacePath: null,
       activeTexPath: null,
@@ -99,6 +90,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       activeTexContent: null,
       fileTree: {},
       activeFileId: null,
+      openTabs: [],
       files: {
         'root': {
           id: 'root',
@@ -118,6 +110,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         useEditorStore.getState().setActiveFileId(null);
         useReciteStore.getState().setRawText('');
         useReciteStore.getState().setParsedText('');
+        useReciteStore.getState().unmountWorkspace();
       } catch (e) {
         console.warn('[WorkspaceStore] Failed to reset editor:', e);
       }
@@ -131,6 +124,209 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       isInternalWrite = false;
     }, 500); // Release lock after physical write
     return success;
+  },
+
+  mountPathDirect: async (dirPath: string, targetActiveFile?: string): Promise<boolean> => {
+    if (!dirPath) return false;
+    set({ isLoading: true });
+
+    try {
+      const diskFiles = await loadProjectFiles(dirPath);
+      const fileCount = Object.keys(diskFiles).length;
+      if (fileCount === 0) {
+        console.warn(`[WorkspaceStore] No files loaded from directory: ${dirPath}`);
+        set({ isLoading: false });
+        return false;
+      }
+
+      const dirName = dirPath.split(/[/\\]/).pop() || 'Project';
+      const virtualFiles: Record<string, VirtualFile> = {
+        root: {
+          id: 'root',
+          name: dirName,
+          type: 'folder',
+          parentId: null,
+          content: '',
+          isOpen: true,
+        },
+      };
+
+      let firstTexPath: string | null = null;
+      let firstBibPath: string | null = null;
+
+      Object.values(diskFiles).forEach((f) => {
+        const format: DocumentFormat = f.name.endsWith('.bib')
+          ? 'bibtex' as any
+          : f.name.endsWith('.md')
+          ? 'markdown'
+          : 'latex';
+
+        if (!firstTexPath && f.name.endsWith('.tex')) {
+          firstTexPath = f.path;
+        }
+        if (!firstBibPath && f.name.endsWith('.bib')) {
+          firstBibPath = f.path;
+        }
+
+        virtualFiles[f.path] = {
+          id: f.path,
+          name: f.name,
+          type: 'file',
+          parentId: 'root',
+          content: f.content,
+          format,
+          isOpen: false,
+          path: f.path,
+        };
+      });
+
+      const activeId = targetActiveFile && diskFiles[targetActiveFile]
+        ? targetActiveFile
+        : firstTexPath || Object.keys(diskFiles)[0] || null;
+      const activeContent = (activeId && diskFiles[activeId]) ? diskFiles[activeId].content : '';
+      const bibContent = (firstBibPath && diskFiles[firstBibPath]) ? diskFiles[firstBibPath].content : '';
+
+      set({
+        workspacePath: dirPath,
+        activeTexPath: firstTexPath,
+        bibPath: firstBibPath,
+        activeTexContent: activeContent,
+        fileTree: diskFiles,
+        files: virtualFiles,
+        activeFileId: activeId,
+        openTabs: activeId ? [activeId] : [],
+        isLoading: false,
+      });
+
+      // Save to persistence
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          localStorage.setItem(LAST_WORKSPACE_KEY, dirPath);
+          if (activeId) localStorage.setItem(LAST_ACTIVE_FILE_KEY, activeId);
+        } catch {}
+      }
+
+      // Sync with useReciteStore and useEditorStore
+      if (typeof window !== 'undefined') {
+        try {
+          const { useEditorStore } = require('@/store/useEditorStore');
+          const { useReciteStore } = require('@/lib/store');
+          const reciteStore = useReciteStore.getState();
+
+          useEditorStore.getState().updateContent(activeContent);
+          useEditorStore.getState().setActiveFileId(activeId ? diskFiles[activeId]?.name : null);
+
+          reciteStore.mountDirectoryWorkspace(dirName, diskFiles);
+          reciteStore.setRawText(activeContent);
+          reciteStore.setParsedText(activeContent);
+          if (firstBibPath) {
+            const bibFileName = String(firstBibPath).split(/[/\\]/).pop() || 'references.bib';
+            reciteStore.mountBibTex(bibFileName, bibContent);
+          }
+        } catch (e) {
+          console.warn('[WorkspaceStore] Failed to sync mounted directory to stores:', e);
+        }
+      }
+
+      // Hydrate from .recite/audit-cache.json
+      try {
+        const { readAuditCache } = require('@/services/cache-manager');
+        const cacheResult = await readAuditCache(dirPath, activeContent);
+
+        if (cacheResult && cacheResult.hit && cacheResult.findings.length > 0) {
+          if (typeof window !== 'undefined') {
+            const { useAuditStore } = require('@/store/useAuditStore');
+            const { useReciteStore } = require('@/lib/store');
+            const { useEditorStore } = require('@/store/useEditorStore');
+
+            useAuditStore.getState().setFindings(cacheResult.findings);
+            useReciteStore.getState().setClaims(cacheResult.claims);
+            useReciteStore.getState().setCacheStatus({
+              isRestored: true,
+              isFresh: cacheResult.isFresh,
+              timestamp: cacheResult.timestamp,
+            });
+
+            useEditorStore.getState().setFindings(cacheResult.claims.map((c: any) => ({
+              id: c.id,
+              line: c.lineIndex || 1,
+              index: c.startIndex,
+              length: (c.endIndex || c.startIndex) - c.startIndex,
+              fileId: c.fileId,
+              key: c.category,
+              type: c.auditType || c.category,
+              severity: c.severity,
+              status: c.status === 'accepted' ? 'Resolved' : 'Unresolved',
+              context: c.context,
+              claim: c.text,
+              searchQuery: c.searchQuery,
+              suggestedFix: c.suggestedFix,
+              verifiedSources: c.suggestedPapers,
+            })));
+
+            if (cacheResult.isFresh) {
+              useReciteStore.getState().addToast('Restored audit findings from local cache (.recite/audit-cache.json)', 'info');
+            }
+          }
+        }
+      } catch (cacheErr) {
+        console.warn('[WorkspaceStore] Failed to read audit cache:', cacheErr);
+      }
+
+      // Initialize live directory watcher for external edits
+      await watchWorkspace(dirPath, async (modifiedFilePath) => {
+        if (isInternalWrite) return;
+
+        console.log(`[Workspace] External modification detected: ${modifiedFilePath}`);
+        const updatedFiles = await loadProjectFiles(dirPath);
+        const normalizedModified = modifiedFilePath.replace(/\\/g, '/');
+        const matchedFile = updatedFiles[normalizedModified] || 
+          Object.values(updatedFiles).find(f => f.path === normalizedModified || f.name === normalizedModified.split('/').pop());
+
+        if (matchedFile) {
+          set((state) => ({
+            fileTree: {
+              ...state.fileTree,
+              [matchedFile.path]: matchedFile,
+            },
+            files: {
+              ...state.files,
+              [matchedFile.path]: {
+                ...(state.files[matchedFile.path] || {
+                  id: matchedFile.path,
+                  name: matchedFile.name,
+                  type: 'file',
+                  parentId: 'root',
+                  isOpen: false,
+                }),
+                content: matchedFile.content,
+              },
+            },
+          }));
+        }
+      });
+
+      return true;
+    } catch (err) {
+      console.error('[WorkspaceStore] Failed to mount directory:', err);
+      set({ isLoading: false });
+      return false;
+    }
+  },
+
+  autoRestoreSession: async (): Promise<boolean> => {
+    if (typeof window === 'undefined' || !window.localStorage) return false;
+    try {
+      const savedPath = localStorage.getItem(LAST_WORKSPACE_KEY);
+      const savedActiveFile = localStorage.getItem(LAST_ACTIVE_FILE_KEY);
+      if (!savedPath || savedPath.startsWith('~')) {
+        return false;
+      }
+      return await get().mountPathDirect(savedPath, savedActiveFile || undefined);
+    } catch (err) {
+      console.warn('[WorkspaceStore] Auto restore session failed:', err);
+      return false;
+    }
   },
 
   mountLocalProject: async () => {
@@ -148,198 +344,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       console.error('[WorkspaceStore] Error selecting directory:', error);
     }
     
-    if (!dirPath) {
-      // Fallback: reload/mount demo project if not in desktop mode or user cancelled
-      set({
-        workspacePath: '~/research/quantum-spin-liquid',
-        activeTexPath: 'main.tex',
-        bibPath: 'references.bib',
-        activeTexContent: DEMO_MANUSCRIPT,
-        activeFileId: 'main.tex',
-        files: {
-          'root': {
-            id: 'root',
-            name: 'quantum-spin-liquid',
-            type: 'folder',
-            parentId: null,
-            content: '',
-            isOpen: true,
-          },
-          'main.tex': {
-            id: 'main.tex',
-            name: 'main.tex',
-            type: 'file',
-            parentId: 'root',
-            content: DEMO_MANUSCRIPT,
-            format: 'latex',
-            isOpen: false,
-            path: 'main.tex',
-          },
-          'references.bib': {
-            id: 'references.bib',
-            name: 'references.bib',
-            type: 'file',
-            parentId: 'root',
-            content: DEMO_BIBTEX,
-            format: 'bibtex' as any,
-            isOpen: false,
-            path: 'references.bib',
-          },
-        },
-      });
-      return;
+    if (dirPath) {
+      await get().mountPathDirect(dirPath);
     }
-
-    const diskFiles = await loadProjectFiles(dirPath);
-    const virtualFiles: Record<string, VirtualFile> = {
-      root: {
-        id: 'root',
-        name: dirPath.split(/[/\\]/).pop() || 'Project',
-        type: 'folder',
-        parentId: null,
-        content: '',
-        isOpen: true,
-      },
-    };
-
-    let firstTexPath: string | null = null;
-    let firstBibPath: string | null = null;
-
-    Object.values(diskFiles).forEach((f) => {
-      const format: DocumentFormat = f.name.endsWith('.bib')
-        ? 'bibtex' as any
-        : f.name.endsWith('.md')
-        ? 'markdown'
-        : 'latex';
-
-      if (!firstTexPath && f.name.endsWith('.tex')) {
-        firstTexPath = f.path;
-      }
-      if (!firstBibPath && f.name.endsWith('.bib')) {
-        firstBibPath = f.path;
-      }
-
-      virtualFiles[f.path] = {
-        id: f.path,
-        name: f.name,
-        type: 'file',
-        parentId: 'root',
-        content: f.content,
-        format,
-        isOpen: false,
-        path: f.path,
-      };
-    });
-
-    const activeId = firstTexPath || Object.keys(diskFiles)[0] || null;
-    const activeContent = (activeId && diskFiles[activeId]) ? diskFiles[activeId].content : '';
-
-    set({
-      workspacePath: dirPath,
-      activeTexPath: firstTexPath,
-      bibPath: firstBibPath,
-      activeTexContent: activeContent,
-      fileTree: diskFiles,
-      files: virtualFiles,
-      activeFileId: activeId,
-    });
-
-    // If an active .tex file was mounted, load it into the editor
-    if (activeId && diskFiles[activeId]) {
-      if (typeof window !== 'undefined') {
-        try {
-          const { useEditorStore } = require('@/store/useEditorStore');
-          const { useReciteStore } = require('@/lib/store');
-          useEditorStore.getState().updateContent(diskFiles[activeId].content);
-          useEditorStore.getState().setActiveFileId(diskFiles[activeId].name);
-          useReciteStore.getState().setRawText(diskFiles[activeId].content);
-          useReciteStore.getState().setParsedText(diskFiles[activeId].content);
-        } catch (e) {
-          console.warn('[WorkspaceStore] Failed to sync mounted file to editor:', e);
-        }
-      }
-    }
-
-    // Load findings from frozen cache to prevent findings from shifting across sessions
-    try {
-      const { readReciteCache } = require('@/services/cache-manager');
-      const cachedFindings = await readReciteCache(dirPath);
-      if (cachedFindings && cachedFindings.length > 0) {
-        if (typeof window !== 'undefined') {
-          const { useEditorStore } = require('@/store/useEditorStore');
-          const { useReciteStore } = require('@/lib/store');
-          useEditorStore.getState().setFindings(cachedFindings);
-
-          const mappedClaims = cachedFindings.map((f: any) => ({
-            id: f.id,
-            text: f.claim,
-            category: 'Literature Claim',
-            severity: f.severity,
-            status: f.resolved ? 'accepted' : 'pending',
-            lineIndex: f.line,
-            startIndex: f.index,
-            endIndex: f.index + (f.length || 0),
-            fileId: f.fileId,
-            context: f.claim,
-            auditType: f.type,
-            searchQuery: f.claim,
-          }));
-          useReciteStore.getState().setClaims(mappedClaims);
-        }
-      }
-    } catch (cacheErr) {
-      console.warn('[WorkspaceStore] Failed to load frozen cache:', cacheErr);
-    }
-
-    // Initialize the file watcher for external edits
-    await watchWorkspace(dirPath, async (modifiedFilePath) => {
-      if (isInternalWrite) return; // Ignore our own CodeMirror saves
-
-      console.log(`[Workspace] External modification detected: ${modifiedFilePath}`);
-      const updatedFiles = await loadProjectFiles(dirPath);
-      const normalizedModified = modifiedFilePath.replace(/\\/g, '/');
-      const matchedFile = updatedFiles[normalizedModified] || 
-        Object.values(updatedFiles).find(f => f.path === normalizedModified || f.name === normalizedModified.split('/').pop());
-
-      if (matchedFile) {
-        set((state) => ({
-          fileTree: {
-            ...state.fileTree,
-            [matchedFile.path]: matchedFile,
-          },
-          files: {
-            ...state.files,
-            [matchedFile.path]: {
-              ...(state.files[matchedFile.path] || {
-                id: matchedFile.path,
-                name: matchedFile.name,
-                type: 'file',
-                parentId: 'root',
-                isOpen: false,
-              }),
-              content: matchedFile.content,
-              path: matchedFile.path,
-            },
-          },
-        }));
-
-        const currentActiveFileId = get().activeFileId;
-        if (currentActiveFileId === matchedFile.path || currentActiveFileId === matchedFile.name) {
-          if (typeof window !== 'undefined') {
-            try {
-              const { useEditorStore } = require('@/store/useEditorStore');
-              const { useReciteStore } = require('@/lib/store');
-              useEditorStore.getState().updateContent(matchedFile.content);
-              useEditorStore.getState().invalidateCache();
-              useReciteStore.getState().setRawText(matchedFile.content);
-              useReciteStore.getState().setParsedText(matchedFile.content);
-            } catch (e) {
-              console.warn('[WorkspaceStore] Hot-reload editor sync error:', e);
-            }
-          }
-        }
-      }
-    });
   },
 
   createFile: (name, type, parentId, format) => {

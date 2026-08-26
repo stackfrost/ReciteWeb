@@ -266,8 +266,10 @@ interface ReciteState extends EditorState {
   softWrap: boolean;
   activeLineHighlight: number | null;
 
-  // ── Audit Progress ─────────────────────────────────────────────────────
+  // ── Audit Progress & Local Cache ───────────────────────────────────────
   auditProgress: string | null;
+  cacheStatus: { isRestored: boolean; isFresh: boolean; timestamp?: string } | null;
+  setCacheStatus: (status: { isRestored: boolean; isFresh: boolean; timestamp?: string } | null) => void;
 
   // ── Security ──────────────────────────────────────────────────────────────
   /** True once the Stronghold vault has been unlocked for this session. */
@@ -375,7 +377,7 @@ interface ReciteState extends EditorState {
   reset: () => void;
   
   // ── Async Actions ─────────────────────────────────────────────────────────
-  runAudit: () => Promise<void>;
+  runAudit: (forceBypassCache?: boolean) => Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -512,6 +514,7 @@ const initialState = {
   activeLineHighlight: null as number | null,
   isVaultUnlocked: false,
   auditProgress: null as string | null,
+  cacheStatus: null as { isRestored: boolean; isFresh: boolean; timestamp?: string } | null,
   stats: { totalClaims: 0, highSeverity: 0, mediumSeverity: 0, lowSeverity: 0, retractedFound: 0, acceptedCount: 0 },
   license: {
     key: null,
@@ -1026,9 +1029,10 @@ export const useReciteStore = create<ReciteState>()(
   reset: () => set(initialState),
 
   setAuditProgress: (msg) => set({ auditProgress: msg }),
+  setCacheStatus: (status) => set({ cacheStatus: status }),
 
-  runAudit: async () => {
-    const { rawText, mathBlocks, bibtexContent, setWorkspaceStatus, setIsAuditing, setClaims, setTelemetry, addToast, setAuditProgress } = get();
+  runAudit: async (forceBypassCache = false) => {
+    const { rawText, mathBlocks, bibtexContent, workspace, setWorkspaceStatus, setIsAuditing, setClaims, setTelemetry, addToast, setAuditProgress, setCacheStatus } = get();
     
     const textToAudit = rawText || '';
     if (!textToAudit.trim()) {
@@ -1038,11 +1042,63 @@ export const useReciteStore = create<ReciteState>()(
 
     setWorkspaceStatus('PREFLIGHT_RUNNING');
     setIsAuditing(true);
-    setAuditProgress('Parsing LaTeX AST & Checking Local BibTeX...');
 
     try {
       const { ClaimExtractionOrchestrator } = await import('@/services/claim-extraction-orchestrator');
       const { useAuditStore } = await import('@/store/useAuditStore');
+      const { readAuditCache, writeAuditCache } = await import('@/services/cache-manager');
+
+      // Convert MathBlocks Map to string Map for rehydration
+      const tokenMap = new Map<string, string>();
+      mathBlocks.forEach((block, key) => tokenMap.set(key, block.content));
+
+      const activeWorkspacePath = workspace.fileName || '';
+
+      // Check local cache if not forcing bypass
+      if (!forceBypassCache && activeWorkspacePath) {
+        setAuditProgress('Checking local .recite/audit-cache.json...');
+        const cached = await readAuditCache(activeWorkspacePath, textToAudit);
+        if (cached.hit && cached.isFresh && cached.findings.length > 0) {
+          const rehydratedClaims = cached.claims.map((c) => ({
+            ...c,
+            text: rehydrateQuarantinedMath(c.text, tokenMap),
+            suggestedFix: c.suggestedFix ? rehydrateQuarantinedMath(c.suggestedFix, tokenMap) : undefined,
+          }));
+
+          setClaims(rehydratedClaims);
+          useAuditStore.getState().setFindings(cached.findings);
+          setCacheStatus({ isRestored: true, isFresh: true, timestamp: cached.timestamp });
+
+          // Synchronize findings to useEditorStore
+          if (typeof window !== 'undefined') {
+            try {
+              const { useEditorStore } = require('@/store/useEditorStore');
+              useEditorStore.getState().setFindings(rehydratedClaims.map((c) => ({
+                id: c.id,
+                line: c.lineIndex || 1,
+                index: c.startIndex,
+                length: c.endIndex - c.startIndex,
+                fileId: c.fileId,
+                key: c.category,
+                type: c.auditType || c.category,
+                severity: c.severity,
+                status: c.status === 'accepted' ? 'Resolved' : 'Unresolved',
+                context: c.context,
+                claim: c.text,
+                searchQuery: c.searchQuery,
+                suggestedFix: c.suggestedFix,
+                verifiedSources: c.suggestedPapers,
+              })));
+            } catch {}
+          }
+
+          setWorkspaceStatus('AST_PARSER_IDLE');
+          addToast(`Audit state restored from cache (${cached.findings.length} findings, 0 API calls).`, 'success');
+          return;
+        }
+      }
+
+      setAuditProgress('Parsing LaTeX AST & Checking Local BibTeX...');
 
       const result = await ClaimExtractionOrchestrator.runFullDiscoveryPipeline(
         textToAudit,
@@ -1052,10 +1108,6 @@ export const useReciteStore = create<ReciteState>()(
 
       // Update API latency telemetry
       setTelemetry({ apiLatencyMs: result.latencyMs });
-
-      // Convert MathBlocks Map to string Map for rehydration
-      const tokenMap = new Map<string, string>();
-      mathBlocks.forEach((block, key) => tokenMap.set(key, block.content));
 
       const finalClaims = result.reciteClaims.map((c) => ({
         ...c,
@@ -1092,6 +1144,18 @@ export const useReciteStore = create<ReciteState>()(
         } catch {
           // Ignore sync errors
         }
+      }
+
+      // Write deterministic audit cache to disk
+      if (activeWorkspacePath) {
+        await writeAuditCache(
+          activeWorkspacePath,
+          workspace.activeFilePath || 'main.tex',
+          textToAudit,
+          result.allFindings,
+          finalClaims
+        );
+        setCacheStatus({ isRestored: false, isFresh: true, timestamp: new Date().toISOString() });
       }
 
       setWorkspaceStatus('AST_PARSER_IDLE');

@@ -110,9 +110,31 @@ export async function saveFileToDisk(filePath: string, content: string): Promise
 // 4. Safely read text file from disk without throwing
 export async function readTextFileSafely(filePath: string): Promise<string | null> {
   try {
+    const { readTextFile } = await import('@tauri-apps/plugin-fs');
     return await readTextFile(filePath);
   } catch (error) {
     return null;
+  }
+}
+
+// 5. Ensure directory exists
+export async function createDirSafely(dirPath: string): Promise<boolean> {
+  try {
+    const { mkdir } = await import('@tauri-apps/plugin-fs');
+    await mkdir(dirPath, { recursive: true });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+// 6. Check if file exists
+export async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const { exists } = await import('@tauri-apps/plugin-fs');
+    return await exists(filePath);
+  } catch {
+    return false;
   }
 }
 

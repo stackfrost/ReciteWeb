@@ -125,35 +125,56 @@ export default function Toolbar() {
 
       {/* ── LEFT SECTION: Primary Action & Document I/O ─────────────────────── */}
       <div className="flex items-center gap-2 min-w-0 shrink">
-        {/* Primary Run Audit Button */}
-        <button
-          id="btn-analyze-document"
-          onClick={runAudit}
-          disabled={!isMounted || isAuditing}
-          className={cn(
-            'shrink-0 flex items-center gap-1.5 font-sans text-xs font-semibold px-3 py-1.5 rounded-md transition-colors duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 shadow-xs',
-            !isMounted
-              ? 'bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 border border-zinc-200 dark:border-zinc-800 cursor-not-allowed'
-              : isAuditing
-              ? 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 border border-yellow-500/30'
-              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-          )}
-        >
-          {isAuditing ? (
-            <>
-              <RotateCcw size={12} className="animate-spin text-yellow-500 shrink-0" />
-              <span>Auditing...</span>
-            </>
-          ) : (
-            <>
-              <Play size={11} fill="currentColor" className="shrink-0" />
-              <span>Run Audit</span>
-              <kbd className="hidden xl:inline px-1 py-0.2 text-[9px] font-mono bg-black/20 text-white/90 rounded">
-                Ctrl+↵
-              </kbd>
-            </>
-          )}
-        </button>
+        {/* Run Audit Main Button Group */}
+        <div className="inline-flex items-center rounded-md shadow-xs">
+          <button
+            id="btn-analyze-document"
+            onClick={() => runAudit(false)}
+            disabled={!isMounted || isAuditing}
+            className={cn(
+              'shrink-0 flex items-center gap-1.5 font-sans text-xs font-semibold px-3 py-1.5 rounded-l-md transition-colors duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50',
+              !isMounted
+                ? 'bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 border border-zinc-200 dark:border-zinc-800 cursor-not-allowed'
+                : isAuditing
+                ? 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 border border-yellow-500/30'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+            )}
+            title={isMounted ? 'Run Audit (Uses local .recite cache if fresh, Ctrl+Enter)' : 'Open a workspace first'}
+          >
+            {isAuditing ? (
+              <>
+                <RotateCcw size={12} className="animate-spin text-yellow-500 shrink-0" />
+                <span>Auditing...</span>
+              </>
+            ) : (
+              <>
+                <Play size={11} fill="currentColor" className="shrink-0" />
+                <span>Run Audit</span>
+                <kbd className="hidden xl:inline px-1 py-0.2 text-[9px] font-mono bg-black/20 text-white/90 rounded">
+                  Ctrl+↵
+                </kbd>
+              </>
+            )}
+          </button>
+
+          {/* Secondary Action: Force Re-Audit (Bypass Cache) */}
+          <button
+            onClick={() => runAudit(true)}
+            disabled={!isMounted || isAuditing}
+            className={cn(
+              'shrink-0 px-2 py-1.5 rounded-r-md border-l border-emerald-700/40 transition-colors duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 flex items-center gap-1 text-xs font-medium',
+              !isMounted
+                ? 'bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 border border-zinc-200 dark:border-zinc-800 cursor-not-allowed'
+                : isAuditing
+                ? 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 border border-yellow-500/30'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+            )}
+            title="Force Re-Audit (Bypass .recite/audit-cache.json and invoke full discovery pipeline)"
+          >
+            <RotateCcw size={11} className={cn(isAuditing && 'animate-spin')} />
+            <span className="hidden 2xl:inline text-[10px]">Bypass Cache</span>
+          </button>
+        </div>
 
         <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-800 mx-0.5 shrink-0" />
 

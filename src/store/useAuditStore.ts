@@ -118,7 +118,7 @@ interface AuditState {
   restoreFinding: (id: string) => void;
   copyCitationAndBib: (id: string, source: any) => void;
   groupFindingsBySection: (texContent: string) => void;
-  runAudit: () => Promise<void>;
+  runAudit: (forceBypassCache?: boolean) => Promise<void>;
 }
 
 export const useAuditStore = create<AuditState>((set, get) => ({
@@ -208,13 +208,36 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       }),
     }));
   },
-  runAudit: async () => {
+  runAudit: async (forceBypassCache = false) => {
     set({ isAuditing: true });
     try {
       const { useReciteStore } = await import('@/lib/store');
       const reciteStore = useReciteStore.getState();
       const rawText = reciteStore.rawText;
       const bibtexContent = reciteStore.bibtexContent;
+      const workspacePath = reciteStore.workspace.fileName || '';
+
+      const { readAuditCache, writeAuditCache } = await import('@/services/cache-manager');
+
+      // Check cache first if not forced bypass
+      if (!forceBypassCache && workspacePath && rawText) {
+        reciteStore.setAuditProgress('Checking local .recite/audit-cache.json...');
+        const cached = await readAuditCache(workspacePath, rawText);
+        if (cached.hit && cached.isFresh && cached.findings.length > 0) {
+          set({
+            findings: cached.findings,
+            selectedFindingId: cached.findings[0]?.id || null,
+            isAuditing: false,
+          });
+          get().groupFindingsBySection(rawText);
+          reciteStore.setClaims(cached.claims);
+          reciteStore.setCacheStatus({ isRestored: true, isFresh: true, timestamp: cached.timestamp });
+          reciteStore.setIsAuditing(false);
+          reciteStore.setAuditProgress(null);
+          reciteStore.addToast(`Audit state restored from cache (${cached.findings.length} findings, 0 API calls).`, 'success');
+          return;
+        }
+      }
 
       const { ClaimExtractionOrchestrator } = await import('@/services/claim-extraction-orchestrator');
       const result = await ClaimExtractionOrchestrator.runFullDiscoveryPipeline(
@@ -235,6 +258,18 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       reciteStore.setClaims(result.reciteClaims);
       reciteStore.setIsAuditing(false);
       reciteStore.setAuditProgress(null);
+
+      // Write cache to disk
+      if (workspacePath && rawText) {
+        await writeAuditCache(
+          workspacePath,
+          reciteStore.workspace.activeFilePath || 'main.tex',
+          rawText,
+          result.allFindings,
+          result.reciteClaims
+        );
+        reciteStore.setCacheStatus({ isRestored: false, isFresh: true, timestamp: new Date().toISOString() });
+      }
     } catch (err) {
       console.error('[useAuditStore] Audit failed:', err);
       set({ isAuditing: false });

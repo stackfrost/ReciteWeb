@@ -59,7 +59,7 @@ const LLM_LABELS: Record<LLMProvider, string> = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function StatusBar() {
-  const { telemetry, workspace, license, llmRouter, docMetrics, setTelemetry, setShowSettings } = useReciteStore();
+  const { telemetry, workspace, license, llmRouter, docMetrics, cacheStatus, setTelemetry, setShowSettings } = useReciteStore();
 
   useEffect(() => {
     const onOnline = () => setTelemetry({ isOnline: true });
@@ -148,6 +148,19 @@ function StatusBar() {
           </span>
         </span>
 
+        {cacheStatus?.isRestored && (
+          <>
+            <span className="text-zinc-300 dark:text-zinc-800">│</span>
+            <span
+              className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-mono text-[10px]"
+              title={`Audit State: Restored from .recite/audit-cache.json (${cacheStatus.timestamp ? new Date(cacheStatus.timestamp).toLocaleTimeString() : 'Cached'})`}
+            >
+              <Database size={10} />
+              <span>Cache: {cacheStatus.isFresh ? 'Restored (Fresh)' : 'Restored (Modified)'}</span>
+            </span>
+          </>
+        )}
+
         <span className="text-zinc-300 dark:text-zinc-800">│</span>
 
         <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
@@ -167,7 +180,7 @@ function StatusBar() {
       <div className="flex items-center gap-3">
         <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
           <Database size={11} className="text-zinc-400" />
-          Storage: <strong className="font-medium text-zinc-700 dark:text-zinc-300">IndexedDB</strong>
+          Storage: <strong className="font-medium text-zinc-700 dark:text-zinc-300">.recite Cache</strong>
         </span>
 
         <span className="text-zinc-300 dark:text-zinc-800">│</span>
@@ -193,7 +206,7 @@ function StatusBar() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § EDITOR EMPTY STATE — Sterile Clinical Standby
+// § EDITOR EMPTY STATE — VS Code Style Muted Workspace Standby
 // ─────────────────────────────────────────────────────────────────────────────
 
 function SterileEditorEmptyState({
@@ -212,37 +225,48 @@ function SterileEditorEmptyState({
 
         <div className="space-y-1.5">
           <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-            No document loaded
+            No Workspace Open
           </h2>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-            Open a LaTeX (.tex), Microsoft Word (.docx), or text manuscript to analyze citation coverage and verify claims.
+            Open a LaTeX manuscript folder or document to analyze citation coverage, evaluate semantic entailment, and verify claims.
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1 text-xs">
           <button
-            onClick={onMountClick}
+            onClick={() => {
+              const { useWorkspaceStore } = require('@/store/useWorkspaceStore');
+              useWorkspaceStore.getState().mountLocalProject();
+            }}
             className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium transition-colors shadow-sm cursor-pointer"
           >
             <FolderOpen size={14} />
-            <span>Open Document...</span>
+            <span>Open Project Folder...</span>
+          </button>
+
+          <button
+            onClick={onMountClick}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-3.5 py-2 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded font-medium transition-colors cursor-pointer"
+          >
+            <FileText size={14} />
+            <span>Open File...</span>
           </button>
 
           <button
             onClick={onLoadDemo}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded font-medium transition-colors cursor-pointer"
+            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 text-xs transition-colors cursor-pointer"
           >
-            <Sparkles size={14} className="text-amber-500" />
-            <span>Sample Manuscript</span>
+            <Sparkles size={13} className="text-amber-500" />
+            <span>Sample Demo</span>
           </button>
         </div>
 
-        <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-center gap-3 text-[11px] text-zinc-400 dark:text-zinc-500">
-          <span>Client-side Processing</span>
+        <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-center gap-3 text-[11px] font-mono text-zinc-400 dark:text-zinc-500">
+          <span>Ctrl+O Open</span>
           <span>·</span>
-          <span>Local KaTeX Rendering</span>
+          <span>Ctrl+Shift+O Project</span>
           <span>·</span>
-          <span>Air-Gapped Safe</span>
+          <span>Ctrl+↵ Audit</span>
         </div>
       </div>
     </div>
@@ -318,6 +342,13 @@ function IDEWorkbench() {
 
   useEffect(() => {
     checkLicenseHeartbeat();
+    // Auto-restore last workspace session on boot
+    try {
+      const { useWorkspaceStore } = require('@/store/useWorkspaceStore');
+      useWorkspaceStore.getState().autoRestoreSession();
+    } catch (e) {
+      console.warn('[IDEWorkbench] Failed to auto-restore session:', e);
+    }
   }, [checkLicenseHeartbeat]);
 
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
