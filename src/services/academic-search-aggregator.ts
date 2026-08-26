@@ -1,37 +1,89 @@
 /**
  * Academic Search Aggregator
  * 
- * Multi-source bibliographic aggregator that queries OpenAlex, Crossref, and arXiv APIs
- * with polite rate-limiting, in-memory caching, inverted abstract reconstruction,
- * evidence anchor sentence extraction, and dynamic BibTeX generation.
+ * High-throughput bibliographic dragnet engine that queries OpenAlex, Crossref, arXiv,
+ * and academic repositories with polite concurrency throttling, non-blocking event-loop
+ * cooperative scheduling, inverted abstract reconstruction, candidate deduplication,
+ * and randomized exponential backoff on HTTP 429 responses.
  */
 
-import { VerifiedLiteratureSource } from '@/types/audit';
+import { VerifiedLiteratureSource, DragnetCandidateSummary } from '@/types/audit';
 import { SuggestedPaper } from '@/lib/store';
 import { LatexSanitizer } from '@/lib/latex-sanitizer';
+import { yieldToMain } from '@/lib/utils';
 
 // ── In-Memory Session Cache ───────────────────────────────────────────────────
 const searchCache = new Map<string, VerifiedLiteratureSource[]>();
 
-// ── Concurrency Limiter with Polite 3-Request Throttle & 429 Backoff ─────────
-class ConcurrencyLimiter {
+// ── Structured Rate Limit Error ───────────────────────────────────────────────
+export class RateLimitError extends Error {
+  public status = 429;
+  public retryAfter?: string | null;
+
+  constructor(status = 429, retryAfter?: string | null) {
+    super(`Rate limit exceeded (HTTP 429). Retry after: ${retryAfter || 'unknown'}`);
+    this.name = 'RateLimitError';
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+}
+
+// ── Concurrency Limiter with Polite Request Throttle & Randomized Backoff ─────
+export class ConcurrencyLimiter {
   private active = 0;
   private queue: (() => void)[] = [];
 
-  constructor(private maxConcurrent = 3) {}
+  constructor(private maxConcurrent = 4) {}
 
-  async run<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
+  async run<T>(fn: () => Promise<T>, retries = 2, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) throw new Error('Aborted');
+
     if (this.active >= this.maxConcurrent) {
-      await new Promise<void>((resolve) => this.queue.push(resolve));
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          const idx = this.queue.indexOf(resume);
+          if (idx !== -1) this.queue.splice(idx, 1);
+          reject(new Error('Aborted'));
+        };
+        const resume = () => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve();
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        this.queue.push(resume);
+      });
     }
+
     this.active++;
     try {
+      if (signal?.aborted) throw new Error('Aborted');
       return await fn();
     } catch (err: any) {
-      if (retries > 0 && (err?.status === 429 || err?.message?.includes('429'))) {
-        const backoffMs = 500 * Math.pow(2, 3 - retries);
-        await new Promise((r) => setTimeout(r, backoffMs));
-        return this.run(fn, retries - 1);
+      const is429 =
+        err?.status === 429 ||
+        err instanceof RateLimitError ||
+        err?.name === 'RateLimitError' ||
+        err?.message?.includes('429') ||
+        err?.message?.includes('Rate limit');
+
+      if (retries > 0 && is429 && !signal?.aborted) {
+        const jitter = Math.floor(Math.random() * 120);
+        const backoffMs = 300 * Math.pow(2, 3 - retries) + jitter;
+
+        await new Promise<void>((resolve, reject) => {
+          let timer: NodeJS.Timeout | null = null;
+          const onAbort = () => {
+            if (timer) clearTimeout(timer);
+            reject(new Error('Aborted'));
+          };
+          signal?.addEventListener('abort', onAbort, { once: true });
+          timer = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            resolve();
+          }, backoffMs);
+        });
+
+        return this.run(fn, retries - 1, signal);
       }
       throw err;
     } finally {
@@ -42,7 +94,7 @@ class ConcurrencyLimiter {
   }
 }
 
-const apiLimiter = new ConcurrencyLimiter(3);
+export const apiLimiter = new ConcurrencyLimiter(4);
 
 // ── Inverted Abstract Reconstructor (OpenAlex) ───────────────────────────────
 export function reconstructOpenAlexAbstract(invertedIndex?: Record<string, number[]> | null): string {
@@ -99,7 +151,7 @@ export function extractEvidenceAnchor(abstractText: string, claimText: string): 
 
   const claimSet = new Set(claimTokens);
 
-  // Score each sentence based on keyword overlap and bigram proximity
+  // Score each sentence based on keyword overlap
   let bestScore = -1;
   let bestSentence = rawSentences[0];
   let secondBestSentence = rawSentences[1] || '';
@@ -131,7 +183,6 @@ export function extractEvidenceAnchor(abstractText: string, claimText: string): 
       : `${secondBestSentence} ${bestSentence}`
     : bestSentence;
 
-  // Normalized confidence percentage (e.g. 88% - 98%)
   const rawRatio = scored[0]?.score || 0.2;
   const matchScore = Math.min(Math.max(Math.round(86 + rawRatio * 18), 85), 99);
 
@@ -177,11 +228,14 @@ export function constructBibtexEntry(
 }
 
 // ── OpenAlex API Query ────────────────────────────────────────────────────────
-export async function queryOpenAlex(query: string, limit = 3): Promise<VerifiedLiteratureSource[]> {
+export async function queryOpenAlex(query: string, limit = 8, signal?: AbortSignal): Promise<VerifiedLiteratureSource[]> {
   const adminEmail = process.env.NEXT_PUBLIC_RECITE_ADMIN_EMAIL || 'admin@recite.ai';
   const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=${limit}&mailto=${encodeURIComponent(adminEmail)}`;
 
-  const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
+  const res = await fetch(url, { signal: signal || AbortSignal.timeout(4500) });
+  if (res.status === 429) {
+    throw new RateLimitError(429, res.headers.get('retry-after'));
+  }
   if (!res.ok) return [];
 
   const data = await res.json();
@@ -209,9 +263,10 @@ export async function queryOpenAlex(query: string, limit = 3): Promise<VerifiedL
       doi: cleanDoi,
       bibtexKey: bibKey,
       relevanceScore: matchScore / 100,
-      abstractSnippet: anchorQuote,
+      abstractSnippet: abstract || anchorQuote,
       abstractExcerpt: anchorQuote,
       verificationStatus: 'verified' as const,
+      provenance: 'openalex' as const,
       citationCount: item.cited_by_count || 0,
       bibtexEntry: constructBibtexEntry(bibKey, title, authors, year, venue, cleanDoi),
     };
@@ -219,11 +274,14 @@ export async function queryOpenAlex(query: string, limit = 3): Promise<VerifiedL
 }
 
 // ── Crossref REST API Query ───────────────────────────────────────────────────
-export async function queryCrossref(query: string, limit = 3): Promise<VerifiedLiteratureSource[]> {
+export async function queryCrossref(query: string, limit = 8, signal?: AbortSignal): Promise<VerifiedLiteratureSource[]> {
   const adminEmail = process.env.NEXT_PUBLIC_RECITE_ADMIN_EMAIL || 'admin@recite.ai';
   const url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(query)}&rows=${limit}&mailto=${encodeURIComponent(adminEmail)}`;
 
-  const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
+  const res = await fetch(url, { signal: signal || AbortSignal.timeout(4500) });
+  if (res.status === 429) {
+    throw new RateLimitError(429, res.headers.get('retry-after'));
+  }
   if (!res.ok) return [];
 
   const data = await res.json();
@@ -248,26 +306,29 @@ export async function queryCrossref(query: string, limit = 3): Promise<VerifiedL
       doi,
       bibtexKey: bibKey,
       relevanceScore: matchScore / 100,
-      abstractSnippet: anchorQuote || `Indexed publication in ${venue} (${year}) directly examining theoretical and experimental foundations.`,
-      abstractExcerpt: anchorQuote || `Indexed publication in ${venue} (${year}) directly examining theoretical and experimental foundations.`,
+      abstractSnippet: abstract || anchorQuote || `Indexed publication in ${venue} (${year}) examining theoretical and empirical foundations.`,
+      abstractExcerpt: anchorQuote || `Indexed publication in ${venue} (${year}) examining theoretical and empirical foundations.`,
       verificationStatus: 'verified' as const,
+      provenance: 'crossref' as const,
       citationCount: item['is-referenced-by-count'] || 0,
       bibtexEntry: constructBibtexEntry(bibKey, title, authors, year, venue, doi),
     };
   });
 }
 
-// ── arXiv API Query (Fallback / Math & Physics) ───────────────────────────────
-export async function queryArxiv(query: string, limit = 3): Promise<VerifiedLiteratureSource[]> {
+// ── arXiv API Query (Math & Physics) ──────────────────────────────────────────
+export async function queryArxiv(query: string, limit = 5, signal?: AbortSignal): Promise<VerifiedLiteratureSource[]> {
   const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&max_results=${limit}`;
 
-  const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
+  const res = await fetch(url, { signal: signal || AbortSignal.timeout(4500) });
+  if (res.status === 429) {
+    throw new RateLimitError(429, res.headers.get('retry-after'));
+  }
   if (!res.ok) return [];
 
   const xmlText = await res.text();
   const sources: VerifiedLiteratureSource[] = [];
 
-  // Parse Atom XML entries via regex to avoid browser DOMParser dependency in background threads
   const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
   let match;
 
@@ -302,9 +363,10 @@ export async function queryArxiv(query: string, limit = 3): Promise<VerifiedLite
       doi: arxivId.startsWith('10.') ? arxivId : undefined,
       bibtexKey: bibKey,
       relevanceScore: matchScore / 100,
-      abstractSnippet: anchorQuote,
+      abstractSnippet: abstract || anchorQuote,
       abstractExcerpt: anchorQuote,
       verificationStatus: 'verified' as const,
+      provenance: 'arxiv' as const,
       citationCount: 0,
       bibtexEntry: `@article{${bibKey},
   title = {${title.replace(/[{}]/g, '')}},
@@ -318,75 +380,119 @@ export async function queryArxiv(query: string, limit = 3): Promise<VerifiedLite
   return sources;
 }
 
-// ── Academic Search Aggregator (Main Dispatch) ────────────────────────────────
+// ── Academic Search Aggregator (Dragnet Dispatch) ─────────────────────────────
 export class AcademicSearchAggregator {
   /**
-   * Dispatches queries across OpenAlex, Crossref, and arXiv in parallel with rate limiting,
-   * in-memory caching, and graceful fallbacks.
+   * High-Throughput Parallel Dragnet:
+   * Executes multi-query parallel harvesting across OpenAlex, Crossref, and arXiv.
+   * Employs non-blocking cooperative event loop yielding and streaming telemetry callbacks.
+   */
+  static async executeDragnet(
+    queries: string[],
+    claimText: string,
+    onCandidateHarvested?: (summary: DragnetCandidateSummary) => void,
+    signal?: AbortSignal
+  ): Promise<VerifiedLiteratureSource[]> {
+    if (!queries || queries.length === 0) return [];
+
+    const cacheKey = queries.join('|').toLowerCase();
+    if (searchCache.has(cacheKey)) {
+      const cached = searchCache.get(cacheKey)!;
+      for (const item of cached) {
+        onCandidateHarvested?.({
+          doi: item.doi,
+          title: item.title,
+          authors: item.authors,
+          year: item.year,
+          source: (item.provenance as any) || 'openalex',
+          reconstructedAbstractLength: item.abstractSnippet?.length || 0,
+        });
+      }
+      return cached;
+    }
+
+    const resultsMap = new Map<string, VerifiedLiteratureSource>();
+
+    // Execute queries in parallel batches
+    const fetchPromises = queries.slice(0, 5).map((q) =>
+      apiLimiter.run(
+        async () => {
+          if (signal?.aborted) return [];
+          const cleanQuery = q.trim();
+          if (!cleanQuery) return [];
+
+          const batchResults: VerifiedLiteratureSource[] = [];
+
+          // Concurrently attempt OpenAlex and Crossref
+          const [openAlexRes, crossrefRes] = await Promise.allSettled([
+            queryOpenAlex(cleanQuery, 6, signal),
+            queryCrossref(cleanQuery, 6, signal),
+          ]);
+
+          if (openAlexRes.status === 'fulfilled') {
+            batchResults.push(...openAlexRes.value);
+          }
+          if (crossrefRes.status === 'fulfilled') {
+            batchResults.push(...crossrefRes.value);
+          }
+
+          // If batch is sparse, attempt arXiv
+          if (batchResults.length < 3) {
+            try {
+              const arxivRes = await queryArxiv(cleanQuery, 4, signal);
+              batchResults.push(...arxivRes);
+            } catch {
+              // arXiv fallback ignored
+            }
+          }
+
+          return batchResults;
+        },
+        2,
+        signal
+      )
+    );
+
+    const settledBatches = await Promise.allSettled(fetchPromises);
+
+    for (const batch of settledBatches) {
+      if (batch.status === 'fulfilled') {
+        for (const item of batch.value) {
+          await yieldToMain();
+          // Deduplicate by DOI or Normalized Title
+          const normKey = item.doi
+            ? item.doi.toLowerCase()
+            : item.title.toLowerCase().replace(/[^\w]/g, '').slice(0, 40);
+
+          if (!resultsMap.has(normKey)) {
+            resultsMap.set(normKey, item);
+
+            onCandidateHarvested?.({
+              doi: item.doi,
+              title: item.title,
+              authors: item.authors,
+              year: item.year,
+              source: (item.provenance as any) || 'openalex',
+              reconstructedAbstractLength: item.abstractSnippet?.length || 0,
+            });
+          }
+        }
+      }
+    }
+
+    const aggregated = Array.from(resultsMap.values());
+    searchCache.set(cacheKey, aggregated);
+    return aggregated;
+  }
+
+  /**
+   * Backward-compatible alias for searchLiteratureCandidates.
    */
   static async searchLiteratureCandidates(
     searchQueries: string[],
     claimText: string
   ): Promise<VerifiedLiteratureSource[]> {
-    if (!searchQueries || searchQueries.length === 0) return [];
-
-    const cacheKey = searchQueries.join('|').toLowerCase();
-    if (searchCache.has(cacheKey)) {
-      return searchCache.get(cacheKey)!;
-    }
-
-    const resultsMap = new Map<string, VerifiedLiteratureSource>();
-
-    for (const query of searchQueries.slice(0, 3)) {
-      const cleanQuery = query.trim();
-      if (!cleanQuery) continue;
-
-      try {
-        const candidates = await apiLimiter.run(async () => {
-          // Attempt OpenAlex first (rich metadata + abstracts)
-          try {
-            const openAlexResults = await queryOpenAlex(cleanQuery, 2);
-            if (openAlexResults.length > 0) return openAlexResults;
-          } catch {
-            // Fallback to Crossref
-          }
-
-          try {
-            const crossrefResults = await queryCrossref(cleanQuery, 2);
-            if (crossrefResults.length > 0) return crossrefResults;
-          } catch {
-            // Fallback to arXiv
-          }
-
-          try {
-            return await queryArxiv(cleanQuery, 2);
-          } catch {
-            return [];
-          }
-        });
-
-        for (const candidate of candidates) {
-          // Re-evaluate evidence anchor relative to the full claim text
-          if (candidate.abstractExcerpt) {
-            const { anchorQuote, matchScore } = extractEvidenceAnchor(candidate.abstractExcerpt, claimText);
-            candidate.abstractExcerpt = anchorQuote;
-            candidate.abstractSnippet = anchorQuote;
-            candidate.relevanceScore = matchScore / 100;
-          }
-
-          const dedupKey = (candidate.doi || candidate.title).toLowerCase().replace(/[^\w]/g, '');
-          if (!resultsMap.has(dedupKey)) {
-            resultsMap.set(dedupKey, candidate);
-          }
-        }
-      } catch (err) {
-        console.warn(`[AcademicSearchAggregator] Failed query: "${cleanQuery}"`, err);
-      }
-    }
-
-    const finalCandidates = Array.from(resultsMap.values()).slice(0, 3);
-    searchCache.set(cacheKey, finalCandidates);
-    return finalCandidates;
+    return this.executeDragnet(searchQueries, claimText);
   }
 
   /**
@@ -395,18 +501,18 @@ export class AcademicSearchAggregator {
   static toSuggestedPapers(sources: VerifiedLiteratureSource[]): SuggestedPaper[] {
     return sources.map((s) => ({
       title: s.title,
-      year: s.year,
       authors: s.authors,
+      year: s.year,
       venue: s.venue,
       doi: s.doi,
-      citationCount: s.citationCount,
-      influentialCitationCount: Math.round((s.citationCount || 0) * 0.12),
       bibtexKey: s.bibtexKey,
       matchScore: Math.round(s.relevanceScore * 100),
       abstractExcerpt: s.abstractExcerpt || s.abstractSnippet,
       abstractSnippet: s.abstractSnippet,
       verificationStatus: s.verificationStatus,
       bibtexEntry: s.bibtexEntry,
+      citationCount: s.citationCount,
+      influentialCitationCount: s.influentialCitationCount,
     }));
   }
 }

@@ -18,6 +18,9 @@ export interface VerifiedLiteratureSource {
   bibtexEntry?: string;
   citationCount?: number;
   influentialCitationCount?: number;
+  entailmentStatus?: 'entailed' | 'tenuous' | 'contradicted';
+  hedgingSuggestion?: string;
+  contradictionWarning?: string;
 }
 
 export type EntailmentStatus = 'entailed' | 'tenuous' | 'contradicted';
@@ -45,6 +48,8 @@ export interface AuditFinding {
   entailmentStatus?: EntailmentStatus;
   contrastiveEvidence?: ContrastiveEvidence;
   sectionTitle?: string;
+  fileId?: string;
+  isRetracted?: boolean;
   suggestedPatch?: {
     diffRemove: string;
     diffAdd: string;
@@ -53,3 +58,66 @@ export interface AuditFinding {
   verifiedSources?: VerifiedLiteratureSource[];
   status: 'unresolved' | 'resolved' | 'ignored' | 'dismissed' | 'pending' | 'accepted';
 }
+
+export interface DualStreamAuditResult {
+  integrityFindings: AuditFinding[];
+  discoveryFindings: AuditFinding[];
+  allFindings: AuditFinding[];
+  reciteClaims: any[];
+  latencyMs: number;
+}
+
+
+// ── Agentic Reasoning & Progressive Telemetry Types ─────────────────────────
+
+export type AgenticStepStage =
+  | 'pending'
+  | 'ast_integrity'
+  | 'claim_decomposition'
+  | 'dragnet_harvesting'
+  | 'abstract_reconstruction'
+  | 'nli_grading'
+  | 'bibtex_synthesis'
+  | 'complete'
+  | 'error';
+
+
+export interface DragnetCandidateSummary {
+  doi?: string;
+  title: string;
+  authors: string[];
+  year: number;
+  source: 'openalex' | 'crossref' | 'zotero' | 'arxiv';
+  reconstructedAbstractLength: number;
+  entailmentScore?: number;
+  entailmentVerdict?: 'entailed' | 'tenuous' | 'contradicted' | 'irrelevant';
+}
+
+export interface AgenticTraceNode {
+  claimId: string;
+  claimText: string;
+  line: number;
+  stage: AgenticStepStage;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  deconstructedQueries: string[];
+  totalAbstractsHarvested: number;
+  evaluatedCandidates: DragnetCandidateSummary[];
+  winningSource?: VerifiedLiteratureSource;
+  hedgingAdvice?: string;
+  contradictionAlert?: string;
+  startTimeMs: number;
+  durationMs?: number;
+  logs: string[];
+}
+
+export interface AgenticPipelineTelemetry {
+  pipelineMode: 'deep_agentic_rag' | 'fast_ast_lint';
+  totalClaims: number;
+  completedClaims: number;
+  currentClaimIndex: number;
+  activeStage: AgenticStepStage;
+  overallElapsedMs: number;
+  traces: Record<string, AgenticTraceNode>;
+}
+
+

@@ -1103,13 +1103,17 @@ export const useReciteStore = create<ReciteState>()(
       const result = await ClaimExtractionOrchestrator.runFullDiscoveryPipeline(
         textToAudit,
         bibtexContent,
-        (msg: string) => setAuditProgress(msg)
+        (msg: string) => setAuditProgress(msg),
+        (telemetryUpdate) => {
+          useAuditStore.getState().setTelemetry(telemetryUpdate);
+        }
       );
+
 
       // Update API latency telemetry
       setTelemetry({ apiLatencyMs: result.latencyMs });
 
-      const finalClaims = result.reciteClaims.map((c) => ({
+      const finalClaims = result.reciteClaims.map((c: Claim) => ({
         ...c,
         text: rehydrateQuarantinedMath(c.text, tokenMap),
         suggestedFix: c.suggestedFix ? rehydrateQuarantinedMath(c.suggestedFix, tokenMap) : undefined,
@@ -1124,7 +1128,8 @@ export const useReciteStore = create<ReciteState>()(
       if (typeof window !== 'undefined') {
         try {
           const { useEditorStore } = require('@/store/useEditorStore');
-          const editorStoreFindings = finalClaims.map((c) => ({
+          const editorStoreFindings = finalClaims.map((c: Claim) => ({
+
             id: c.id,
             line: c.lineIndex || 1,
             index: c.startIndex,

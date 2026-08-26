@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import { AuditFinding, FindingCategory } from '@/types/audit';
+import {
+  AuditFinding,
+  FindingCategory,
+  AgenticPipelineTelemetry,
+  AgenticTraceNode,
+  VerifiedLiteratureSource,
+} from '@/types/audit';
 
 export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
   {
@@ -40,8 +46,11 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
         doi: '10.1103/PhysRevLett.91.107001',
         bibtexKey: 'shimizu2003',
         relevanceScore: 0.96,
-        abstractSnippet: 'We report 13C NMR and optical spectroscopy measurements of the organic triangular lattice compound showing no indication of magnetic ordering or gap opening down to 32 mK.',
+        abstractSnippet: 'We report 13C NMR and optical spectroscopy measurements of the organic triangular lattice compound showing no indication of magnetic ordering or gap opening down to 32 mK with finite Knight shift.',
+        abstractExcerpt: 'We report 13C NMR and optical spectroscopy measurements showing no indication of magnetic ordering down to 32 mK.',
         verificationStatus: 'verified',
+        provenance: 'openalex',
+        entailmentStatus: 'entailed',
       },
       {
         title: 'NMR and NQR Studies of Low-Dimensional Spin Liquid and Quantum Frustrated Magnets',
@@ -52,7 +61,11 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
         bibtexKey: 'itoh1998',
         relevanceScore: 0.88,
         abstractSnippet: 'Nuclear magnetic resonance investigations into spin susceptibility scaling and gapless excitations in low-dimensional frustrated triangular antiferromagnets.',
+        abstractExcerpt: 'Nuclear magnetic resonance investigations into spin susceptibility scaling in frustrated antiferromagnets.',
         verificationStatus: 'verified',
+        provenance: 'crossref',
+        entailmentStatus: 'tenuous',
+        hedgingSuggestion: 'providing preliminary NMR indications consistent with gapless behavior',
       },
     ],
     status: 'unresolved',
@@ -80,7 +93,10 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
         bibtexKey: 'imai1993',
         relevanceScore: 0.92,
         abstractSnippet: 'Direct experimental observation of finite low-frequency spin susceptibility and Korringa scaling indicative of Fermi surface spinon excitations.',
+        abstractExcerpt: 'Direct experimental observation of finite low-frequency spin susceptibility indicative of spinon excitations.',
         verificationStatus: 'verified',
+        provenance: 'openalex',
+        entailmentStatus: 'entailed',
       },
     ],
     status: 'unresolved',
@@ -103,16 +119,27 @@ export const INITIAL_DEMO_FINDINGS: AuditFinding[] = [
   },
 ];
 
-interface AuditState {
+export interface AuditState {
   findings: AuditFinding[];
   selectedFindingId: string | null;
   activeFilter: 'all' | FindingCategory;
   isAuditing: boolean;
-  activeTab: 'remediation' | 'sources' | 'integrity' | 'zotero';
+  activeTab: 'remediation' | 'sources' | 'integrity' | 'telemetry' | 'zotero';
+  
+  // Agentic Telemetry State
+  auditMode: 'fast_ast' | 'deep_agentic_rag';
+  telemetry: AgenticPipelineTelemetry | null;
+  activeTraceClaimId: string | null;
+  abortController: AbortController | null;
+
   setFindings: (findings: AuditFinding[]) => void;
   setSelectedFindingId: (id: string | null) => void;
   setActiveFilter: (activeFilter: 'all' | FindingCategory) => void;
-  setActiveTab: (tab: 'remediation' | 'sources' | 'integrity' | 'zotero') => void;
+  setActiveTab: (tab: 'remediation' | 'sources' | 'integrity' | 'telemetry' | 'zotero') => void;
+  setAuditMode: (mode: 'fast_ast' | 'deep_agentic_rag') => void;
+  setTelemetry: (telemetry: AgenticPipelineTelemetry | null) => void;
+  setActiveTraceClaimId: (id: string | null) => void;
+  cancelActiveAudit: () => void;
   resolveFinding: (id: string) => void;
   dismissFinding: (id: string) => void;
   restoreFinding: (id: string) => void;
@@ -127,23 +154,46 @@ export const useAuditStore = create<AuditState>((set, get) => ({
   activeFilter: 'all',
   isAuditing: false,
   activeTab: 'remediation',
+  auditMode: 'deep_agentic_rag',
+  telemetry: null,
+  activeTraceClaimId: null,
+  abortController: null,
+
   setFindings: (findings) =>
     set({ findings, selectedFindingId: findings[0]?.id || null }),
   setSelectedFindingId: (id) => set({ selectedFindingId: id }),
   setActiveFilter: (activeFilter) => set({ activeFilter }),
   setActiveTab: (activeTab) => set({ activeTab }),
+  setAuditMode: (auditMode) => set({ auditMode }),
+  setTelemetry: (telemetry) => set({ telemetry }),
+  setActiveTraceClaimId: (activeTraceClaimId) => set({ activeTraceClaimId }),
+
+  cancelActiveAudit: () => {
+    const { abortController } = get();
+    if (abortController) {
+      abortController.abort();
+    }
+    set({ isAuditing: false, abortController: null });
+    if (typeof window !== 'undefined') {
+      const { useReciteStore } = require('@/lib/store');
+      useReciteStore.getState().setIsAuditing(false);
+      useReciteStore.getState().setAuditProgress(null);
+      useReciteStore.getState().addToast('Audit cancelled by user', 'info');
+    }
+  },
+
   resolveFinding: (id) =>
     set((state) => {
       const nextFindings = state.findings.map((f) =>
         f.id === id ? { ...f, status: 'resolved' as const } : f
       );
-      // Auto-select the next unresolved finding to maintain review velocity
       const nextUnresolved = nextFindings.find((f) => f.status === 'unresolved');
       return {
         findings: nextFindings,
         selectedFindingId: nextUnresolved ? nextUnresolved.id : id,
       };
     }),
+
   dismissFinding: (id) =>
     set((state) => {
       const nextFindings = state.findings.map((f) =>
@@ -155,12 +205,14 @@ export const useAuditStore = create<AuditState>((set, get) => ({
         selectedFindingId: nextUnresolved ? nextUnresolved.id : id,
       };
     }),
+
   restoreFinding: (id) =>
     set((state) => ({
       findings: state.findings.map((f) =>
         f.id === id ? { ...f, status: 'unresolved' as const } : f
       ),
     })),
+
   copyCitationAndBib: (id, source) => {
     const { LatexSanitizer } = require('@/lib/latex-sanitizer');
     const rawKey = source.bibtexKey ||
@@ -179,6 +231,7 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       });
     }
   },
+
   groupFindingsBySection: (texContent: string) => {
     if (!texContent) return;
     const lines = texContent.split('\n');
@@ -208,11 +261,16 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       }),
     }));
   },
+
   runAudit: async (forceBypassCache = false) => {
-    set({ isAuditing: true });
+    const controller = new AbortController();
+    set({ isAuditing: true, abortController: controller });
+
     try {
       const { useReciteStore } = await import('@/lib/store');
       const reciteStore = useReciteStore.getState();
+      reciteStore.setIsAuditing(true);
+
       const rawText = reciteStore.rawText;
       const bibtexContent = reciteStore.bibtexContent;
       const workspacePath = reciteStore.workspace.fileName || '';
@@ -228,6 +286,7 @@ export const useAuditStore = create<AuditState>((set, get) => ({
             findings: cached.findings,
             selectedFindingId: cached.findings[0]?.id || null,
             isAuditing: false,
+            abortController: null,
           });
           get().groupFindingsBySection(rawText);
           reciteStore.setClaims(cached.claims);
@@ -240,16 +299,26 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       }
 
       const { ClaimExtractionOrchestrator } = await import('@/services/claim-extraction-orchestrator');
+      
       const result = await ClaimExtractionOrchestrator.runFullDiscoveryPipeline(
         rawText || '',
         bibtexContent,
-        (msg: string) => reciteStore.setAuditProgress(msg)
+        (msg: string) => reciteStore.setAuditProgress(msg),
+        (telemetryUpdate: AgenticPipelineTelemetry) => {
+          set({ telemetry: telemetryUpdate });
+        },
+        controller.signal
       );
+
+      if (controller.signal.aborted) {
+        return;
+      }
 
       set({
         findings: result.allFindings,
         selectedFindingId: result.allFindings[0]?.id || null,
         isAuditing: false,
+        abortController: null,
       });
 
       // Group findings by document sections
@@ -270,9 +339,15 @@ export const useAuditStore = create<AuditState>((set, get) => ({
         );
         reciteStore.setCacheStatus({ isRestored: false, isFresh: true, timestamp: new Date().toISOString() });
       }
-    } catch (err) {
-      console.error('[useAuditStore] Audit failed:', err);
-      set({ isAuditing: false });
+
+      reciteStore.addToast(`Deep Agentic RAG audit complete (${result.allFindings.length} findings in ${result.latencyMs}ms)`, 'success');
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || controller.signal.aborted) {
+        console.log('[useAuditStore] Audit successfully aborted.');
+      } else {
+        console.error('[useAuditStore] Audit failed:', err);
+      }
+      set({ isAuditing: false, abortController: null });
       if (typeof window !== 'undefined') {
         const { useReciteStore } = require('@/lib/store');
         useReciteStore.getState().setIsAuditing(false);

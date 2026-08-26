@@ -60,3 +60,21 @@ export function truncateText(text: string, maxLength: number): string {
   const truncated = text.slice(0, maxLength);
   return `${truncated.slice(0, truncated.lastIndexOf(' '))}...`;
 }
+
+/**
+ * Cooperative scheduling primitive to yield control to the browser/React main thread.
+ * Prevents UI freezes during heavy async RAG dragnet and LLM processing loops.
+ */
+export async function yieldToMain(): Promise<void> {
+  if (typeof (globalThis as any)?.scheduler?.yield === 'function') {
+    return (globalThis as any).scheduler.yield();
+  }
+  if (typeof MessageChannel !== 'undefined') {
+    return new Promise((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => resolve();
+      channel.port2.postMessage(null);
+    });
+  }
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}

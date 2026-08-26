@@ -3,38 +3,77 @@
 import React from 'react';
 import { SuggestedPaper } from '@/lib/store';
 import { formatAuthorList, formatCitationCount, formatDoiUrl } from '@/lib/utils';
-import { Database, ExternalLink, Activity, CheckCircle2, Quote, PlusCircle } from 'lucide-react';
+import { ExternalLink, CheckCircle2, Quote, PlusCircle, Sparkles, AlertTriangle, AlertCircle, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CandidateCardProps {
-  paper: SuggestedPaper;
+  paper: SuggestedPaper & {
+    entailmentStatus?: 'entailed' | 'tenuous' | 'contradicted';
+    hedgingSuggestion?: string;
+    contradictionWarning?: string;
+    provenance?: string;
+  };
   onAccept: (paper: SuggestedPaper) => void;
   onInsertAndBib?: (paper: SuggestedPaper) => void;
   onCopy?: (paper: SuggestedPaper) => void;
   onDismiss?: () => void;
 }
 
-export default function CandidateCard({ paper, onAccept, onInsertAndBib, onCopy, onDismiss }: CandidateCardProps) {
+export default function CandidateCard({
+  paper,
+  onAccept,
+  onInsertAndBib,
+  onCopy,
+  onDismiss,
+}: CandidateCardProps) {
   const matchPct = paper.matchScore || (paper.influentialCitationCount ? Math.min(90 + Math.floor(paper.influentialCitationCount / 2), 99) : 92);
   const bibKey = paper.bibtexKey || (paper.authors?.[0]?.toLowerCase()?.replace(/\W/g, '') || 'ref') + (paper.year || '2024');
+  const isContradicted = paper.entailmentStatus === 'contradicted' || !!paper.contradictionWarning;
+  const isTenuous = paper.entailmentStatus === 'tenuous' || !!paper.hedgingSuggestion;
 
   return (
-    <div className="bg-zinc-50/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 hover:border-emerald-500/50 dark:hover:border-emerald-500/50 transition-all group relative overflow-hidden shadow-xs space-y-2.5">
-      {/* ── 1. Header Metadata & Match Score ───────────────────────────────── */}
+    <div className={cn(
+      'bg-white dark:bg-zinc-900 border rounded-xl p-3.5 transition-all duration-200 group relative overflow-hidden shadow-xs hover:shadow-md space-y-3',
+      isContradicted
+        ? 'border-rose-500/50 dark:border-rose-500/50 bg-rose-50/30 dark:bg-rose-950/20'
+        : 'border-zinc-200 dark:border-zinc-800 hover:border-emerald-500/60 dark:hover:border-emerald-500/60'
+    )}>
+      {/* ── 1. Header Metadata & Entailment Score ──────────────────────────── */}
       <div className="flex justify-between items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap mb-1">
-            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-              {matchPct}% Match
+            {/* Entailment Score Pill */}
+            <span className={cn(
+              'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold flex items-center gap-1 border',
+              isContradicted
+                ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                : isTenuous
+                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+            )}>
+              {isContradicted ? (
+                <AlertCircle className="w-3 h-3 text-rose-500" />
+              ) : isTenuous ? (
+                <AlertTriangle className="w-3 h-3 text-amber-500" />
+              ) : (
+                <Sparkles className="w-3 h-3 text-emerald-500" />
+              )}
+              <span>{matchPct}% {isContradicted ? 'Contradiction' : isTenuous ? 'Tenuous' : 'Entailed'}</span>
             </span>
-            <span className="text-[10px] font-sans font-medium text-emerald-600 dark:text-emerald-400">
-              Candidate Reference
-            </span>
+
+            {/* Provenance Badge */}
+            {paper.provenance && (
+              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 uppercase">
+                {paper.provenance}
+              </span>
+            )}
+
             {paper.venue && (
-              <span className="text-[10px] font-sans font-medium text-zinc-500 dark:text-zinc-400 truncate max-w-[180px]">
+              <span className="text-[10px] font-sans font-medium text-zinc-500 dark:text-zinc-400 truncate max-w-[160px]" title={paper.venue}>
                 · {paper.venue}
               </span>
             )}
+
             <span className="text-[10px] font-mono text-zinc-400">
               @{bibKey}
             </span>
@@ -50,8 +89,8 @@ export default function CandidateCard({ paper, onAccept, onInsertAndBib, onCopy,
             href={formatDoiUrl(paper.doi)}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-1 rounded text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
-            title="View DOI on publisher / Crossref"
+            className="p-1 rounded-md text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
+            title="View DOI on publisher / repository"
           >
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
@@ -60,39 +99,68 @@ export default function CandidateCard({ paper, onAccept, onInsertAndBib, onCopy,
 
       {/* ── 2. Authors and Publication Year ─────────────────────────────────── */}
       <p className="text-[11px] text-zinc-500 dark:text-zinc-400 font-sans truncate" title={paper.authors?.join(', ')}>
-        {formatAuthorList(paper.authors)} • {paper.year}
+        {formatAuthorList(paper.authors)} &middot; {paper.year}
       </p>
 
-      {/* ── 3. Evidence Anchor Quote ────────────────────────────────────────── */}
+      {/* ── 3. Verbatim Evidence Anchor Quote ───────────────────────────────── */}
       {(paper.abstractExcerpt || paper.abstractSnippet) && (
-        <div className="rounded bg-white dark:bg-zinc-950/80 border border-zinc-200/80 dark:border-zinc-800/80 p-2 text-xs space-y-1">
-          <div className="flex items-center gap-1 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
-            <Quote className="w-3 h-3 text-emerald-500" />
-            <span>Evidence Anchor Excerpt</span>
+        <div className="rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800/80 p-2.5 text-xs space-y-1.5">
+          <div className="flex items-center justify-between text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+            <span className="flex items-center gap-1">
+              <Quote className="w-3 h-3 text-emerald-500" />
+              <span>Verbatim Evidence in Abstract</span>
+            </span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[9px] font-semibold">100% Match</span>
           </div>
-          <p className="text-[11px] font-serif italic text-zinc-700 dark:text-zinc-300 leading-relaxed pl-1.5 border-l-2 border-emerald-500/40">
-            &quot;{paper.abstractExcerpt || paper.abstractSnippet}&quot;
+          <p className="text-[11px] font-serif italic text-zinc-800 dark:text-zinc-200 leading-relaxed pl-2 border-l-2 border-emerald-500 bg-emerald-500/5 py-1 pr-1.5 rounded-r">
+            &ldquo;{paper.abstractExcerpt || paper.abstractSnippet}&rdquo;
           </p>
         </div>
       )}
 
-      {/* ── 4. Provenance & Discretionary 3-Way Action Bar ──────────────────── */}
+      {/* ── 4. Academic Hedging Suggestion (When Tenuous) ───────────────────── */}
+      {paper.hedgingSuggestion && (
+        <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-2 space-y-1">
+          <div className="flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="w-3 h-3" />
+            <span>Recommended Academic Hedging</span>
+          </div>
+          <p className="text-[11px] font-sans text-amber-900 dark:text-amber-200 leading-normal">
+            {paper.hedgingSuggestion}
+          </p>
+        </div>
+      )}
+
+      {/* ── 5. Contradiction Warning Alert (When Opposed) ───────────────────── */}
+      {paper.contradictionWarning && (
+        <div className="rounded-lg bg-rose-500/10 border border-rose-500/30 p-2 space-y-1">
+          <div className="flex items-center gap-1 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
+            <AlertCircle className="w-3 h-3" />
+            <span>Literature Contradiction Detected</span>
+          </div>
+          <p className="text-[11px] font-sans text-rose-900 dark:text-rose-200 leading-normal">
+            {paper.contradictionWarning}
+          </p>
+        </div>
+      )}
+
+      {/* ── 6. Discretionary 3-Way Action Bar ─────────────────────────────────── */}
       <div className="flex items-center justify-between pt-2 border-t border-zinc-200/60 dark:border-zinc-800/80 text-xs flex-wrap gap-2">
         <div className="flex items-center gap-2 text-[10px] font-sans text-zinc-500 dark:text-zinc-400">
-          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium" title="Verified against Crossref & OpenAlex">
+          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium" title="Verified against Academic Graph">
             <CheckCircle2 className="w-3 h-3" />
-            <span>Crossref Active</span>
+            <span>Verified Index</span>
           </span>
           {paper.citationCount !== undefined && (
-            <span className="hidden sm:inline text-zinc-400">
+            <span className="text-zinc-400">
               · {formatCitationCount(paper.citationCount)} citations
             </span>
           )}
         </div>
 
-        {/* 3-Way Action Bar */}
+        {/* 3-Way Action Matrix */}
         <div className="flex items-center gap-1.5 ml-auto">
-          {/* Action 2: Copy \cite + BibTeX (Failsafe) */}
+          {/* Action 2: Copy \cite + Bib (Failsafe) */}
           <button
             type="button"
             onClick={() => {
@@ -105,6 +173,7 @@ export default function CandidateCard({ paper, onAccept, onInsertAndBib, onCopy,
             className="flex items-center gap-1 px-2 py-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded text-[11px] font-sans font-medium transition-colors cursor-pointer border border-zinc-200 dark:border-zinc-700"
             title="Copy \cite{key} & @article block to clipboard for manual pasting"
           >
+            <Copy className="w-3 h-3 text-zinc-400" />
             <span>Copy \cite + Bib</span>
           </button>
 

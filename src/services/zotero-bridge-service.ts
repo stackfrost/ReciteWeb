@@ -231,6 +231,14 @@ export class ZoteroBridgeService {
   }
 
   /**
+   * Alias for searchLibrary
+   */
+  static async searchLocalLibrary(query: string, customPath?: string): Promise<ZoteroItem[]> {
+    return this.searchLibrary(query, customPath);
+  }
+
+
+  /**
    * Tier 1 Local Matching: Matches an extracted claim against the user's personal Zotero library.
    * Returns a SuggestedPaper with personal library provenance and match score if confident.
    */

@@ -12,7 +12,9 @@ import {
   Link2,
   Download,
   X,
+  Sparkles,
 } from 'lucide-react';
+
 import { LaTeXParser } from '@/services/latex-parser';
 import { BibTeXParser } from '@/services/bibtex-parser';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
@@ -279,7 +281,16 @@ export default function Toolbar() {
           </span>
         </span>
 
-        <span className="hidden xl:inline text-zinc-300 dark:text-zinc-800">|</span>
+        {/* Deep Agentic RAG Mode Indicator */}
+        <div
+          className="hidden md:flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-medium"
+          title="Autonomous Multi-Step Agentic RAG pipeline enabled (15-30s high-accuracy deep audit)"
+        >
+          <Sparkles size={12} className="text-emerald-500 animate-pulse" />
+          <span className="font-semibold font-mono text-[11px]">Deep Agentic RAG</span>
+        </div>
+
+        <span className="hidden md:inline text-zinc-300 dark:text-zinc-800">|</span>
 
         {/* Flat Engine Pill */}
         <button
@@ -290,6 +301,7 @@ export default function Toolbar() {
           <Cpu size={13} className="text-emerald-500" />
           <span>Engine: <strong className="font-semibold">{engineName}</strong></span>
         </button>
+
 
         <span className="hidden sm:inline text-zinc-300 dark:text-zinc-800">|</span>
 

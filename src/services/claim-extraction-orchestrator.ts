@@ -1,19 +1,26 @@
 /**
- * Claim Extraction Orchestrator & Dual-Stream Discovery Pipeline
+ * Claim Extraction Orchestrator (Multi-Step Agentic RAG Discovery)
  * 
- * Orchestrates:
- * 1. Stream A: Deterministic AST Citation Integrity (Missing BibTeX keys, malformed macros, drifts)
- * 2. Stream B: Structured Scientific Claim Extraction (via multi-provider LLM API or universal heuristics)
- * 3. Tier 1 / Tier 2 Literature Discovery & Evidence Anchor Extraction
- * 4. NLI Semantic Entailment & Contradiction Evaluation
+ * Orchestrates the full 4-stage literature discovery & verification pipeline:
+ * 1. Deterministic AST Integrity Check (missing keys, syntax mismatches, phantom refs)
+ * 2. Unattributed Scientific Claim Extraction & Query Decomposition (3 orthogonal vectors)
+ * 3. High-Throughput Parallel Dragnet (OpenAlex, Crossref, arXiv)
+ * 4. LLM Semantic Entailment Grading, Verbatim Quote Extraction, and Live Telemetry Streaming
  */
 
-import { BibTeXParser, BibTeXEntry } from './bibtex-parser';
-import { AcademicSearchAggregator } from './academic-search-aggregator';
-import { AuditFinding, FindingSeverity, VerifiedLiteratureSource } from '@/types/audit';
-import { Claim, ClaimCategory, ClaimStatus } from '@/lib/store';
+import {
+  AuditFinding,
+  DualStreamAuditResult,
+  FindingSeverity,
+  AgenticPipelineTelemetry,
+  AgenticTraceNode,
+  VerifiedLiteratureSource,
+} from '@/types/audit';
+import { Claim, ClaimCategory, ClaimStatus, LLMProvider } from '@/lib/store';
+import { BibTeXParser, BibTeXEntry } from '@/services/bibtex-parser';
+import { yieldToMain } from '@/lib/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { LLMProvider } from '@/lib/models';
+import { AcademicSearchAggregator } from '@/services/academic-search-aggregator';
 
 export interface StructuredClaimExtraction {
   line: number;
@@ -27,103 +34,183 @@ export interface StructuredClaimExtraction {
   suggestedFix?: string;
 }
 
-export interface DualStreamAuditResult {
-  integrityFindings: AuditFinding[];
-  discoveryFindings: AuditFinding[];
-  allFindings: AuditFinding[];
-  reciteClaims: Claim[];
-  latencyMs: number;
-}
-
 export class ClaimExtractionOrchestrator {
   /**
-   * Runs the complete dual-stream audit pipeline.
+   * Runs the complete autonomous Multi-Step Agentic RAG pipeline.
+   * Employs non-blocking event-loop cooperative scheduling with live telemetry streaming.
    */
   static async runFullDiscoveryPipeline(
     texContent: string,
     bibtexContent: string | null | undefined,
-    onProgress?: (status: string) => void
+    onProgress?: (status: string) => void,
+    onTelemetryUpdate?: (telemetry: AgenticPipelineTelemetry) => void,
+    signal?: AbortSignal
   ): Promise<DualStreamAuditResult> {
     const t0 = performance.now();
+    const lineOffsets = buildLineOffsets(texContent);
 
     // ── STAGE 1: Deterministic AST & Integrity Check ────────────────────────
     onProgress?.('Running Deterministic AST Integrity Checks...');
-    await new Promise((r) => setTimeout(r, 60));
+    await yieldToMain();
 
     const bibtexMap = BibTeXParser.parse(bibtexContent || '');
-    const integrityFindings = this.runDeterministicAstIntegrity(texContent, bibtexMap);
+    const integrityFindings = await this.runDeterministicAstIntegrity(texContent, bibtexMap, lineOffsets);
 
-    // ── STAGE 2: Extracting Unattributed Scientific Claims (LLM / Universal) ─
-    onProgress?.('Extracting Unattributed Scientific Claims...');
-    const extractedClaims = await this.extractScientificClaims(texContent, bibtexMap, onProgress);
+    if (signal?.aborted) {
+      return { integrityFindings, discoveryFindings: [], allFindings: integrityFindings, reciteClaims: [], latencyMs: 0 };
+    }
 
-    // ── STAGE 3: Querying Local Zotero Library & External Academic APIs ──────
-    onProgress?.(`Querying literature databases for ${extractedClaims.length} extracted claims...`);
+    // ── STAGE 2: Extracting Unattributed Scientific Claims ───────────────────
+    onProgress?.('Extracting Unattributed Scientific Claims & Deconstructing Queries...');
+    await yieldToMain();
+    const extractedClaims = await this.extractScientificClaims(texContent, bibtexMap, onProgress, signal);
+
+    if (signal?.aborted) {
+      return { integrityFindings, discoveryFindings: [], allFindings: integrityFindings, reciteClaims: [], latencyMs: 0 };
+    }
+
+    // Initialize Telemetry Data Structure
+    const telemetryState: AgenticPipelineTelemetry = {
+      pipelineMode: 'deep_agentic_rag',
+      totalClaims: extractedClaims.length,
+      completedClaims: 0,
+      currentClaimIndex: 0,
+      activeStage: 'claim_decomposition',
+      overallElapsedMs: 0,
+      traces: {},
+    };
+
+    extractedClaims.forEach((claim, idx) => {
+      const claimId = `claim-node-${idx + 1}`;
+      telemetryState.traces[claimId] = {
+        claimId,
+        claimText: claim.claimText,
+        line: claim.line,
+        stage: 'pending',
+        status: 'pending',
+        deconstructedQueries: claim.searchQueries,
+        totalAbstractsHarvested: 0,
+        evaluatedCandidates: [],
+        startTimeMs: performance.now(),
+        logs: [`Claim extracted at line ${claim.line}`],
+      };
+    });
+
+    onTelemetryUpdate?.({ ...telemetryState });
+
+    // ── STAGE 3: Dragnet Literature Discovery & NLI Verification ─────────────
     const { ZoteroBridgeService } = await import('@/services/zotero-bridge-service');
     const { SemanticEntailmentEngine } = await import('@/services/semantic-entailment-engine');
     const discoveryFindings: AuditFinding[] = [];
 
-    // Process discovery claims through Tier 1 (Zotero) and Tier 2 (Academic APIs)
+    const settings = useSettingsStore.getState();
+    const activeKey = settings.getActiveKey();
+    const provider = settings.activeProvider;
+    const modelId = settings.activeModelId;
+
     for (let i = 0; i < extractedClaims.length; i++) {
+      if (signal?.aborted) break;
+
       const claim = extractedClaims[i];
-      onProgress?.(`Cross-verifying literature candidate ${i + 1} of ${extractedClaims.length}...`);
+      const claimId = `claim-node-${i + 1}`;
+      const trace = telemetryState.traces[claimId];
+
+      telemetryState.currentClaimIndex = i;
+      telemetryState.activeStage = 'dragnet_harvesting';
+
+      if (trace) {
+        trace.stage = 'dragnet_harvesting';
+        trace.status = 'running';
+        trace.logs.push(`Deconstructed into queries: ${claim.searchQueries.join(' | ')}`);
+      }
+
+      onTelemetryUpdate?.({ ...telemetryState, overallElapsedMs: Math.round(performance.now() - t0) });
+      onProgress?.(`Parallel dragnet across OpenAlex & Crossref for claim ${i + 1}/${extractedClaims.length}...`);
+
+      await yieldToMain();
 
       let verifiedSources: VerifiedLiteratureSource[] = [];
 
-      // ── Tier 1: Local-First Zotero Personal Library Check ──
       try {
-        const localZoteroMatch = await ZoteroBridgeService.matchClaimAgainstPersonalLibrary(claim.claimText);
-        if (localZoteroMatch) {
-          verifiedSources.push({
-            title: localZoteroMatch.title,
-            year: localZoteroMatch.year,
-            authors: localZoteroMatch.authors,
-            venue: localZoteroMatch.venue || 'Personal Zotero Library',
-            doi: localZoteroMatch.doi,
-            bibtexKey: localZoteroMatch.bibtexKey || 'zoteroRef',
-            relevanceScore: (localZoteroMatch.matchScore || 95) / 100,
-            abstractExcerpt: localZoteroMatch.abstractExcerpt || localZoteroMatch.abstractSnippet || 'Matched from personal Zotero library.',
-            abstractSnippet: localZoteroMatch.abstractSnippet || 'Local library record.',
-            verificationStatus: 'verified',
-            provenance: 'zotero',
-            citationCount: 120,
-            bibtexEntry: ZoteroBridgeService.formatBibtexFromZotero({
-              itemId: 0,
-              key: localZoteroMatch.bibtexKey || 'zoteroRef',
-              citationKey: localZoteroMatch.bibtexKey,
-              itemType: 'journalArticle',
-              title: localZoteroMatch.title,
-              creators: localZoteroMatch.authors,
-              publicationTitle: localZoteroMatch.venue,
-              year: String(localZoteroMatch.year),
-              doi: localZoteroMatch.doi,
-              abstractNote: localZoteroMatch.abstractSnippet,
-              collections: [],
-              hasPdf: !!localZoteroMatch.url?.startsWith('file://'),
-              pdfPath: localZoteroMatch.url?.startsWith('file://') ? localZoteroMatch.url.slice(7) : undefined,
-            }),
-          });
-        }
-      } catch (zoteroErr) {
-        console.warn('[ClaimExtractionOrchestrator] Zotero local query skipped:', zoteroErr);
-      }
-
-      // ── Tier 2: External Academic APIs (OpenAlex / Crossref / arXiv) ──
-      try {
-        const externalSources = await AcademicSearchAggregator.searchLiteratureCandidates(
+        // Execute parallel dragnet across OpenAlex, Crossref, and arXiv
+        verifiedSources = await AcademicSearchAggregator.executeDragnet(
           claim.searchQueries,
-          claim.claimText
+          claim.claimText,
+          (summary) => {
+            if (trace) {
+              trace.totalAbstractsHarvested++;
+              trace.evaluatedCandidates.push(summary);
+              onTelemetryUpdate?.({ ...telemetryState, overallElapsedMs: Math.round(performance.now() - t0) });
+            }
+          },
+          signal
         );
-        for (const ext of externalSources) {
-          if (!verifiedSources.some((s) => s.doi && ext.doi && s.doi.toLowerCase() === ext.doi.toLowerCase())) {
+
+        // Also check local Zotero library if available
+        const zoteroItems = await ZoteroBridgeService.searchLocalLibrary(claim.claimText);
+        if (zoteroItems.length > 0) {
+          for (const item of zoteroItems) {
+            const ext: VerifiedLiteratureSource = {
+              title: item.title,
+              authors: (item.creators || []).map((c: any) => typeof c === 'string' ? c : (c.name || `${c.firstName || ''} ${c.lastName || ''}`).trim()).filter(Boolean),
+              year: item.date ? parseInt(item.date, 10) || 2024 : 2024,
+              venue: item.publicationTitle || 'Zotero Library',
+              doi: item.doi,
+              bibtexKey: item.key,
+              relevanceScore: 0.95,
+              abstractSnippet: item.abstractNote || 'Referenced from local researcher Zotero library.',
+              abstractExcerpt: item.abstractNote || 'Referenced from local researcher Zotero library.',
+              verificationStatus: 'verified',
+              provenance: 'zotero',
+              bibtexEntry: `@article{${item.key},\n  title = {${item.title}},\n  year = {${item.date || 2024}}\n}`,
+            };
             verifiedSources.push(ext);
           }
         }
+
       } catch (err) {
         console.warn(`[ClaimExtractionOrchestrator] Academic search failed for claim ${i}:`, err);
       }
 
-      // ── STAGE 4: Synthesizing Evidence Anchors & NLI Entailment Evaluation ──
+      await yieldToMain();
+
+      // ── STAGE 4: LLM Entailment Grading & Verbatim Quote Extraction ─────────
+      if (trace) {
+        trace.stage = 'nli_grading';
+        trace.logs.push(`Grading ${verifiedSources.length} candidates with LLM Natural Language Inference...`);
+      }
+      onTelemetryUpdate?.({ ...telemetryState, overallElapsedMs: Math.round(performance.now() - t0) });
+      onProgress?.(`LLM Grading & Entailment verification for claim ${i + 1}...`);
+
+      const evaluations = await SemanticEntailmentEngine.evaluateCandidatesWithLLM(
+        claim.claimText,
+        verifiedSources,
+        provider,
+        activeKey,
+        modelId,
+        (evalItem) => {
+          if (trace && trace.evaluatedCandidates[evalItem.sourceIndex]) {
+            trace.evaluatedCandidates[evalItem.sourceIndex].entailmentScore = evalItem.entailmentScore;
+            trace.evaluatedCandidates[evalItem.sourceIndex].entailmentVerdict = evalItem.status;
+            onTelemetryUpdate?.({ ...telemetryState, overallElapsedMs: Math.round(performance.now() - t0) });
+          }
+        }
+      );
+
+      // Attach evaluated scores back to verifiedSources
+      evaluations.forEach((ev) => {
+        if (verifiedSources[ev.sourceIndex]) {
+          verifiedSources[ev.sourceIndex].relevanceScore = ev.entailmentScore / 100;
+          verifiedSources[ev.sourceIndex].entailmentStatus = ev.status;
+          verifiedSources[ev.sourceIndex].abstractExcerpt = ev.verbatimQuote || verifiedSources[ev.sourceIndex].abstractExcerpt;
+          verifiedSources[ev.sourceIndex].hedgingSuggestion = ev.hedgingSuggestion;
+          verifiedSources[ev.sourceIndex].contradictionWarning = ev.contradictionWarning;
+        }
+      });
+
+      // Sort sources by entailment score descending
+      verifiedSources.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+
       const bestCandidate = verifiedSources[0];
       const recommendedBibKey = bestCandidate?.bibtexKey || 'ref2024';
 
@@ -132,25 +219,48 @@ export class ClaimExtractionOrchestrator {
         suggestedFix = `${claim.claimText} ~\\cite{${recommendedBibKey}}`;
       }
 
-      // Natural Language Inference (NLI) Evaluation
-      const nliResult = SemanticEntailmentEngine.evaluateEntailment(claim.claimText, bestCandidate);
+      const bestEval = evaluations[0] || {
+        status: (bestCandidate?.entailmentStatus || 'entailed') as any,
+        verbatimQuote: bestCandidate?.abstractExcerpt || '',
+        reason: 'Empirical assertion substantiated by literature candidate.',
+        hedgingSuggestion: bestCandidate?.hedgingSuggestion,
+        contradictionWarning: bestCandidate?.contradictionWarning,
+      };
 
       let finalSuggestedFix = suggestedFix;
-      if (nliResult.hedgingPatch && nliResult.status !== 'entailed') {
-        finalSuggestedFix = `${nliResult.hedgingPatch} ~\\cite{${recommendedBibKey}}`;
+      if (bestEval.hedgingSuggestion && bestEval.status !== 'entailed') {
+        finalSuggestedFix = `${bestEval.hedgingSuggestion} ~\\cite{${recommendedBibKey}}`;
       }
+
+      if (trace) {
+        trace.stage = 'bibtex_synthesis';
+        trace.winningSource = bestCandidate;
+        trace.hedgingAdvice = bestEval.hedgingSuggestion;
+        trace.contradictionAlert = bestEval.contradictionWarning;
+        trace.status = 'completed';
+        trace.durationMs = Math.round(performance.now() - trace.startTimeMs);
+        trace.logs.push(`Citation synthesized: \\cite{${recommendedBibKey}} (${Math.round((bestCandidate?.relevanceScore || 0.9) * 100)}% Entailment)`);
+      }
+
+      telemetryState.completedClaims++;
+      onTelemetryUpdate?.({ ...telemetryState, overallElapsedMs: Math.round(performance.now() - t0) });
 
       const finding: AuditFinding = {
         id: `finding-discovery-${i + 1}`,
         line: claim.line,
         category: 'literature_discovery',
         streamType: 'discovery',
-        severity: nliResult.status === 'contradicted' ? 'Critical' : claim.severity,
-        type: nliResult.status === 'contradicted' ? 'Citation Contradiction' : claim.classification,
+        severity: bestEval.status === 'contradicted' ? 'Critical' : claim.severity,
+        type: bestEval.status === 'contradicted' ? 'Citation Contradiction' : claim.classification,
         claimText: claim.claimText,
         context: claim.contextSnippet,
-        entailmentStatus: nliResult.status,
-        contrastiveEvidence: nliResult.contrastiveEvidence,
+        entailmentStatus: bestEval.status,
+        contrastiveEvidence: {
+          manuscriptClaim: claim.claimText,
+          sourceQuote: bestEval.verbatimQuote || bestCandidate?.abstractSnippet || '',
+          hedgingSuggestion: bestEval.hedgingSuggestion,
+          reason: bestEval.reason,
+        },
         suggestedPatch: {
           diffRemove: claim.claimText,
           diffAdd: finalSuggestedFix || `${claim.claimText} ~\\cite{${recommendedBibKey}}`,
@@ -161,16 +271,15 @@ export class ClaimExtractionOrchestrator {
       };
 
       discoveryFindings.push(finding);
+      await yieldToMain();
     }
 
-    onProgress?.('Synthesizing Evidence Anchors...');
-    await new Promise((r) => setTimeout(r, 100));
+    telemetryState.activeStage = 'complete';
+    onTelemetryUpdate?.({ ...telemetryState, overallElapsedMs: Math.round(performance.now() - t0) });
 
     // Combine all findings
     const allFindings = [...integrityFindings, ...discoveryFindings];
-
-    // Convert to useReciteStore Claim structure
-    const reciteClaims = this.convertToReciteClaims(allFindings, texContent);
+    const reciteClaims = await this.convertToReciteClaims(allFindings, texContent, lineOffsets);
 
     const latencyMs = Math.round(performance.now() - t0);
     onProgress?.('Audit Complete.');
@@ -188,31 +297,36 @@ export class ClaimExtractionOrchestrator {
    * Deterministic AST Citation Integrity Engine:
    * Identifies missing BibTeX keys, phantom citations, syntax mismatches, and unreferenced records.
    */
-  private static runDeterministicAstIntegrity(
+  private static async runDeterministicAstIntegrity(
     texContent: string,
-    bibtexMap: Map<string, BibTeXEntry>
-  ): AuditFinding[] {
+    bibtexMap: Map<string, BibTeXEntry>,
+    lineOffsets: number[]
+  ): Promise<AuditFinding[]> {
     const findings: AuditFinding[] = [];
     if (!texContent) return findings;
 
     const citeRegex = /\\(?:auto|p|t|page|author|year)?cite[a-z]*\*?(?:\[.*?\])*\{([^}]+)\}/gi;
     let match: RegExpExecArray | null;
     let findingCounter = 1;
+    let loopCount = 0;
+
     const referencedKeys = new Set<string>();
 
     while ((match = citeRegex.exec(texContent)) !== null) {
-      const citeCommand = match[0];
-      const rawKeys = match[1];
-      const keys = rawKeys.split(',').map((k) => k.trim()).filter((k) => k.length > 0);
-      const startIndex = match.index;
-      const line = calculateLineNumber(texContent, startIndex);
-      const context = extractContextSnippet(texContent, startIndex, citeCommand.length, 75);
+      loopCount++;
+      if (loopCount % 60 === 0) {
+        await yieldToMain();
+      }
 
-      for (const key of keys) {
+      const line = calculateFastLineNumber(lineOffsets, match.index);
+      const rawKeys = match[1].split(',').map((k) => k.trim());
+      const context = extractContextSnippet(texContent, match.index, match[0].length);
+
+      for (const key of rawKeys) {
+        if (!key) continue;
         referencedKeys.add(key);
-        const existsInBib = bibtexMap.has(key);
 
-        if (!existsInBib) {
+        if (!bibtexMap.has(key)) {
           findings.push({
             id: `finding-integrity-${findingCounter++}`,
             line,
@@ -223,10 +337,10 @@ export class ClaimExtractionOrchestrator {
             citationKey: key,
             context,
             suggestedPatch: {
-              diffRemove: citeCommand,
-              diffAdd: `\\cite{${key}} % [Requires @article entry in bibliography]`,
+              diffRemove: `\\cite{${key}}`,
+              diffAdd: `\\cite{${key}} % Missing from bibliography`,
             },
-            suggestedFix: `Add @article{${key}, ...} to bibliography or update citation key.`,
+            suggestedFix: `\\cite{${key}}`,
             verifiedSources: [],
             status: 'unresolved',
           });
@@ -234,12 +348,34 @@ export class ClaimExtractionOrchestrator {
       }
     }
 
-    // Check for syntax mismatches
-    const malformedCiteRegex = /\\cite\{[^}]*,\s*\}/g;
-    while ((match = malformedCiteRegex.exec(texContent)) !== null) {
-      const startIndex = match.index;
-      const line = calculateLineNumber(texContent, startIndex);
-      const context = extractContextSnippet(texContent, startIndex, match[0].length, 60);
+    // Unreferenced bibliography entries
+    for (const [key, entry] of Array.from(bibtexMap.entries())) {
+      if (!referencedKeys.has(key)) {
+        findings.push({
+          id: `finding-integrity-${findingCounter++}`,
+          line: 1,
+          category: 'bib_mismatch',
+          streamType: 'integrity',
+          severity: 'Low',
+          type: 'Unreferenced Citation Key',
+          citationKey: key,
+          context: `BibTeX entry '${key}' (${entry.title || 'Untitled'}) is defined in .bib but never cited in manuscript text.`,
+          suggestedPatch: {
+            diffRemove: `@${entry.type}{${key}, ...}`,
+            diffAdd: `% Unreferenced @${entry.type}{${key}} removed`,
+          },
+          suggestedFix: `\\cite{${key}}`,
+          verifiedSources: [],
+          status: 'unresolved',
+        });
+      }
+    }
+
+    // Syntax check for trailing commas in citation macros
+    const malformedMacroRegex = /\\(?:auto|p|t|page|author|year)?cite[a-z]*\*?(?:\[.*?\])*\{[^}]*,\s*\}/gi;
+    while ((match = malformedMacroRegex.exec(texContent)) !== null) {
+      const line = calculateFastLineNumber(lineOffsets, match.index);
+      const context = extractContextSnippet(texContent, match.index, match[0].length);
 
       findings.push({
         id: `finding-integrity-${findingCounter++}`,
@@ -263,25 +399,24 @@ export class ClaimExtractionOrchestrator {
   }
 
   /**
-   * Structured Scientific Claim Extractor:
-   * Employs multi-provider LLM structured JSON extraction with universal heuristic fallback.
+   * Structured Scientific Claim Extractor & Query Deconstructor:
+   * Employs multi-provider LLM structured JSON extraction with orthogonal query decomposition.
    */
   private static async extractScientificClaims(
     texContent: string,
     bibtexMap: Map<string, BibTeXEntry>,
-    onProgress?: (msg: string) => void
+    onProgress?: (msg: string) => void,
+    signal?: AbortSignal
   ): Promise<StructuredClaimExtraction[]> {
     const settings = useSettingsStore.getState();
     const activeKey = settings.getActiveKey();
     const provider = settings.activeProvider;
 
-    // If an API key is entered in the UI settings, attempt multi-provider structured LLM extraction
-    if (activeKey && activeKey.trim().length > 0) {
+    if (activeKey && activeKey.trim().length > 0 && !signal?.aborted) {
       try {
-        onProgress?.(`Querying ${provider.toUpperCase()} LLM for structured claim extraction...`);
+        onProgress?.(`Deconstructing claims with ${provider.toUpperCase()} LLM...`);
         const llmClaims = await this.extractWithLLM(texContent, provider, activeKey, settings.activeModelId);
         if (llmClaims.length > 0) {
-          console.log(`[ClaimExtractionOrchestrator] Successfully extracted ${llmClaims.length} claims via ${provider}`);
           return llmClaims;
         }
       } catch (err: any) {
@@ -289,13 +424,12 @@ export class ClaimExtractionOrchestrator {
       }
     }
 
-    // Universal domain heuristic claim extractor (works on any document offline)
+    // Universal domain heuristic claim extractor
     return this.extractUniversalHeuristics(texContent, bibtexMap);
   }
 
   /**
-   * Multi-provider LLM-based structured JSON claim extraction.
-   * Handles Google Gemini, Anthropic Claude, OpenAI, OpenRouter, and Ollama.
+   * Multi-provider LLM-based structured JSON claim extraction and query decomposition.
    */
   private static async extractWithLLM(
     texContent: string,
@@ -304,9 +438,13 @@ export class ClaimExtractionOrchestrator {
     modelId: string
   ): Promise<StructuredClaimExtraction[]> {
     const prompt = `You are a scientific peer reviewer auditing a LaTeX manuscript.
-Analyze the following manuscript text and extract all declarative scientific, empirical, or theoretical assertions that lack citation or require verification.
+Analyze the following manuscript text and extract all declarative empirical, theoretical, or factual assertions that lack citation.
+For EACH extracted claim, deconstruct it into 3-4 diverse, high-precision academic search queries:
+1. Originator query (core keywords and materials)
+2. Empirical parameters query (exact measured values, thresholds, methods)
+3. Canonical literature / review query
 
-Return ONLY a valid JSON array of objects with the exact schema:
+Return ONLY a valid JSON array matching schema:
 [
   {
     "line": 1,
@@ -314,238 +452,134 @@ Return ONLY a valid JSON array of objects with the exact schema:
     "claimText": "exact declarative assertion from text",
     "classification": "Unsupported Assertion",
     "severity": "Critical",
-    "searchQueries": ["academic search query 1", "academic search query 2"]
+    "searchQueries": ["originator query", "empirical parameter query", "canonical query"]
   }
 ]
 
 Manuscript content:
 ${texContent.slice(0, 14000)}`;
 
-    let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-    let headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    };
-    let payload: any = {};
-
+    let rawJson = '';
     if (provider === 'google') {
       const model = modelId || 'gemini-1.5-flash';
-      endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      headers = { 'Content-Type': 'application/json' };
-      payload = {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: 'application/json',
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        rawJson = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      }
+    } else if (provider === 'anthropic') {
+      const url = 'https://api.anthropic.com/v1/messages';
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
         },
-      };
-    } else if (provider === 'anthropic') {
-      endpoint = 'https://api.anthropic.com/v1/messages';
-      headers = {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      };
-      payload = {
-        model: modelId || 'claude-3-5-sonnet-20241022',
-        max_tokens: 4096,
-        system: 'You are an academic manuscript auditor. Respond ONLY with a valid JSON array.',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-      };
-    } else if (provider === 'openai') {
-      endpoint = 'https://api.openai.com/v1/chat/completions';
-      headers = {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      };
-      payload = {
-        model: modelId || 'gpt-4o',
-        messages: [
-          { role: 'system', content: 'You are an academic manuscript auditor. Respond ONLY with a valid JSON array.' },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.1,
-      };
-    } else if (provider === 'openrouter') {
-      endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-      headers = {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://recite.ai',
-        'X-Title': 'ReciteAI Academic Auditor',
-      };
-      payload = {
-        model: modelId || 'anthropic/claude-3.5-sonnet',
-        messages: [
-          { role: 'system', content: 'You are an academic manuscript auditor. Respond ONLY with a valid JSON array.' },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.1,
-      };
-    } else if (provider === 'ollama') {
-      endpoint = 'http://127.0.0.1:11434/api/generate';
-      headers = { 'Content-Type': 'application/json' };
-      payload = {
-        model: modelId || 'llama3',
-        prompt,
-        stream: false,
-        format: 'json',
-      };
-    }
-
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30000), // 30-second timeout for large manuscripts
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`LLM API returned status ${res.status}: ${errText.slice(0, 150)}`);
-    }
-
-    const data = await res.json();
-    let rawOutput = '';
-
-    if (provider === 'google') {
-      rawOutput = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    } else if (provider === 'anthropic') {
-      rawOutput = data.content?.[0]?.text || '';
-    } else if (provider === 'ollama') {
-      rawOutput = data.response || '';
+        body: JSON.stringify({
+          model: modelId || 'claude-3-5-sonnet-20241022',
+          max_tokens: 4096,
+          system: 'Respond ONLY with a valid JSON array.',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        rawJson = data.content?.[0]?.text || '';
+      }
     } else {
-      rawOutput = data.choices?.[0]?.message?.content || data.content?.[0]?.text || '';
+      const endpoint = provider === 'openrouter'
+        ? 'https://openrouter.ai/api/v1/chat/completions'
+        : 'https://api.openai.com/v1/chat/completions';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      };
+      if (provider === 'openrouter') {
+        headers['HTTP-Referer'] = 'https://recite.ai';
+        headers['X-Title'] = 'CiteAssist AI Claim Deconstruction';
+      }
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: modelId || (provider === 'openrouter' ? 'anthropic/claude-3.5-sonnet' : 'gpt-4o'),
+          messages: [
+            { role: 'system', content: 'You are an academic manuscript auditor. Respond ONLY with a valid JSON array.' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.1,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        rawJson = data.choices?.[0]?.message?.content || '';
+      }
     }
 
-    const jsonMatch = rawOutput.match(/\[[\s\S]*\]/);
-
-    if (jsonMatch) {
-      const parsed: StructuredClaimExtraction[] = JSON.parse(jsonMatch[0]);
-      return parsed.map((item) => ({
-        line: item.line || 1,
-        contextSnippet: item.contextSnippet || item.claimText,
-        claimText: item.claimText,
-        classification: item.classification || 'Unsupported Assertion',
-        severity: item.severity || 'Medium',
-        searchQueries: Array.isArray(item.searchQueries) ? item.searchQueries : [item.claimText.slice(0, 60)],
-      }));
+    if (rawJson) {
+      const match = rawJson.match(/\[[\s\S]*\]/);
+      if (match) {
+        return JSON.parse(match[0]);
+      }
     }
 
     return [];
   }
 
   /**
-   * Universal Domain NLP Heuristic Extractor:
-   * Analyzes any scientific manuscript offline by detecting empirical assertions, measurements,
-   * and scientific claims that lack citations.
+   * Universal heuristic claim extractor (offline fallback).
    */
-  private static extractUniversalHeuristics(
+  private static async extractUniversalHeuristics(
     texContent: string,
     bibtexMap: Map<string, BibTeXEntry>
-  ): StructuredClaimExtraction[] {
+  ): Promise<StructuredClaimExtraction[]> {
     const claims: StructuredClaimExtraction[] = [];
     if (!texContent) return claims;
 
-    const paragraphs = texContent.split(/\n\s*\n/);
-    let searchOffset = 0;
-
-    // 1. Primary Targeted Domain Patterns (Quantum spin liquids & materials physics)
-    const assertionPatterns = [
-      {
-        regex: /(confirms?\s+the\s+absence\s+of\s+[^.]+?down\s+to\s+\d+\s*(?:mK|K|T|GHz))/i,
-        classification: 'Unsupported Assertion',
-        severity: 'Medium' as FindingSeverity,
-        buildQueries: (match: string) => [
-          'Spin Liquid State Triangular Lattice optical spectroscopy gap openings',
-          'Organic triangular antiferromagnet gapless excitations',
-        ],
-      },
-      {
-        regex: /(RF\s+phase\s+coherence\s+was\s+sustained\s+by\s+[^.]+\b(?:coaxial|transmission|insertion loss)\b[^.]+)/i,
-        classification: 'Unsupported Assertion',
-        severity: 'Medium' as FindingSeverity,
-        buildQueries: (match: string) => [
-          'Cryogenic coaxial transmission line insertion loss RF phase coherence',
-          'Double-shielded transmission line high field NMR probe',
-        ],
-      },
-      {
-        regex: /(directly\s+verifying\s+gapless\s+fermionic\s+spinon\s+excitations\s+with\s+a\s+constant\s+density\s+of\s+states[^.]+)/i,
-        classification: 'Weak Attribution',
-        severity: 'Critical' as FindingSeverity,
-        buildQueries: (match: string) => [
-          'Gapless fermionic spinon excitations constant density of states',
-          'Knight shift spin susceptibility scaling triangular antiferromagnet',
-        ],
-      },
-      {
-        regex: /(quantum\s+fluctuations\s+prevent\s+magnetic\s+ordering\s+even\s+at\s+zero\s+temperature[^.]*)/i,
-        classification: 'Empirical Gap',
-        severity: 'Low' as FindingSeverity,
-        buildQueries: (match: string) => [
-          'Quantum spin liquid triangular lattice Heisenberg antiferromagnet',
-          'Frustrated quantum spin systems ground state',
-        ],
-      },
+    const claimTriggers = [
+      { regex: /\b(?:reveals?|demonstrates?|verif(?:ies|ying)|confirms?)\s+that\b/i, type: 'Unsupported Assertion', severity: 'Critical' as FindingSeverity },
+      { regex: /\b(?:remains?\s+finite|absence\s+of|diverges?\s+as|scales?\s+with)\b/i, type: 'Empirical Gap', severity: 'Critical' as FindingSeverity },
+      { regex: /\b(?:in\s+agreement\s+with|consistent\s+with|as\s+reported\s+in)\b/i, type: 'Weak Attribution', severity: 'Medium' as FindingSeverity },
+      { regex: /\b(?:\d+\s*(?:mK|K|T|GHz|mW|meV|nm|%))\b/i, type: 'Unsupported Assertion', severity: 'Medium' as FindingSeverity },
     ];
 
-    for (const para of paragraphs) {
-      const trimmed = para.trim();
-      const pIndex = texContent.indexOf(para, searchOffset);
-      if (pIndex !== -1) searchOffset = pIndex + para.length;
-      if (!trimmed || trimmed.startsWith('%') || trimmed.startsWith('\\begin{equation}') || trimmed.startsWith('\\documentclass')) continue;
+    const lines = texContent.split('\n');
 
-      // Check targeted patterns first
-      for (const pattern of assertionPatterns) {
-        const match = pattern.regex.exec(trimmed);
-        if (match) {
-          const claimText = match[1].trim();
-          const matchStart = pIndex !== -1 ? pIndex + match.index : 0;
-          const line = calculateLineNumber(texContent, matchStart);
-          const contextSnippet = extractContextSnippet(texContent, matchStart, claimText.length, 60);
-
-          claims.push({
-            line,
-            contextSnippet,
-            claimText,
-            classification: pattern.classification,
-            severity: pattern.severity,
-            searchQueries: pattern.buildQueries(claimText),
-            startIndex: matchStart,
-            endIndex: matchStart + claimText.length,
-          });
-        }
+    for (let i = 0; i < lines.length; i++) {
+      if (i % 60 === 0) {
+        await yieldToMain();
       }
-    }
 
-    // 2. Universal Generalized Sentence Extraction (if targeted patterns yield fewer than 3 claims)
-    if (claims.length < 3) {
-      const sentences = texContent
-        .replace(/\\begin\{equation\}[\s\S]*?\\end\{equation\}/g, '')
-        .split(/(?<=[.?!])\s+/);
+      const lineText = lines[i];
+      if (lineText.trim().startsWith('%') || lineText.trim().startsWith('\\begin{') || lineText.trim().startsWith('\\end{')) {
+        continue;
+      }
 
-      const empiricalVerbs = /\b(demonstrates?|confirms?|reveals?|verifies?|exhibits?|measured|observed|calculated|yielded|suggests?|proves?|proposes?)\b/i;
-      const quantitativeSignal = /(\d+(?:\.\d+)?\s*(?:mK|K|T|GHz|MHz|%|nm|µm|meV|eV|dB|mW))/;
+      const hasCitation = /\\(?:auto|p|t|page|author|year)?cite[a-z]*\*?(?:\[.*?\])*\{([^}]+)\}/i.test(lineText);
 
-      let sOffset = 0;
-      for (const sentence of sentences) {
-        const clean = sentence.trim();
-        const sIndex = texContent.indexOf(sentence, sOffset);
-        if (sIndex !== -1) sOffset = sIndex + sentence.length;
+      for (const trigger of claimTriggers) {
+        if (trigger.regex.test(lineText)) {
+          const clean = lineText.replace(/\\(?:sub)*section\*?\{[^}]+\}/g, '').trim();
+          if (clean.length < 25) continue;
 
-        if (clean.length < 40 || clean.length > 250 || clean.startsWith('%') || clean.startsWith('\\')) continue;
-
-        // If sentence has strong empirical assertions but NO in-sentence citation tag
-        if ((empiricalVerbs.test(clean) || quantitativeSignal.test(clean)) && !clean.includes('\\cite')) {
-          const line = calculateLineNumber(texContent, sIndex !== -1 ? sIndex : 0);
-          const queryWords = clean
-            .replace(/[^\w\s]/g, '')
+          const line = i + 1;
+          const sIndex = texContent.indexOf(lineText);
+          const keywords = clean
+            .replace(/[^\w\s-]/g, ' ')
             .split(/\s+/)
             .filter((w) => w.length > 3)
-            .slice(0, 7)
+            .slice(0, 5)
             .join(' ');
 
           if (!claims.some((c) => Math.abs(c.line - line) <= 1)) {
@@ -553,15 +587,19 @@ ${texContent.slice(0, 14000)}`;
               line,
               contextSnippet: clean,
               claimText: clean,
-              classification: 'Unsupported Assertion',
-              severity: 'Medium',
-              searchQueries: [queryWords, clean.slice(0, 60)],
+              classification: hasCitation ? 'Weak Attribution' : trigger.type,
+              severity: trigger.severity,
+              searchQueries: [
+                keywords,
+                `${keywords} experimental benchmark`,
+                clean.slice(0, 60),
+              ],
               startIndex: sIndex !== -1 ? sIndex : 0,
               endIndex: (sIndex !== -1 ? sIndex : 0) + clean.length,
             });
           }
         }
-        if (claims.length >= 6) break;
+        if (claims.length >= 8) break;
       }
     }
 
@@ -571,51 +609,60 @@ ${texContent.slice(0, 14000)}`;
   /**
    * Converts AuditFinding array to Claim[] structure for useReciteStore.
    */
-  private static convertToReciteClaims(
+  private static async convertToReciteClaims(
     findings: AuditFinding[],
-    texContent: string
-  ): Claim[] {
-    return findings.map((f) => {
+    texContent: string,
+    lineOffsets: number[]
+  ): Promise<Claim[]> {
+    const claims: Claim[] = [];
+
+    for (let i = 0; i < findings.length; i++) {
+      if (i % 60 === 0) {
+        await yieldToMain();
+      }
+
+      const f = findings[i];
       const text = f.claimText || f.context || 'Literature Assertion';
-      const startIndex = f.line > 0 ? findCharacterOffsetForLine(texContent, f.line) : 0;
+      const startIndex = f.line > 0 && f.line <= lineOffsets.length ? lineOffsets[f.line - 1] : 0;
       const bestSource = f.verifiedSources?.[0];
 
-      let status: ClaimStatus = f.status === 'resolved' || f.status === 'accepted' ? 'accepted' : 'pending';
+      const status: ClaimStatus = f.status === 'resolved' || f.status === 'accepted' ? 'accepted' : 'pending';
       const category: ClaimCategory = f.category === 'bib_mismatch' ? 'Theoretical Assertion' : 'Literature Claim';
       const streamType: 'integrity' | 'discovery' = f.streamType || (f.category === 'bib_mismatch' ? 'integrity' : 'discovery');
 
-      return {
+      const sev = (f.severity || 'Medium').toLowerCase();
+      const mappedSeverity = sev === 'critical' || sev === 'high' ? 'High' : sev === 'low' ? 'Low' : 'Medium';
+
+      claims.push({
         id: f.id,
         text,
         category,
         streamType,
-        severity: (f.severity?.toLowerCase() === 'critical' ? 'Critical' : f.severity?.toLowerCase() === 'high' ? 'High' : f.severity?.toLowerCase() === 'medium' ? 'Medium' : 'Low') as any,
+        severity: mappedSeverity,
         status,
-        lineIndex: f.line,
         startIndex,
         endIndex: startIndex + text.length,
-        context: f.context,
+        lineIndex: f.line,
+        fileId: f.fileId || 'main.tex',
         citationKey: f.citationKey,
         auditType: f.type as any,
-        searchQuery: text.slice(0, 80),
-        suggestedFix: f.suggestedFix || f.suggestedPatch?.diffAdd,
+        context: f.context,
+        suggestedFix: f.suggestedFix,
+        isRetracted: f.isRetracted || false,
+
         acceptedPaper: bestSource
           ? {
-              paperId: `src-${f.id}`,
               title: bestSource.title,
               authors: bestSource.authors,
               year: bestSource.year,
               venue: bestSource.venue,
               doi: bestSource.doi,
               url: bestSource.doi ? `https://doi.org/${bestSource.doi}` : undefined,
-              abstractExcerpt: bestSource.abstractExcerpt || bestSource.abstractSnippet,
-              abstractSnippet: bestSource.abstractSnippet,
-              verificationStatus: 'verified',
-              matchScore: Math.round(bestSource.relevanceScore * 100),
+              bibtexKey: bestSource.bibtexKey,
+              bibtexEntry: bestSource.bibtexEntry,
             }
           : undefined,
-        suggestedPapers: (f.verifiedSources || []).map((s, idx) => ({
-          paperId: `paper-${f.id}-${idx}`,
+        suggestedPapers: f.verifiedSources?.map((s) => ({
           title: s.title,
           authors: s.authors,
           year: s.year,
@@ -626,33 +673,52 @@ ${texContent.slice(0, 14000)}`;
           abstractSnippet: s.abstractSnippet,
           verificationStatus: s.verificationStatus,
           matchScore: Math.round(s.relevanceScore * 100),
+          bibtexKey: s.bibtexKey,
+          bibtexEntry: s.bibtexEntry,
+          citationCount: s.citationCount,
+          influentialCitationCount: s.influentialCitationCount,
         })),
-      };
-    });
+      });
+    }
+
+    return claims;
   }
 }
 
 /**
- * Calculates 1-based line number for a character offset in text.
+ * Precomputes character offsets for every newline in O(N) time.
  */
-function calculateLineNumber(text: string, charOffset: number): number {
-  if (charOffset <= 0) return 1;
-  const safeOffset = Math.min(charOffset, text.length);
-  const upToOffset = text.slice(0, safeOffset);
-  return upToOffset.split('\n').length;
+function buildLineOffsets(text: string): number[] {
+  const offsets: number[] = [0];
+  if (!text) return offsets;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\n') {
+      offsets.push(i + 1);
+    }
+  }
+  return offsets;
 }
 
 /**
- * Calculates the character offset for a 1-based line number.
+ * Calculates 1-based line number for a character offset using binary search in O(log L).
  */
-function findCharacterOffsetForLine(text: string, targetLine: number): number {
-  if (targetLine <= 1) return 0;
-  const lines = text.split('\n');
-  let offset = 0;
-  for (let i = 0; i < targetLine - 1 && i < lines.length; i++) {
-    offset += lines[i].length + 1;
+function calculateFastLineNumber(lineOffsets: number[], charOffset: number): number {
+  if (charOffset <= 0 || lineOffsets.length === 0) return 1;
+  let low = 0;
+  let high = lineOffsets.length - 1;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (lineOffsets[mid] === charOffset) {
+      return mid + 1;
+    }
+    if (lineOffsets[mid] < charOffset) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
   }
-  return offset;
+  return high + 1;
 }
 
 /**
