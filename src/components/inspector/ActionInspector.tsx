@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, startTransition, memo } from 'react';
 import { useReciteStore, StreamFilter, getClaimStream, computeIssueStatistics } from '@/lib/store';
 import { useAuditStore } from '@/store/useAuditStore';
 import type { Claim } from '@/lib/store';
@@ -14,61 +14,62 @@ import {
   Activity,
   Library,
   BookOpen,
-  CheckCircle2,
   AlertTriangle,
-  Flame,
   ShieldCheck,
-  Sparkles,
   Cpu,
   StopCircle,
   Clock,
   Terminal,
+  ExternalLink,
+  Copy,
+  Check,
 } from 'lucide-react';
 import CandidateCard from './CandidateCard';
 import ZoteroTab from './ZoteroTab';
 
 const TYPE_LABELS: Record<string, string> = {
-  MissingCitation: 'Potential Attribution Gap',
-  WeakCitation: 'Candidate Reference',
-  Hallucination: 'Unverified Empirical Claim',
-  Misattribution: 'Potential Key Mismatch',
-  'Missing BibTeX Key': 'Unresolved Reference Key',
-  'Missing Key': 'Unresolved Reference Key',
-  'Unsupported Assertion': 'Potential Empirical Gap',
-  'Weak Attribution': 'Candidate Attribution',
-  'Empirical Gap': 'Uncited Empirical Assertion',
-  'Syntax Mismatch': 'Possible Syntax Drift',
-  'Citation Contradiction': 'Literature Alignment Observation',
-  'Outdated Benchmark': 'Benchmark Horizon Observation',
+  MissingCitation: 'Attribution Gap',
+  WeakCitation: 'Candidate Ref',
+  Hallucination: 'Unverified Claim',
+  Misattribution: 'Key Mismatch',
+  'Missing BibTeX Key': 'Unresolved Key',
+  'Missing Key': 'Unresolved Key',
+  'Unsupported Assertion': 'Empirical Gap',
+  'Weak Attribution': 'Weak Attribution',
+  'Empirical Gap': 'Uncited Assertion',
+  'Syntax Mismatch': 'Syntax Drift',
+  'Citation Contradiction': 'Lit. Alignment',
+  'Outdated Benchmark': 'Benchmark Horizon',
 };
 
-export default function ActionInspector() {
-  const {
-    claims,
-    filteredClaims,
-    activeClaimIndex,
-    setActiveClaimIndex,
-    streamFilter,
-    setStreamFilter,
-    acceptCitation,
-    insertCitationAndBib,
-    copyCitationAndBib,
-    dismissClaim,
-    restoreClaim,
-    applyFix,
-    setActiveLineHighlight,
-    filterStatus,
-    setFilterStatus,
-  } = useReciteStore();
+// ── Atomic selector hooks — each subscribes to exactly one slice ─────────────
+// Isolates this inspector from unrelated store mutations (e.g. scrollLine,
+// cursorOffset, rawText changes during live typing).
+function ActionInspector() {
+  const claims               = useReciteStore((s) => s.claims);
+  const filteredClaims       = useReciteStore((s) => s.filteredClaims);
+  const activeClaimIndex     = useReciteStore((s) => s.activeClaimIndex);
+  const setActiveClaimIndex  = useReciteStore((s) => s.setActiveClaimIndex);
+  const streamFilter         = useReciteStore((s) => s.streamFilter);
+  const setStreamFilter      = useReciteStore((s) => s.setStreamFilter);
+  const acceptCitation       = useReciteStore((s) => s.acceptCitation);
+  const insertCitationAndBib = useReciteStore((s) => s.insertCitationAndBib);
+  const copyCitationAndBib   = useReciteStore((s) => s.copyCitationAndBib);
+  const dismissClaim         = useReciteStore((s) => s.dismissClaim);
+  const restoreClaim         = useReciteStore((s) => s.restoreClaim);
+  const applyFix             = useReciteStore((s) => s.applyFix);
+  const setActiveLineHighlight = useReciteStore((s) => s.setActiveLineHighlight);
+  const filterStatus         = useReciteStore((s) => s.filterStatus);
+  const setFilterStatus      = useReciteStore((s) => s.setFilterStatus);
 
-  const {
-    isAuditing,
-    telemetry,
-    cancelActiveAudit,
-  } = useAuditStore();
+  // Audit — subscribe only to the three scalars this component needs
+  const isAuditing      = useAuditStore((s) => s.isAuditing);
+  const telemetry       = useAuditStore((s) => s.telemetry);
+  const cancelActiveAudit = useAuditStore((s) => s.cancelActiveAudit);
 
   const [activeDetailTab, setActiveDetailTab] = useState<'remediation' | 'evidence' | 'telemetry' | 'health' | 'zotero'>('remediation');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [copiedBib, setCopiedBib] = useState<string | null>(null);
 
   // Live stopwatch during active audit
   useEffect(() => {
@@ -94,15 +95,26 @@ export default function ActionInspector() {
   const hasSuggestedFix = !!activeClaim?.suggestedFix;
   const auditTypeLabel = activeClaim?.auditType ? TYPE_LABELS[activeClaim.auditType] || activeClaim.auditType : null;
 
-  const stats = computeIssueStatistics(claims);
+  // Memoized stats — recomputes only when the claims array reference changes,
+  // not on every render triggered by scroll/cursor store mutations.
+  const stats = useMemo(() => computeIssueStatistics(claims), [claims]);
 
-  const handleRowSelect = (idx: number, lineIndex?: number) => {
-    setActiveClaimIndex(idx);
-    if (lineIndex) {
-      setActiveLineHighlight(lineIndex);
-      setTimeout(() => setActiveLineHighlight(null), 2500);
-    }
-  };
+  // Stable callback wrapped in startTransition so row clicks never block the
+  // 60 FPS typing thread. setActiveClaimIndex drives the detail drawer which
+  // may trigger expensive re-renders; marking it as a transition lets React
+  // defer it behind urgent input events.
+  const handleRowSelect = useCallback(
+    (idx: number, lineIndex?: number) => {
+      startTransition(() => {
+        setActiveClaimIndex(idx);
+        if (lineIndex) {
+          setActiveLineHighlight(lineIndex);
+          setTimeout(() => setActiveLineHighlight(null), 2500);
+        }
+      });
+    },
+    [setActiveClaimIndex, setActiveLineHighlight]
+  );
 
   // Find active trace for current claim
   const currentClaimTrace = telemetry?.traces
@@ -110,183 +122,131 @@ export default function ActionInspector() {
     : null;
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200 select-none overflow-hidden font-sans transition-colors min-w-0">
-      
-      {/* ── LIVE AUDIT TELEMETRY BANNER (Active when auditing) ─────────────── */}
-      {isAuditing && (
-        <div className="border-b border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-950/20 p-3 space-y-2.5 flex-shrink-0 transition-all">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-              </span>
-              <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Deep Agentic RAG Active</span>
-              </span>
-              {telemetry && (
-                <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-                  [Claim {telemetry.currentClaimIndex + 1}/{telemetry.totalClaims || 1}]
-                </span>
-              )}
-            </div>
+    <div className="flex flex-col h-full bg-zinc-950 text-zinc-200 select-none overflow-hidden font-sans transition-colors min-w-0">
 
-            <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1 text-[11px] font-mono font-medium text-zinc-600 dark:text-zinc-300 tabular-nums">
-                <Clock className="w-3 h-3 text-zinc-400" />
-                <span>{elapsedSeconds.toFixed(1)}s</span>
+      {/* ── COMPACT AUDIT TELEMETRY BAR (Active when auditing) ─────────── */}
+      {isAuditing && (
+        <div className="border-b border-zinc-800 bg-zinc-900/80 px-2.5 py-1.5 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            <span className="text-[11px] font-mono text-emerald-400">
+              Auditing
+            </span>
+            {telemetry && (
+              <span className="text-[10px] font-mono text-zinc-500">
+                [{telemetry.currentClaimIndex + 1}/{telemetry.totalClaims || 1}]
               </span>
-              <button
-                type="button"
-                onClick={cancelActiveAudit}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-sans font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 border border-rose-500/30 transition-colors cursor-pointer"
-                title="Abort active audit"
-              >
-                <StopCircle className="w-3 h-3" />
-                <span>Abort</span>
-              </button>
-            </div>
+            )}
           </div>
 
-          {/* Stepped Telemetry Progress Tree */}
-          {currentClaimTrace && (
-            <div className="p-2.5 rounded-lg bg-zinc-950/90 dark:bg-black/80 border border-zinc-800 text-[11px] font-mono text-zinc-300 space-y-1.5 shadow-inner">
-              <div className="flex items-center justify-between text-zinc-400 pb-1 border-b border-zinc-800/80">
-                <span className="truncate max-w-[280px] italic text-zinc-200">
-                  &ldquo;{currentClaimTrace.claimText.slice(0, 50)}...&rdquo;
-                </span>
-                <span className="text-[10px] text-emerald-400 uppercase font-semibold">
-                  {currentClaimTrace.stage.replace('_', ' ')}
-                </span>
-              </div>
-
-              {/* Step 1: Deconstruction */}
-              <div className="flex items-start gap-1.5">
-                <span className={currentClaimTrace.stage !== 'pending' ? 'text-emerald-400' : 'text-zinc-600'}>
-                  {currentClaimTrace.stage !== 'pending' ? '✓' : '○'}
-                </span>
-                <div className="flex-1">
-                  <span className="font-semibold text-zinc-200">1. Query Deconstruction:</span>
-                  <div className="pl-2 text-[10px] text-indigo-400/90 truncate">
-                    {currentClaimTrace.deconstructedQueries?.[0] || 'Analyzing semantic facets...'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Step 2: Dragnet */}
-              <div className="flex items-start gap-1.5">
-                <span className={currentClaimTrace.totalAbstractsHarvested > 0 ? 'text-emerald-400' : 'text-zinc-600'}>
-                  {currentClaimTrace.totalAbstractsHarvested > 0 ? '✓' : '○'}
-                </span>
-                <div className="flex-1">
-                  <span className="font-semibold text-zinc-200">2. Parallel Literature Dragnet:</span>
-                  <span className="text-zinc-400 ml-1">
-                    {currentClaimTrace.totalAbstractsHarvested} candidate abstracts harvested
-                  </span>
-                </div>
-              </div>
-
-              {/* Step 3: LLM Entailment Grading */}
-              <div className="flex items-start gap-1.5">
-                <span className={currentClaimTrace.stage === 'nli_grading' || currentClaimTrace.stage === 'bibtex_synthesis' || currentClaimTrace.stage === 'complete' ? 'text-emerald-400' : 'text-zinc-600'}>
-                  {currentClaimTrace.stage === 'nli_grading' ? '⟳' : currentClaimTrace.stage === 'bibtex_synthesis' || currentClaimTrace.stage === 'complete' ? '✓' : '○'}
-                </span>
-                <div className="flex-1">
-                  <span className="font-semibold text-zinc-200">3. LLM Entailment Verification:</span>
-                  {currentClaimTrace.evaluatedCandidates.length > 0 && (
-                    <span className="text-emerald-400 ml-1 font-bold">
-                      {currentClaimTrace.evaluatedCandidates[0]?.entailmentScore !== undefined
-                        ? `Top Candidate: ${currentClaimTrace.evaluatedCandidates[0].entailmentScore}%`
-                        : 'Grading abstracts...'}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-zinc-400 tabular-nums">
+              {elapsedSeconds.toFixed(1)}s
+            </span>
+            <button
+              type="button"
+              onClick={cancelActiveAudit}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono text-rose-400 hover:bg-rose-500/10 border border-rose-500/30 transition-colors cursor-pointer"
+              title="Abort active audit"
+            >
+              <StopCircle className="w-2.5 h-2.5" />
+              <span>Abort</span>
+            </button>
+          </div>
         </div>
       )}
 
-      {/* ── TOP PANEL (Height: 44%): Problems Table & 3-Way Stream Filter ───── */}
-      <div className="h-[44%] border-b border-zinc-200 dark:border-zinc-800 flex flex-col min-h-0 bg-white dark:bg-zinc-950">
-        
-        {/* Problems Header with 3-Way Segmented Filter Control */}
-        <div className="h-10 px-3 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/90 dark:bg-zinc-900/50 flex-shrink-0 gap-2">
-          {/* 3-Way Segmented Toggle */}
-          <div className="flex items-center p-0.5 rounded-lg bg-zinc-200/70 dark:bg-zinc-800/80 border border-zinc-300/60 dark:border-zinc-700/60 text-xs">
-            <button
-              onClick={() => setStreamFilter('all')}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer',
-                streamFilter === 'all'
-                  ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs font-bold'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-              )}
-            >
-              <span>All Issues</span>
-              <span className={cn(
-                'px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold',
-                streamFilter === 'all' ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200' : 'text-zinc-500'
-              )}>
-                {stats.totalCount}
-              </span>
-            </button>
+      {/* Telemetry trace — compact single-line for current stage */}
+      {isAuditing && currentClaimTrace && (
+        <div className="px-2.5 py-1 border-b border-zinc-800 bg-zinc-950 text-[10px] font-mono text-zinc-400 flex items-center gap-2 shrink-0 overflow-hidden">
+          <span className="text-zinc-600 shrink-0">
+            {currentClaimTrace.stage === 'claim_decomposition' && '1/3'}
+            {currentClaimTrace.stage === 'dragnet_harvesting' && '2/3'}
+            {(currentClaimTrace.stage === 'nli_grading' || currentClaimTrace.stage === 'bibtex_synthesis' || currentClaimTrace.stage === 'complete') && '3/3'}
+            {currentClaimTrace.stage === 'pending' && '0/3'}
+          </span>
+          <span className="text-emerald-400 uppercase shrink-0">
+            {currentClaimTrace.stage.replace('_', ' ')}
+          </span>
+          <span className="text-zinc-600 shrink-0">│</span>
+          <span className="truncate text-zinc-500">
+            {currentClaimTrace.totalAbstractsHarvested > 0
+              ? `${currentClaimTrace.totalAbstractsHarvested} abstracts`
+              : currentClaimTrace.deconstructedQueries?.[0] || 'Processing...'}
+          </span>
+        </div>
+      )}
 
-            <button
-              onClick={() => setStreamFilter('integrity')}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer',
-                streamFilter === 'integrity'
-                  ? 'bg-white dark:bg-zinc-900 text-rose-600 dark:text-rose-400 shadow-xs font-bold'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400'
-              )}
-              title="Stream A: Missing .bib keys, syntax mismatches, orphaned records"
-            >
-              <AlertTriangle className="w-3 h-3 text-rose-500" />
-              <span>Integrity Faults</span>
-              <span className={cn(
-                'px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold',
-                streamFilter === 'integrity' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400' : 'text-zinc-500'
-              )}>
-                {stats.integrityCount}
-              </span>
-            </button>
+      {/* ── TOP: High-Density Audit Data Grid ─────────────────────────── */}
+      <div className="flex flex-col min-h-0 flex-1">
 
-            <button
-              onClick={() => setStreamFilter('discovery')}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer',
-                streamFilter === 'discovery'
-                  ? 'bg-white dark:bg-zinc-900 text-sky-600 dark:text-sky-400 shadow-xs font-bold'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-sky-600 dark:hover:text-sky-400'
-              )}
-              title="Stream B: Unsupported assertions and empirical literature candidates"
-            >
-              <Sparkles className="w-3 h-3 text-sky-500" />
-              <span>Discoveries</span>
-              <span className={cn(
-                'px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold',
-                streamFilter === 'discovery' ? 'bg-sky-500/20 text-sky-600 dark:text-sky-400' : 'text-zinc-500'
-              )}>
-                {stats.discoveryCount}
-              </span>
-            </button>
+        {/* Filter bar — compact segmented control */}
+        <div className="h-7 px-2 flex items-center justify-between border-b border-zinc-800 bg-zinc-900/50 shrink-0 gap-2">
+          {/* Segmented filter pills */}
+          <div className="flex items-center gap-1 text-[10px] font-mono">
+            {([
+              {
+                id: 'all' as const,
+                label: 'All',
+                count: stats.totalCount,
+                activeClass: 'bg-zinc-800 text-zinc-100 font-bold border-zinc-600 shadow-[0_0_10px_rgba(255,255,255,0.12)]',
+                inactiveClass: 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 active:bg-zinc-700 active:text-zinc-100 active:border-zinc-500 active:shadow-[0_0_8px_rgba(255,255,255,0.1)]',
+              },
+              {
+                id: 'integrity' as const,
+                label: 'Integrity',
+                count: stats.integrityCount,
+                activeClass: 'bg-amber-950/70 text-amber-300 font-bold border-amber-500/60 shadow-[0_0_12px_rgba(245,158,11,0.45)]',
+                inactiveClass: 'border-transparent text-zinc-400 hover:text-amber-300 hover:bg-amber-950/30 active:bg-amber-950/70 active:text-amber-200 active:border-amber-500/60 active:shadow-[0_0_12px_rgba(245,158,11,0.45)]',
+              },
+              {
+                id: 'discovery' as const,
+                label: 'Discoveries',
+                count: stats.discoveryCount,
+                activeClass: 'bg-teal-950/70 text-cyan-300 font-bold border-cyan-400/60 shadow-[0_0_12px_rgba(6,182,212,0.45)]',
+                inactiveClass: 'border-transparent text-zinc-400 hover:text-cyan-300 hover:bg-teal-950/30 active:bg-teal-950/70 active:text-cyan-200 active:border-cyan-400/60 active:shadow-[0_0_12px_rgba(6,182,212,0.45)]',
+              },
+            ]).map(({ id, label, count, activeClass, inactiveClass }) => {
+              const isActive = streamFilter === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => startTransition(() => setStreamFilter(id))}
+                  className={cn(
+                    'px-2 py-0.5 rounded border transition-all duration-150 cursor-pointer select-none flex items-center gap-1.5 active:scale-[0.97]',
+                    isActive ? activeClass : inactiveClass
+                  )}
+                >
+                  <span>{label}</span>
+                  <span
+                    className={cn(
+                      'px-1 py-0.2 rounded-full text-[9px] font-mono',
+                      isActive ? 'bg-black/30 font-bold' : 'text-zinc-500'
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
-          {/* Right Status Counters */}
-          <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-400">
-            <span className="text-emerald-600 dark:text-emerald-400 font-medium">{stats.resolvedCount} Resolved</span>
+          {/* Status summary */}
+          <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-500">
+            <span className="text-emerald-400">{stats.resolvedCount} Resolved</span>
             {stats.dismissedCount > 0 && (
               <button
                 onClick={() => setFilterStatus(filterStatus === 'dismissed' ? 'All' : 'dismissed')}
                 className={cn(
-                  'px-1.5 py-0.5 rounded transition-colors cursor-pointer border',
+                  'px-1 py-0.5 rounded transition-colors cursor-pointer',
                   filterStatus === 'dismissed'
-                    ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-zinc-400'
-                    : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 border-transparent'
+                    ? 'bg-zinc-700 text-zinc-200'
+                    : 'text-zinc-500 hover:text-zinc-300'
                 )}
-                title="View or restore dismissed observations"
+                title="View dismissed"
               >
                 {stats.dismissedCount} Dismissed
               </button>
@@ -294,20 +254,21 @@ export default function ActionInspector() {
           </div>
         </div>
 
-        {/* Problems Table Column Headers */}
-        <div className="grid grid-cols-12 h-6 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/20 text-[11px] font-medium text-zinc-500 dark:text-zinc-400 px-2.5 items-center select-none flex-shrink-0">
-          <div className="col-span-2">Line</div>
-          <div className="col-span-2">Severity</div>
-          <div className="col-span-3">Advisory Observation</div>
-          <div className="col-span-3">Citation / Key</div>
-          <div className="col-span-2 text-right">Status</div>
+        {/* Column headers */}
+        <div className="flex items-center h-5 px-2 border-b border-zinc-800 bg-zinc-900/30 text-[9px] font-mono uppercase tracking-wider text-zinc-600 shrink-0 select-none">
+          <div className="w-10 shrink-0">L#</div>
+          <div className="w-6 shrink-0">Sev</div>
+          <div className="flex-1 min-w-0">Assertion</div>
+          <div className="w-36 shrink-0 hidden lg:block">Matched Source</div>
+          <div className="w-16 shrink-0 text-right">Entail</div>
+          <div className="w-24 shrink-0 text-right">Actions</div>
         </div>
 
-        {/* Dense Problems Rows */}
-        <div className="flex-1 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-900 text-xs">
+        {/* Data rows */}
+        <div className="flex-1 overflow-y-auto min-h-0">
           {filteredClaims.length === 0 ? (
-            <div className="py-8 text-center text-zinc-400 text-xs font-mono">
-              {filterStatus === 'dismissed' ? 'No dismissed observations.' : 'No matching problems in selected stream.'}
+            <div className="py-6 text-center text-zinc-600 text-[11px] font-mono">
+              {filterStatus === 'dismissed' ? 'No dismissed observations.' : 'No findings in selected stream.'}
             </div>
           ) : (
             filteredClaims.map((claim, idx) => {
@@ -315,7 +276,7 @@ export default function ActionInspector() {
               const lineNum = claim.lineIndex || Math.floor(claim.startIndex / 75) + 1;
               const citeMatch = claim.text.match(/\\cite[a-zA-Z]*\{([^}]+)\}/);
               const isIntegrity = getClaimStream(claim) === 'integrity';
-              
+
               const citeKey = claim.citationKey
                 ? claim.citationKey
                 : citeMatch
@@ -334,273 +295,212 @@ export default function ActionInspector() {
               const isCritical = sev === 'critical' || sev === 'high' || claim.isRetracted;
               const isMedium = sev === 'medium';
 
-              const sevLabel = isCritical ? 'Critical' : isMedium ? 'Medium' : 'Low';
-              
               let sevDotColor = 'bg-sky-400';
-              let sevTextColor = 'text-sky-600 dark:text-sky-400';
+              if (isItemResolved) sevDotColor = 'bg-emerald-500';
+              else if (isItemDismissed) sevDotColor = 'bg-zinc-500';
+              else if (isCritical) sevDotColor = 'bg-rose-500';
+              else if (isMedium) sevDotColor = 'bg-amber-400';
 
-              if (isItemResolved) {
-                sevDotColor = 'bg-emerald-500';
-                sevTextColor = 'text-emerald-600 dark:text-emerald-400';
-              } else if (isItemDismissed) {
-                sevDotColor = 'bg-zinc-400';
-                sevTextColor = 'text-zinc-500 dark:text-zinc-400';
-              } else if (isCritical) {
-                sevDotColor = 'bg-rose-500';
-                sevTextColor = 'text-rose-600 dark:text-rose-400';
-              } else if (isMedium) {
-                sevDotColor = 'bg-yellow-400';
-                sevTextColor = 'text-yellow-600 dark:text-yellow-400';
-              }
-
-              const statusText = claim.isRetracted ? 'Flagged' : isItemResolved ? 'Resolved' : isItemDismissed ? 'Dismissed' : 'Unresolved';
-              const statusColor = claim.isRetracted
-                ? 'text-rose-500 font-medium'
-                : isItemResolved
-                ? 'text-emerald-600 dark:text-emerald-400 font-medium'
-                : isItemDismissed
-                ? 'text-zinc-400 line-through'
-                : 'text-zinc-400';
+              const entailment = claim.suggestedPapers?.[0]?.matchScore;
 
               return (
                 <div
                   key={claim.id || idx}
                   onClick={() => handleRowSelect(idx, lineNum)}
                   className={cn(
-                    'grid grid-cols-12 px-2.5 py-1.5 items-center cursor-pointer transition-colors select-none text-xs group',
+                    'flex items-center px-2 py-1 cursor-pointer transition-colors text-[11px] font-mono border-l-2 group',
                     isSelected
-                      ? 'bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 font-medium border-l-2 border-emerald-500'
-                      : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/60 text-zinc-700 dark:text-zinc-300'
+                      ? 'bg-zinc-800/80 text-zinc-100 border-emerald-500'
+                      : 'hover:bg-zinc-900/80 text-zinc-400 border-transparent hover:border-zinc-700'
                   )}
                 >
-                  {/* Line */}
-                  <div className="col-span-2 font-mono text-[11px] text-zinc-400 dark:text-zinc-500 group-hover:text-zinc-700 dark:group-hover:text-zinc-300">
-                    L{String(lineNum).padStart(2, '0')}
+                  {/* L# */}
+                  <div className="w-10 shrink-0 text-zinc-500 group-hover:text-zinc-300">
+                    {lineNum}
                   </div>
 
-                  {/* Severity */}
-                  <div className={cn('col-span-2 flex items-center gap-1.5 text-[11px]', sevTextColor)}>
-                    <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', sevDotColor)} />
-                    <span className="truncate">{sevLabel}</span>
+                  {/* Sev dot */}
+                  <div className="w-6 shrink-0 flex items-center justify-center">
+                    <span className={cn('w-1.5 h-1.5 rounded-full', sevDotColor)} />
                   </div>
 
-                  {/* Type */}
-                  <div className="col-span-3 truncate text-[11px] text-zinc-600 dark:text-zinc-400 font-sans">
+                  {/* Assertion */}
+                  <div className="flex-1 min-w-0 truncate text-[11px] font-sans text-zinc-300 group-hover:text-zinc-100">
                     {TYPE_LABELS[claim.auditType || ''] || claim.auditType || claim.category || 'Observation'}
                   </div>
 
-                  {/* Citation Key */}
-                  <div className="col-span-3 truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {/* Matched Source */}
+                  <div className="w-36 shrink-0 hidden lg:block truncate text-[10px] text-zinc-500">
                     {citeKey}
                   </div>
 
-                  {/* Status */}
-                  <div className={cn('col-span-2 text-right text-[11px]', statusColor)}>
-                    {statusText}
+                  {/* Entailment */}
+                  <div className="w-16 shrink-0 text-right">
+                    {entailment !== undefined ? (
+                      <span className={cn(
+                        'text-[10px] font-bold',
+                        entailment >= 80 ? 'text-emerald-400' : entailment >= 50 ? 'text-amber-400' : 'text-zinc-500'
+                      )}>
+                        {entailment}%
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-zinc-700">--</span>
+                    )}
+                  </div>
+
+                  {/* Quick Actions */}
+                  <div className="w-24 shrink-0 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {claim.suggestedFix && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); applyFix(claim.id); }}
+                        className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors cursor-pointer"
+                        title="Apply fix"
+                      >
+                        Apply
+                      </button>
+                    )}
+                    {claim.suggestedPapers?.[0] && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); copyCitationAndBib(claim.id, claim.suggestedPapers![0]); }}
+                        className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-zinc-700 text-zinc-200 hover:bg-zinc-600 transition-colors cursor-pointer"
+                        title="Copy \\cite + bib"
+                      >
+                        Copy
+                      </button>
+                    )}
                   </div>
                 </div>
               );
             })
           )}
         </div>
-      </div>
 
-      {/* ── BOTTOM PANEL (Height: 56%): Focused Detail & Actionable Evidence ── */}
-      <div className="h-[56%] flex flex-col min-h-0 bg-white dark:bg-zinc-950">
-        {!activeClaim ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-600 text-xs space-y-2 p-6 text-center">
-            <FileSearch className="w-8 h-8 text-zinc-300 dark:text-zinc-700" />
-            <p className="font-medium text-zinc-600 dark:text-zinc-400">No observation selected</p>
-            <p className="text-[11px] text-zinc-400 dark:text-zinc-500 max-w-xs">
-              Select any row in the Problems pane above to view advisory details, candidate evidence cards, and patch diffs.
-            </p>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* Context Header & Detail Tabs */}
-            <div className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex-shrink-0">
-              <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 px-2 pt-1 gap-1">
-                <TabButton
-                  active={activeDetailTab === 'remediation'}
-                  onClick={() => setActiveDetailTab('remediation')}
-                  icon={<Wrench className="w-3.5 h-3.5" />}
-                  label="Advisory Remediation"
-                />
-                <TabButton
-                  active={activeDetailTab === 'evidence'}
-                  onClick={() => setActiveDetailTab('evidence')}
-                  icon={<BookOpen className="w-3.5 h-3.5" />}
-                  label={`Candidate Cards (${activeClaim.suggestedPapers?.length || 0})`}
-                />
-                <TabButton
-                  active={activeDetailTab === 'telemetry'}
-                  onClick={() => setActiveDetailTab('telemetry')}
-                  icon={<Cpu className="w-3.5 h-3.5" />}
-                  label="Agentic Trace"
-                />
-                <TabButton
-                  active={activeDetailTab === 'health'}
-                  onClick={() => setActiveDetailTab('health')}
-                  icon={<Activity className="w-3.5 h-3.5" />}
-                  label="Integrity Diagnostics"
-                />
-                <TabButton
-                  active={activeDetailTab === 'zotero'}
-                  onClick={() => setActiveDetailTab('zotero')}
-                  icon={<Library className="w-3.5 h-3.5" />}
-                  label="Zotero Sync"
-                />
-              </div>
+        {/* ── INLINE DETAIL DRAWER (Bottom Split) ─────────────────────── */}
+        {activeClaim && (
+          <div className="border-t border-zinc-800 flex flex-col min-h-[180px] max-h-[50%] bg-zinc-950 shrink-0">
+            {/* Detail tab strip */}
+            <div className="flex items-center border-b border-zinc-800 bg-zinc-900/40 px-1 shrink-0">
+              <DetailTab active={activeDetailTab === 'remediation'} onClick={() => setActiveDetailTab('remediation')} label="Diff & Fix" />
+              <DetailTab active={activeDetailTab === 'evidence'} onClick={() => setActiveDetailTab('evidence')} label={`Cards (${activeClaim.suggestedPapers?.length || 0})`} />
+              <DetailTab active={activeDetailTab === 'telemetry'} onClick={() => setActiveDetailTab('telemetry')} label="Trace" />
+              <DetailTab active={activeDetailTab === 'health'} onClick={() => setActiveDetailTab('health')} label="Diag." />
+              <DetailTab active={activeDetailTab === 'zotero'} onClick={() => setActiveDetailTab('zotero')} label="Zotero" />
 
-              {/* Status Header Sub-Bar */}
-              <div className="px-3 py-1.5 flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-900 text-xs">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className={cn(
-                      'px-2 py-0.5 text-[10px] font-medium rounded border',
-                      isRetracted
-                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                        : isAccepted
-                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                        : isDismissed
-                        ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700'
-                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700'
-                    )}
-                  >
-                    {isRetracted ? 'Flagged' : isAccepted ? 'Resolved' : isDismissed ? 'Dismissed' : 'Unresolved'}
-                  </span>
-
-                  <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                    {activeClaim.severity === 'High' || activeClaim.severity === 'Critical' ? 'Critical Severity' : `${activeClaim.severity} Severity`}
-                  </span>
-
-                  {auditTypeLabel && (
-                    <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                      · {auditTypeLabel}
-                    </span>
-                  )}
-                </div>
+              {/* Right: status & dismiss */}
+              <div className="ml-auto flex items-center gap-1.5 pr-1">
+                <span className={cn(
+                  'px-1.5 py-0.5 text-[9px] font-mono font-bold rounded',
+                  isRetracted ? 'text-rose-400 bg-rose-500/10' :
+                  isAccepted ? 'text-emerald-400 bg-emerald-500/10' :
+                  isDismissed ? 'text-zinc-500 bg-zinc-800' :
+                  'text-zinc-400 bg-zinc-800'
+                )}>
+                  {isRetracted ? 'FLAG' : isAccepted ? 'OK' : isDismissed ? 'DIS' : 'OPEN'}
+                </span>
 
                 {isDismissed ? (
                   <button
                     onClick={() => restoreClaim(activeClaim.id)}
-                    className="text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer font-medium"
+                    className="text-[10px] text-emerald-400 hover:underline cursor-pointer font-mono"
                   >
-                    Restore Observation
+                    Restore
                   </button>
                 ) : (
                   <button
                     onClick={() => dismissClaim(activeClaim.id)}
-                    className="text-zinc-400 hover:text-rose-500 transition-colors p-0.5 rounded cursor-pointer text-[11px] flex items-center gap-1"
-                    title="Dismiss observation"
+                    className="p-0.5 rounded text-zinc-600 hover:text-rose-400 transition-colors cursor-pointer"
+                    title="Dismiss"
                   >
-                    <X className="w-3.5 h-3.5" />
-                    <span>Dismiss</span>
+                    <X className="w-3 h-3" />
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Scrollable Detail Body */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
-              {/* Context Blockquote */}
-              {activeClaim.context && (
-                <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 p-2.5 space-y-1">
-                  <div className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>Manuscript Context</span>
-                  </div>
-                  <p className="text-xs font-serif text-zinc-700 dark:text-zinc-300 leading-relaxed italic border-l-2 border-zinc-300 dark:border-zinc-700 pl-2.5 my-1">
-                    &quot;{activeClaim.context}&quot;
-                  </p>
-                </div>
-              )}
+            {/* Detail body — scrollable */}
+            <div className="flex-1 overflow-y-auto p-2.5 text-xs">
 
-              {/* Tab 1: Remediation & Unified Diff */}
+              {/* Tab 1: Juxtaposed Diff + Evidence */}
               {activeDetailTab === 'remediation' && (
-                <div className="space-y-3">
-                  {hasSuggestedFix ? (
-                    <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 overflow-hidden text-xs">
-                      {/* Diff Header */}
-                      <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100/70 dark:bg-zinc-900/60 text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-                        <div className="flex items-center gap-1.5">
-                          <Diff className="w-3.5 h-3.5 text-emerald-500" />
-                          <span>Suggested Remediation Patch</span>
-                        </div>
-                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Patch Ready</span>
-                      </div>
-
-                      {/* Diff Lines in strict font-mono */}
-                      <div className="p-2.5 space-y-1.5 font-mono text-[11px]">
-                        {/* Minus / Original */}
-                        <div className="rounded bg-rose-500/10 border-l-2 border-rose-500 px-2.5 py-1.5 text-rose-900 dark:text-rose-200 leading-relaxed whitespace-pre-wrap">
-                          <span className="font-bold mr-1.5 select-none text-rose-500">−</span>
-                          {activeClaim.text.replace(/\[\[MATH_BLOCK_\d+\]\]/g, ' [MATH] ')}
-                        </div>
-
-                        {/* Plus / Remediation */}
-                        <div className="rounded bg-emerald-500/10 border-l-2 border-emerald-500 px-2.5 py-1.5 text-emerald-900 dark:text-emerald-200 leading-relaxed whitespace-pre-wrap">
-                          <span className="font-bold mr-1.5 select-none text-emerald-500">+</span>
-                          {activeClaim.suggestedFix}
-                        </div>
-                      </div>
-
-                      {/* Discretionary 3-Way Action Bar */}
-                      <div className="p-2.5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40 flex items-center justify-between gap-2 flex-wrap">
-                        {/* Action 2: Copy \cite + Bib (if paper exists) */}
-                        {activeClaim.suggestedPapers && activeClaim.suggestedPapers[0] && (
-                          <button
-                            type="button"
-                            onClick={() => copyCitationAndBib(activeClaim.id, activeClaim.suggestedPapers![0])}
-                            className="px-2.5 py-1.5 font-sans text-xs font-medium rounded-md transition-colors bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-300 dark:border-zinc-700 cursor-pointer"
-                            title="Copy \cite{key} & @article block to clipboard"
-                          >
-                            Copy \cite + Bib
-                          </button>
-                        )}
-
-                        {/* Action 3: Dismiss */}
-                        <button
-                          type="button"
-                          onClick={() => dismissClaim(activeClaim.id)}
-                          className="px-2.5 py-1.5 font-sans text-xs font-medium rounded-md transition-colors bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-rose-500 border border-zinc-300 dark:border-zinc-700 cursor-pointer ml-auto"
-                        >
-                          Dismiss
-                        </button>
-
-                        {/* Action 1: Apply Suggestion */}
-                        <button
-                          type="button"
-                          onClick={() => applyFix(activeClaim.id)}
-                          className="flex items-center gap-1.5 font-sans text-xs font-semibold px-3 py-1.5 rounded-md transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs"
-                        >
-                          <Wrench className="w-3.5 h-3.5" />
-                          <span>Apply Suggestion</span>
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-4 rounded border border-dashed border-zinc-200 dark:border-zinc-800 text-center text-zinc-400 text-xs">
-                      No automated patch template available. Review candidate cards below.
+                <div className="space-y-2.5">
+                  {/* Manuscript context quote */}
+                  {activeClaim.context && (
+                    <div className="text-[11px] text-zinc-500 italic border-l-2 border-zinc-700 pl-2 truncate font-serif">
+                      &ldquo;{activeClaim.context}&rdquo;
                     </div>
                   )}
 
-                  {/* Fallback Candidate Preview */}
-                  {activeClaim.suggestedPapers && activeClaim.suggestedPapers.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 flex items-center justify-between">
-                        <span>Candidate Literature References ({activeClaim.suggestedPapers.length})</span>
+                  {hasSuggestedFix ? (
+                    <div className="flex gap-2 min-h-0">
+                      {/* Left: Evidence quote (if paper exists) */}
+                      {activeClaim.suggestedPapers?.[0]?.abstractExcerpt && (
+                        <div className="flex-1 min-w-0 bg-zinc-900/60 border border-zinc-800 rounded p-2 space-y-1">
+                          <div className="text-[9px] font-mono text-zinc-600 uppercase tracking-wider">Evidence Quote</div>
+                          <p className="text-[11px] text-zinc-300 italic font-serif leading-relaxed break-words">
+                            &ldquo;{activeClaim.suggestedPapers[0].abstractExcerpt}&rdquo;
+                          </p>
+                          {activeClaim.suggestedPapers[0].doi && (
+                            <a
+                              href={activeClaim.suggestedPapers[0].doi.startsWith('http') ? activeClaim.suggestedPapers[0].doi : `https://doi.org/${activeClaim.suggestedPapers[0].doi}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[10px] font-mono text-sky-400 hover:underline flex items-center gap-1"
+                            >
+                              <ExternalLink className="w-2.5 h-2.5" />
+                              DOI
+                            </a>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Right: Compact LaTeX diff */}
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        {/* Minus line */}
+                        <div className="rounded bg-rose-500/10 border-l-2 border-rose-500 px-2 py-1 text-rose-200 font-mono text-[10px] leading-relaxed whitespace-pre-wrap truncate">
+                          <span className="font-bold mr-1 text-rose-500 select-none">−</span>
+                          {activeClaim.text.replace(/\[\[MATH_BLOCK_\d+\]\]/g, ' [MATH] ').slice(0, 120)}
+                        </div>
+
+                        {/* Plus line */}
+                        <div className="rounded bg-emerald-500/10 border-l-2 border-emerald-500 px-2 py-1 text-emerald-200 font-mono text-[10px] leading-relaxed whitespace-pre-wrap truncate">
+                          <span className="font-bold mr-1 text-emerald-500 select-none">+</span>
+                          {activeClaim.suggestedFix!.slice(0, 120)}
+                        </div>
+
+                        {/* Compact action bar */}
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => applyFix(activeClaim.id)}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors cursor-pointer"
+                          >
+                            <Wrench className="w-2.5 h-2.5" />
+                            Apply Fix
+                          </button>
+
+                          {activeClaim.suggestedPapers?.[0] && (
+                            <button
+                              type="button"
+                              onClick={() => copyCitationAndBib(activeClaim.id, activeClaim.suggestedPapers![0])}
+                              className="px-2 py-1 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700 transition-colors cursor-pointer"
+                            >
+                              Copy \cite
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => dismissClaim(activeClaim.id)}
+                            className="px-2 py-1 rounded text-[10px] text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer ml-auto"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
                       </div>
-                      {activeClaim.suggestedPapers.map((paper, pIdx) => (
-                        <CandidateCard
-                          key={paper.paperId || pIdx}
-                          paper={paper}
-                          onAccept={(selected) => acceptCitation(activeClaim.id, selected)}
-                          onInsertAndBib={(selected) => insertCitationAndBib(activeClaim.id, selected)}
-                          onCopy={(selected) => copyCitationAndBib(activeClaim.id, selected)}
-                          onDismiss={() => dismissClaim(activeClaim.id)}
-                        />
-                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-3 border border-dashed border-zinc-800 text-center text-zinc-600 text-[11px] font-mono">
+                      No automated patch available. Review candidate cards.
                     </div>
                   )}
                 </div>
@@ -608,7 +508,7 @@ export default function ActionInspector() {
 
               {/* Tab 2: Candidate Evidence Cards */}
               {activeDetailTab === 'evidence' && (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {activeClaim.suggestedPapers && activeClaim.suggestedPapers.length > 0 ? (
                     activeClaim.suggestedPapers.map((paper, pIdx) => (
                       <CandidateCard
@@ -621,46 +521,43 @@ export default function ActionInspector() {
                       />
                     ))
                   ) : (
-                    <div className="p-8 text-center text-zinc-400 text-xs space-y-1">
-                      <BookOpen className="w-6 h-6 mx-auto text-zinc-300 dark:text-zinc-700" />
-                      <p className="font-medium text-zinc-600 dark:text-zinc-400">No candidate references found</p>
-                      <p className="text-[11px] text-zinc-500">Run audit or configure LLM Router in settings.</p>
+                    <div className="p-6 text-center text-zinc-600 text-[11px] font-mono space-y-1">
+                      <BookOpen className="w-5 h-5 mx-auto text-zinc-700" />
+                      <p>No candidate references found</p>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Tab 3: Agentic Telemetry & Reasoning Trace */}
+              {/* Tab 3: Agentic Telemetry Trace */}
               {activeDetailTab === 'telemetry' && (
-                <div className="space-y-3 font-mono text-xs">
-                  <div className="p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-950 text-zinc-200 space-y-2.5 shadow-inner">
-                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                      <span className="text-[11px] font-bold text-emerald-400 uppercase flex items-center gap-1.5">
-                        <Terminal className="w-3.5 h-3.5" />
-                        <span>Multi-Step Reasoning Telemetry</span>
+                <div className="space-y-2 font-mono text-[11px]">
+                  <div className="p-2.5 rounded border border-zinc-800 bg-zinc-900/60 text-zinc-300 space-y-1.5">
+                    <div className="flex items-center justify-between border-b border-zinc-800 pb-1.5">
+                      <span className="text-[10px] text-emerald-400 uppercase font-bold flex items-center gap-1">
+                        <Terminal className="w-3 h-3" />
+                        Reasoning Trace
                       </span>
-                      <span className="text-[10px] text-zinc-500">
-                        Claim ID: {activeClaim.id}
-                      </span>
+                      <span className="text-[9px] text-zinc-600">{activeClaim.id}</span>
                     </div>
 
-                    <div className="space-y-1.5 text-[11px]">
+                    <div className="space-y-1 text-[10px]">
                       <div className="text-zinc-400">
-                        <span className="text-zinc-500">Search Query:</span> {activeClaim.searchQuery || 'Deconstructed academic vector'}
+                        <span className="text-zinc-600">Query:</span> {activeClaim.searchQuery || 'Deconstructed vector'}
                       </div>
                       <div className="text-zinc-400">
-                        <span className="text-zinc-500">Evidence Candidates:</span> {activeClaim.suggestedPapers?.length || 0} harvested
+                        <span className="text-zinc-600">Candidates:</span> {activeClaim.suggestedPapers?.length || 0} harvested
                       </div>
                       <div className="text-zinc-400">
-                        <span className="text-zinc-500">Classification:</span> {activeClaim.category} &middot; {activeClaim.severity}
+                        <span className="text-zinc-600">Class:</span> {activeClaim.category} · {activeClaim.severity}
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t border-zinc-800 text-[10px] text-zinc-400 space-y-1">
-                      <div className="text-emerald-400/90 font-semibold">Verification Audit Log:</div>
-                      <p>✓ AST syntax validation passed with zero macro leaks.</p>
-                      <p>✓ OpenAlex & Crossref dragnet complete with 100% abstract reconstruction.</p>
-                      <p>✓ Natural Language Inference (NLI) validated directional entailment.</p>
+                    <div className="pt-1.5 border-t border-zinc-800 text-[9px] text-zinc-500 space-y-0.5">
+                      <div className="text-emerald-400/80 font-semibold">Verification Log:</div>
+                      <p>✓ AST validation passed.</p>
+                      <p>✓ OpenAlex & Crossref dragnet complete.</p>
+                      <p>✓ NLI entailment verified.</p>
                     </div>
                   </div>
                 </div>
@@ -668,29 +565,29 @@ export default function ActionInspector() {
 
               {/* Tab 4: Integrity Diagnostics */}
               {activeDetailTab === 'health' && (
-                <div className="p-3 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40 space-y-2.5 text-xs">
-                  <div className="flex items-center gap-2 font-medium text-zinc-900 dark:text-zinc-100">
-                    <Activity className="w-4 h-4 text-emerald-500" />
-                    <span>Citation Integrity Diagnostics</span>
+                <div className="p-2.5 rounded border border-zinc-800 bg-zinc-900/40 space-y-2 text-[11px]">
+                  <div className="flex items-center gap-1.5 font-bold text-zinc-200">
+                    <Activity className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Integrity Diagnostics</span>
                   </div>
-                  <p className="text-zinc-600 dark:text-zinc-400 leading-relaxed text-[11px]">
-                    Cross-referenced against Semantic Scholar, OpenAlex, and RetractionWatch databases.
+                  <p className="text-zinc-500 text-[10px]">
+                    Cross-referenced against Semantic Scholar, OpenAlex, and RetractionWatch.
                   </p>
-                  <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1.5 text-[11px]">
+                  <div className="pt-1.5 border-t border-zinc-800 space-y-1 text-[10px]">
                     <div className="flex justify-between">
-                      <span className="text-zinc-500">Retraction Status:</span>
-                      <span className={activeClaim.isRetracted ? 'text-rose-500 font-medium' : 'text-emerald-600 dark:text-emerald-400 font-medium'}>
+                      <span className="text-zinc-500">Retraction:</span>
+                      <span className={activeClaim.isRetracted ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>
                         {activeClaim.isRetracted ? 'Flagged' : 'Clear'}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-zinc-500">Severity:</span>
-                      <span className="font-medium text-zinc-800 dark:text-zinc-200">{activeClaim.severity}</span>
+                      <span className="text-zinc-200">{activeClaim.severity}</span>
                     </div>
                     {auditTypeLabel && (
                       <div className="flex justify-between">
                         <span className="text-zinc-500">Classification:</span>
-                        <span className="text-zinc-800 dark:text-zinc-200 font-medium">{auditTypeLabel}</span>
+                        <span className="text-zinc-200">{auditTypeLabel}</span>
                       </div>
                     )}
                   </div>
@@ -702,38 +599,48 @@ export default function ActionInspector() {
             </div>
           </div>
         )}
+
+        {/* Empty state when no claim selected and no claims exist */}
+        {!activeClaim && filteredClaims.length === 0 && !isAuditing && (
+          <div className="flex-shrink-0 py-8 text-center text-zinc-600 text-[11px] font-mono space-y-2">
+            <FileSearch className="w-6 h-6 mx-auto text-zinc-700" />
+            <p>No observations</p>
+            <p className="text-[10px] text-zinc-700 max-w-xs mx-auto">
+              Open a manuscript and run audit to populate findings.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
+export default memo(ActionInspector);
+
 // ─────────────────────────────────────────────────────────────────────────────
-// § TAB BUTTON
+// § DETAIL TAB BUTTON — Compact monochrome tab (memoized)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TabButton({
+const DetailTab = memo(function DetailTab({
   active,
   onClick,
-  icon,
   label,
 }: {
   active: boolean;
   onClick: () => void;
-  icon: React.ReactNode;
   label: string;
 }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        'flex-1 flex items-center justify-center gap-1.5 py-1.5 border-b-2 text-xs transition-colors cursor-pointer',
+        'px-2 py-1 text-[10px] font-mono border-b-2 transition-colors cursor-pointer',
         active
-          ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400 font-semibold bg-white dark:bg-zinc-900/50'
-          : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300 hover:bg-zinc-100/50 dark:hover:bg-zinc-900/30'
+          ? 'border-emerald-500 text-emerald-400 font-bold'
+          : 'border-transparent text-zinc-600 hover:text-zinc-300'
       )}
     >
-      {icon}
-      <span className="truncate">{label}</span>
+      {label}
     </button>
   );
-}
+});

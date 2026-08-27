@@ -14,8 +14,35 @@ import DOMPurify from 'dompurify';
 import { FileCode2, ChevronRight, WrapText, AlignLeft } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § DOM PURIFY CONFIG
+// § MODULE-LEVEL KaTeX LRU CACHE
+// Avoids re-running katex.renderToString + DOMPurify.sanitize for the same
+// formula on every re-render triggered by scroll/cursor store mutations.
+// Cap at 512 entries to bound memory usage on 10k-line manuscripts.
 // ─────────────────────────────────────────────────────────────────────────────
+
+const KATEX_CACHE_MAX = 512;
+const katexCache = new Map<string, string>();
+
+function renderKatexCached(formula: string, displayMode: boolean): string {
+  const cacheKey = `${displayMode ? 'D' : 'I'}:${formula}`;
+  const cached = katexCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  let html: string;
+  try {
+    html = katex.renderToString(formula, { displayMode, throwOnError: false });
+    html = safeKatexHtml(html);
+  } catch {
+    html = formula;
+  }
+
+  // Evict oldest entry when cap is reached (FIFO via Map insertion order)
+  if (katexCache.size >= KATEX_CACHE_MAX) {
+    katexCache.delete(katexCache.keys().next().value!);
+  }
+  katexCache.set(cacheKey, html);
+  return html;
+}
 
 function safeKatexHtml(html: string): string {
   if (typeof window === 'undefined') return html;
@@ -36,24 +63,28 @@ function safeKatexHtml(html: string): string {
 }
 
 export default function ManuscriptViewer() {
-  const {
-    parsedText,
-    rawText,
-    mathBlocks,
-    claims,
-    filteredClaims,
-    activeClaimIndex,
-    setActiveClaimIndex,
-    nextClaim,
-    prevClaim,
-    documentTitle,
-    fileFormat,
-    isAuditing,
-    bibtexContent,
-    softWrap,
-    setSoftWrap,
-    activeLineHighlight,
-  } = useReciteStore();
+  // ── High-frequency selectors (scroll/cursor) ─────────────────────────────────
+  // These fire on every scroll/click tick. Keeping them as separate atomic
+  // subscriptions means only the minimap scroll indicator re-renders on scroll,
+  // NOT the expensive renderedContent paragraph tree.
+  const activeLineHighlight = useReciteStore((s) => s.activeLineHighlight);
+  const softWrap    = useReciteStore((s) => s.softWrap);
+  const setSoftWrap = useReciteStore((s) => s.setSoftWrap);
+
+  // ── Render-critical selectors ─────────────────────────────────────────────
+  const parsedText         = useReciteStore((s) => s.parsedText);
+  const rawText            = useReciteStore((s) => s.rawText);
+  const mathBlocks         = useReciteStore((s) => s.mathBlocks);
+  const claims             = useReciteStore((s) => s.claims);
+  const filteredClaims     = useReciteStore((s) => s.filteredClaims);
+  const activeClaimIndex   = useReciteStore((s) => s.activeClaimIndex);
+  const setActiveClaimIndex = useReciteStore((s) => s.setActiveClaimIndex);
+  const nextClaim          = useReciteStore((s) => s.nextClaim);
+  const prevClaim          = useReciteStore((s) => s.prevClaim);
+  const documentTitle      = useReciteStore((s) => s.documentTitle);
+  const fileFormat         = useReciteStore((s) => s.fileFormat);
+  const isAuditing         = useReciteStore((s) => s.isAuditing);
+  const bibtexContent      = useReciteStore((s) => s.bibtexContent);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const activeClaimRef = useRef<HTMLSpanElement>(null);
@@ -171,15 +202,12 @@ export default function ManuscriptViewer() {
       if (part.startsWith('[[RECITEAI_QUARANTINE_') && mathBlocks.has(part)) {
         const mb = mathBlocks.get(part)!;
         try {
-          const html = katex.renderToString(mb.rawFormula, {
-            displayMode: mb.type === 'display',
-            throwOnError: false,
-          });
+        const html = renderKatexCached(mb.rawFormula, mb.type === 'display');
           return (
             <span
               key={pKey}
               className={mb.type === 'display' ? 'block my-6 text-center max-w-full overflow-x-auto py-2 bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded px-3 text-zinc-900 dark:text-zinc-100' : 'inline px-1 bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded text-zinc-900 dark:text-zinc-100'}
-              dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
+              dangerouslySetInnerHTML={{ __html: html }}
             />
           );
         } catch {
@@ -195,12 +223,12 @@ export default function ManuscriptViewer() {
         let formula = part.startsWith('$$') ? part.slice(2, -2) : part.slice(3, -3);
         formula = formula.trim().replace(/\\\\/g, '\\').replace(/\\t/g, '    ');
         try {
-          const html = katex.renderToString(formula, { displayMode: true, throwOnError: false });
+        const html = renderKatexCached(formula, true);
           return (
             <span
               key={pKey}
               className="block my-6 text-center max-w-full overflow-x-auto py-2 bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded px-3 text-zinc-900 dark:text-zinc-100"
-              dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
+              dangerouslySetInnerHTML={{ __html: html }}
             />
           );
         } catch {
@@ -216,12 +244,12 @@ export default function ManuscriptViewer() {
         let formula = part.startsWith('$') ? part.slice(1, -1) : part.slice(3, -3);
         formula = formula.trim().replace(/\\\\/g, '\\').replace(/\\t/g, ' ');
         try {
-          const html = katex.renderToString(formula, { displayMode: false, throwOnError: false });
+        const html = renderKatexCached(formula, false);
           return (
             <span
               key={pKey}
               className="inline px-1 bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded text-zinc-900 dark:text-zinc-100"
-              dangerouslySetInnerHTML={{ __html: safeKatexHtml(html) }}
+              dangerouslySetInnerHTML={{ __html: html }}
             />
           );
         } catch {

@@ -1,28 +1,16 @@
 'use client';
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import {
-  Shield,
-  Play,
-  StopCircle,
-  ChevronDown,
-  Zap,
-  AlertTriangle,
-  CheckCircle2,
   FolderOpen,
-  Cpu,
-  Database,
-  Network,
-  MemoryStick,
   Sparkles,
   FileCode2,
   FileText,
-  Sliders,
-  Terminal,
   Activity,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useReciteStore, LLMProvider, WorkspaceStatus } from '@/lib/store';
+import { useReciteStore } from '@/lib/store';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
 import { DEMO_MANUSCRIPT, DEMO_CLAIMS, DEMO_BIBTEX } from '@/lib/demo-data';
 import { ThemeProvider } from '@/components/ThemeProvider';
@@ -39,169 +27,19 @@ import ManuscriptViewer from '@/components/viewer/ManuscriptViewer';
 import ActionInspector from '@/components/inspector/ActionInspector';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 import VaultUnlockModal from '@/components/VaultUnlockModal';
+import { StatusBar } from '@/components/layout/StatusBar';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § CONSTANTS
+// § RESIZE HANDLE — Sleek 4px splitter with centered grab pill
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STATUS_BAR_H = 24; // px — absolute bottom taskbar
-
-const LLM_LABELS: Record<LLMProvider, string> = {
-  anthropic:  'Claude',
-  openai:     'OpenAI',
-  google:     'Gemini',
-  openrouter: 'OpenRouter',
-  ollama:     'Ollama',
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// § STATUS BAR — Clinical Lab Telemetry Taskbar
-// ─────────────────────────────────────────────────────────────────────────────
-
-function StatusBar() {
-  const { telemetry, workspace, license, llmRouter, docMetrics, cacheStatus, setTelemetry, setShowSettings } = useReciteStore();
-
-  useEffect(() => {
-    const onOnline = () => setTelemetry({ isOnline: true });
-    const onOffline = () => setTelemetry({ isOnline: false });
-    setTelemetry({ isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true });
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
-    };
-  }, [setTelemetry]);
-
-  useEffect(() => {
-    type PerfMemory = { usedJSHeapSize: number };
-    const poll = () => {
-      const mem = (performance as unknown as { memory?: PerfMemory }).memory;
-      if (mem) setTelemetry({ memUsedMB: Math.round(mem.usedJSHeapSize / 1048576) });
-    };
-    poll();
-    const id = setInterval(poll, 4000);
-    return () => clearInterval(id);
-  }, [setTelemetry]);
-
-  const wsStatus = workspace.status as WorkspaceStatus;
-  const isOnline = telemetry.isOnline;
-  const latency = telemetry.apiLatencyMs;
-  const mem = telemetry.memUsedMB;
-  const lic = license.status;
-
-  const statusLabel =
-    wsStatus === 'NO_WORKSPACE_MOUNTED'
-      ? 'Engine: Standby'
-      : wsStatus === 'PREFLIGHT_RUNNING'
-      ? 'Auditing Manuscript...'
-      : wsStatus === 'PREFLIGHT_COMPLETE'
-      ? 'Audit Complete'
-      : wsStatus === 'AST_PARSING'
-      ? 'Parsing AST...'
-      : 'Engine: Ready';
-
-  const licColor =
-    lic === 'ACTIVE'
-      ? 'text-emerald-600 dark:text-emerald-400 hover:underline'
-      : lic === 'UNVERIFIED'
-      ? 'text-amber-600 dark:text-amber-400 hover:underline'
-      : 'text-rose-600 dark:text-rose-400 hover:underline';
-
+function ResizeHandle() {
   return (
-    <footer
-      style={{ height: STATUS_BAR_H }}
-      className="w-full border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 flex items-center justify-between px-3 flex-shrink-0 select-none z-40 text-[11px] font-sans text-zinc-500 dark:text-zinc-400 transition-colors"
+    <PanelResizeHandle
+      className="w-1 cursor-col-resize bg-zinc-800 hover:bg-emerald-500/80 active:bg-emerald-500 transition-colors shrink-0 flex items-center justify-center group"
     >
-      {/* LEFT: Connection & System Diagnostics */}
-      <div className="flex items-center gap-3">
-        <span className="flex items-center gap-1.5 font-medium">
-          <span
-            className={cn(
-              'w-2 h-2 rounded-full transition-colors',
-              isOnline
-                ? 'bg-emerald-500'
-                : 'bg-rose-500'
-            )}
-          />
-          <span className={isOnline ? 'text-zinc-700 dark:text-zinc-300' : 'text-rose-600 dark:text-rose-400'}>
-            {isOnline ? 'Online' : 'Air-Gapped'}
-          </span>
-        </span>
-
-        <span className="text-zinc-300 dark:text-zinc-800">│</span>
-
-        <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-          <Network size={11} className="text-zinc-400" />
-          Latency: {latency !== null ? `${latency}ms` : '--'}
-        </span>
-
-        <span className="text-zinc-300 dark:text-zinc-800">│</span>
-
-        <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-          <FileText size={11} className="text-zinc-400" />
-          <span>Doc:</span>
-          <span className="text-zinc-800 dark:text-zinc-200">
-            {docMetrics && docMetrics.wordCount > 0
-              ? `${docMetrics.wordCount.toLocaleString()} words · ~${docMetrics.tokenCount.toLocaleString()} tokens`
-              : '-- words · -- tokens'}
-          </span>
-        </span>
-
-        {cacheStatus?.isRestored && (
-          <>
-            <span className="text-zinc-300 dark:text-zinc-800">│</span>
-            <span
-              className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-mono text-[10px]"
-              title={`Audit State: Restored from .recite/audit-cache.json (${cacheStatus.timestamp ? new Date(cacheStatus.timestamp).toLocaleTimeString() : 'Cached'})`}
-            >
-              <Database size={10} />
-              <span>Cache: {cacheStatus.isFresh ? 'Restored (Fresh)' : 'Restored (Modified)'}</span>
-            </span>
-          </>
-        )}
-
-        <span className="text-zinc-300 dark:text-zinc-800">│</span>
-
-        <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-          <MemoryStick size={11} className="text-zinc-400" />
-          Memory: {mem !== null ? `${mem} MB` : '--'}
-        </span>
-
-        <span className="text-zinc-300 dark:text-zinc-800">│</span>
-
-        <span className="text-zinc-600 dark:text-zinc-400 flex items-center gap-1">
-          <Terminal size={11} className="text-zinc-400" />
-          {statusLabel}
-        </span>
-      </div>
-
-      {/* RIGHT: Storage, LLM Model & License */}
-      <div className="flex items-center gap-3">
-        <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-          <Database size={11} className="text-zinc-400" />
-          Storage: <strong className="font-medium text-zinc-700 dark:text-zinc-300">.recite Cache</strong>
-        </span>
-
-        <span className="text-zinc-300 dark:text-zinc-800">│</span>
-
-        <span className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-          <Cpu size={11} className="text-zinc-400" />
-          Model: <strong className="font-medium text-zinc-800 dark:text-zinc-200">{LLM_LABELS[llmRouter.activeProvider]}</strong>
-        </span>
-
-        <span className="text-zinc-300 dark:text-zinc-800">│</span>
-
-        <button
-          onClick={() => setShowSettings(true)}
-          className={cn('flex items-center gap-1 font-medium cursor-pointer', licColor)}
-          title="View License Details"
-        >
-          <Shield size={11} />
-          License: {lic === 'ACTIVE' ? 'Active' : lic === 'UNVERIFIED' ? 'Unverified' : 'Required'}
-        </button>
-      </div>
-    </footer>
+      <div className="h-6 w-0.5 rounded-full bg-zinc-600 group-hover:bg-white transition-colors" />
+    </PanelResizeHandle>
   );
 }
 
@@ -273,47 +111,7 @@ function SterileEditorEmptyState({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// § DRAG ENGINE — Custom PointerEvent Splitter
-// ─────────────────────────────────────────────────────────────────────────────
-
-function usePointerDrag(
-  currentPct: number,
-  onPctChange: (pct: number) => void,
-  min: number,
-  max: number
-) {
-  const [dragging, setDragging] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setDragging(true);
-  }, []);
-
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragging || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const rawPct = ((e.clientX - rect.left) / rect.width) * 100;
-      if (rawPct >= min && rawPct <= max) {
-        onPctChange(Math.round(rawPct * 10) / 10);
-      }
-    },
-    [dragging, min, max, onPctChange]
-  );
-
-  const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
-    setDragging(false);
-  }, []);
-
-  return { pct: currentPct, dragging, containerRef, onPointerDown, onPointerMove, onPointerUp };
-}
+// usePointerDrag removed — replaced by react-resizable-panels Group/Panel/Separator
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § MAIN IDE CONTENT
@@ -325,8 +123,6 @@ function IDEWorkbench() {
     isAuditing,
     showExportModal,
     setShowExportModal,
-    editorPaneWidth,
-    setEditorPaneWidth,
     mountWorkspace,
     mountBibTex,
     setRawText,
@@ -339,6 +135,10 @@ function IDEWorkbench() {
     isVaultUnlocked,
     checkLicenseHeartbeat,
   } = useReciteStore();
+
+  // SSR hydration guard — PanelGroup calculates layout dimensions that can mismatch during SSR
+  const [panelsMounted, setPanelsMounted] = useState(false);
+  useEffect(() => setPanelsMounted(true), []);
 
   useEffect(() => {
     checkLicenseHeartbeat();
@@ -353,9 +153,6 @@ function IDEWorkbench() {
 
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const { pct, dragging, containerRef, onPointerDown, onPointerMove, onPointerUp } =
-    usePointerDrag(editorPaneWidth || 50, setEditorPaneWidth, 25, 75);
 
   const handleDirectFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -396,7 +193,7 @@ function IDEWorkbench() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-zinc-100 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200 overflow-hidden font-sans select-none antialiased transition-colors">
+    <div className="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-200 overflow-hidden font-sans select-none antialiased transition-colors">
       {/* Vault Unlock Gate — displayed until Stronghold is unlocked */}
       {!isVaultUnlocked && <VaultUnlockModal />}
 
@@ -413,87 +210,60 @@ function IDEWorkbench() {
       />
 
       {/* 2. Main Workspace Layout — Zero-Margin Full-Bleed Docking Grid */}
-      <div className="flex flex-1 overflow-hidden relative min-h-0 bg-zinc-50 dark:bg-zinc-950">
+      <div className="flex flex-1 overflow-hidden relative min-h-0 bg-zinc-950">
         {/* Activity Rail + Collapsible Explorer (Docked Left) */}
         <Sidebar />
 
         {/* Center & Right Docked Work Area */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {/* Full-Bleed Action Toolbar with Integrity HUD (h-10) */}
+          {/* Full-Bleed Action Toolbar */}
           <Toolbar />
 
-          {/* Docked Split Panes Container (Zero Margin, Hairline Border Dividers) */}
-          <div
-            ref={containerRef}
-            className={cn(
-              'flex-1 flex overflow-hidden relative min-h-0',
-              dragging && 'select-none'
-            )}
-          >
-            {/* Center Pane: Manuscript Viewer */}
-            <section
-              style={{ width: `${pct}%` }}
-              className="relative flex flex-col overflow-hidden bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 transition-colors min-w-0"
-            >
-              <div
-                className={cn(
-                  'flex-1 overflow-hidden relative flex flex-col min-w-0',
-                  dragging && 'pointer-events-none'
-                )}
-              >
-                {isMounted ? (
-                  <ManuscriptViewer />
-                ) : (
-                  <SterileEditorEmptyState
-                    onMountClick={() => fileInputRef.current?.click()}
-                    onLoadDemo={handleLoadDemo}
-                  />
-                )}
-              </div>
+          {/* Resizable Split Panes via react-resizable-panels */}
+          <div className="flex-1 overflow-hidden relative min-h-0">
+            {panelsMounted ? (
+              <PanelGroup orientation="horizontal" id="citeassist-main-layout">
+                {/* Center Pane: Manuscript Viewer */}
+                <Panel id="editor-pane" defaultSize="55%" minSize="30%">
+                  <section className="relative flex flex-col overflow-hidden bg-zinc-950 h-full min-w-0">
+                    <div className="flex-1 overflow-hidden relative flex flex-col min-w-0">
+                      {isMounted ? (
+                        <ManuscriptViewer />
+                      ) : (
+                        <SterileEditorEmptyState
+                          onMountClick={() => fileInputRef.current?.click()}
+                          onLoadDemo={handleLoadDemo}
+                        />
+                      )}
+                    </div>
 
-              {/* Analysis Active Overlay */}
-              {isAuditing && (
-                <div className="absolute inset-0 bg-white/85 dark:bg-zinc-950/85 backdrop-blur-sm flex flex-col items-center justify-center z-40 animate-in fade-in duration-150">
-                  <div className="flex items-center gap-2.5 font-mono text-xs text-emerald-700 dark:text-emerald-400 font-bold tracking-wide animate-pulse mb-3">
-                    <Activity size={16} className="animate-spin" />
-                    <span>AUDITING CITATIONS & CLAIMS...</span>
-                  </div>
-                  <div className="w-56 h-1 bg-zinc-200 dark:bg-zinc-900 overflow-hidden border border-zinc-300 dark:border-zinc-800">
-                    <div className="h-full bg-emerald-500 animate-[scan_1.2s_ease-in-out_infinite]" style={{ width: '45%' }} />
-                  </div>
-                </div>
-              )}
-            </section>
+                    {/* Analysis Active Overlay */}
+                    {isAuditing && (
+                      <div className="absolute inset-0 bg-zinc-950/85 backdrop-blur-sm flex flex-col items-center justify-center z-40">
+                        <div className="flex items-center gap-2 font-mono text-xs text-emerald-400 font-bold tracking-wide mb-2">
+                          <Activity size={14} className="animate-spin" />
+                          <span>AUDITING CITATIONS & CLAIMS...</span>
+                        </div>
+                        <div className="w-48 h-0.5 bg-zinc-800 overflow-hidden">
+                          <div className="h-full bg-emerald-500 animate-[scan_1.2s_ease-in-out_infinite]" style={{ width: '45%' }} />
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                </Panel>
 
-            {/* Hairline Pointer Gutter Splitter */}
-            <div
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              className={cn(
-                'w-1.5 -ml-[3px] flex-shrink-0 cursor-col-resize z-30 transition-all flex items-center justify-center group relative select-none',
-                dragging
-                  ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
-                  : 'bg-zinc-200 dark:bg-zinc-800 hover:bg-emerald-500/80'
-              )}
-            >
-              <div className="h-8 w-0.5 bg-zinc-400 dark:bg-zinc-600 rounded-full group-hover:bg-white transition-colors" />
-              <div className="absolute inset-y-0 -left-2 -right-2" />
-            </div>
+                <ResizeHandle />
 
-            {/* Right Pane: Action Inspector */}
-            <section
-              className={cn(
-                'flex-1 flex flex-col overflow-hidden bg-white dark:bg-zinc-950 min-w-0 transition-colors',
-                dragging && 'pointer-events-none'
-              )}
-            >
-              <ActionInspector />
-            </section>
-
-            {/* Drag Overlay */}
-            {dragging && (
-              <div className="absolute inset-0 z-50 cursor-col-resize" />
+                {/* Right Pane: Action Inspector */}
+                <Panel id="inspector-pane" defaultSize="45%" minSize="25%" maxSize="55%">
+                  <section className="flex flex-col overflow-hidden bg-zinc-950 h-full min-w-0">
+                    <ActionInspector />
+                  </section>
+                </Panel>
+              </PanelGroup>
+            ) : (
+              /* Static fallback during SSR to prevent hydration mismatch */
+              <div className="flex h-full bg-zinc-950" />
             )}
           </div>
         </main>

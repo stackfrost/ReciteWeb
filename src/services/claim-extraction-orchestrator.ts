@@ -21,6 +21,7 @@ import { BibTeXParser, BibTeXEntry } from '@/services/bibtex-parser';
 import { yieldToMain } from '@/lib/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { AcademicSearchAggregator } from '@/services/academic-search-aggregator';
+import { createTimeoutSignal } from '@/utils/timeout-signal';
 
 export interface StructuredClaimExtraction {
   line: number;
@@ -49,21 +50,25 @@ export class ClaimExtractionOrchestrator {
     const t0 = performance.now();
     const lineOffsets = buildLineOffsets(texContent);
 
-    // ── STAGE 1: Deterministic AST & Integrity Check ────────────────────────
+    // ── STAGE 1: Deterministic AST & Integrity Check ────────────────────────────
     onProgress?.('Running Deterministic AST Integrity Checks...');
     await yieldToMain();
+    console.time('[Pipeline] Stage 1: AST Integrity');
 
     const bibtexMap = BibTeXParser.parse(bibtexContent || '');
     const integrityFindings = await this.runDeterministicAstIntegrity(texContent, bibtexMap, lineOffsets);
+    console.timeEnd('[Pipeline] Stage 1: AST Integrity');
 
     if (signal?.aborted) {
       return { integrityFindings, discoveryFindings: [], allFindings: integrityFindings, reciteClaims: [], latencyMs: 0 };
     }
 
-    // ── STAGE 2: Extracting Unattributed Scientific Claims ───────────────────
+    // ── STAGE 2: Extracting Unattributed Scientific Claims ─────────────────────
     onProgress?.('Extracting Unattributed Scientific Claims & Deconstructing Queries...');
     await yieldToMain();
+    console.time('[Pipeline] Stage 2: Claim Deconstruction');
     const extractedClaims = await this.extractScientificClaims(texContent, bibtexMap, onProgress, signal);
+    console.timeEnd('[Pipeline] Stage 2: Claim Deconstruction');
 
     if (signal?.aborted) {
       return { integrityFindings, discoveryFindings: [], allFindings: integrityFindings, reciteClaims: [], latencyMs: 0 };
@@ -115,6 +120,10 @@ export class ClaimExtractionOrchestrator {
       const claimId = `claim-node-${i + 1}`;
       const trace = telemetryState.traces[claimId];
 
+      // ── STAGE 3: Dragnet Literature Discovery ─────────────────────────────────
+      const claimStageTag = `[Pipeline] Stage 3+4: Claim ${i + 1}/${extractedClaims.length}`;
+      console.time(claimStageTag);
+
       telemetryState.currentClaimIndex = i;
       telemetryState.activeStage = 'dragnet_harvesting';
 
@@ -133,6 +142,7 @@ export class ClaimExtractionOrchestrator {
 
       try {
         // Execute parallel dragnet across OpenAlex, Crossref, and arXiv
+        const { signal: dragnetSignal } = createTimeoutSignal(30000, signal);
         verifiedSources = await AcademicSearchAggregator.executeDragnet(
           claim.searchQueries,
           claim.claimText,
@@ -143,7 +153,7 @@ export class ClaimExtractionOrchestrator {
               onTelemetryUpdate?.({ ...telemetryState, overallElapsedMs: Math.round(performance.now() - t0) });
             }
           },
-          signal
+          dragnetSignal
         );
 
         // Also check local Zotero library if available
@@ -174,7 +184,7 @@ export class ClaimExtractionOrchestrator {
 
       await yieldToMain();
 
-      // ── STAGE 4: LLM Entailment Grading & Verbatim Quote Extraction ─────────
+      // ── STAGE 4: LLM Entailment Grading & Verbatim Quote Extraction ───────────
       if (trace) {
         trace.stage = 'nli_grading';
         trace.logs.push(`Grading ${verifiedSources.length} candidates with LLM Natural Language Inference...`);
@@ -194,7 +204,8 @@ export class ClaimExtractionOrchestrator {
             trace.evaluatedCandidates[evalItem.sourceIndex].entailmentVerdict = evalItem.status;
             onTelemetryUpdate?.({ ...telemetryState, overallElapsedMs: Math.round(performance.now() - t0) });
           }
-        }
+        },
+        signal
       );
 
       // Attach evaluated scores back to verifiedSources
@@ -271,6 +282,7 @@ export class ClaimExtractionOrchestrator {
       };
 
       discoveryFindings.push(finding);
+      console.timeEnd(claimStageTag);
       await yieldToMain();
     }
 
@@ -415,7 +427,7 @@ export class ClaimExtractionOrchestrator {
     if (activeKey && activeKey.trim().length > 0 && !signal?.aborted) {
       try {
         onProgress?.(`Deconstructing claims with ${provider.toUpperCase()} LLM...`);
-        const llmClaims = await this.extractWithLLM(texContent, provider, activeKey, settings.activeModelId);
+        const llmClaims = await this.extractWithLLM(texContent, provider, activeKey, settings.activeModelId, signal);
         if (llmClaims.length > 0) {
           return llmClaims;
         }
@@ -435,7 +447,8 @@ export class ClaimExtractionOrchestrator {
     texContent: string,
     provider: LLMProvider,
     apiKey: string,
-    modelId: string
+    modelId: string,
+    parentSignal?: AbortSignal
   ): Promise<StructuredClaimExtraction[]> {
     const prompt = `You are a scientific peer reviewer auditing a LaTeX manuscript.
 Analyze the following manuscript text and extract all declarative empirical, theoretical, or factual assertions that lack citation.
@@ -463,39 +476,57 @@ ${texContent.slice(0, 14000)}`;
     if (provider === 'google') {
       const model = modelId || 'gemini-1.5-flash';
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        rawJson = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const { signal, cleanup } = createTimeoutSignal(30_000, parentSignal);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+          }),
+          signal,
+        });
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          console.error(`[ClaimExtraction] Google AI Studio HTTP ${res.status}:`, errText.slice(0, 300));
+        } else {
+          const data = await res.json();
+          rawJson = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        }
+      } finally {
+        cleanup();
       }
     } else if (provider === 'anthropic') {
       const url = 'https://api.anthropic.com/v1/messages';
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: modelId || 'claude-3-5-sonnet-20241022',
-          max_tokens: 4096,
-          system: 'Respond ONLY with a valid JSON array.',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        rawJson = data.content?.[0]?.text || '';
+      const { signal, cleanup } = createTimeoutSignal(30_000, parentSignal);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: modelId || 'claude-3-5-sonnet-20241022',
+            max_tokens: 4096,
+            system: 'Respond ONLY with a valid JSON array.',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+          }),
+          signal,
+        });
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          console.error(`[ClaimExtraction] Anthropic HTTP ${res.status}:`, errText.slice(0, 300));
+        } else {
+          const data = await res.json();
+          rawJson = data.content?.[0]?.text || '';
+        }
+      } finally {
+        cleanup();
       }
     } else {
       const endpoint = provider === 'openrouter'
@@ -509,21 +540,30 @@ ${texContent.slice(0, 14000)}`;
         headers['HTTP-Referer'] = 'https://recite.ai';
         headers['X-Title'] = 'CiteAssist AI Claim Deconstruction';
       }
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model: modelId || (provider === 'openrouter' ? 'anthropic/claude-3.5-sonnet' : 'gpt-4o'),
-          messages: [
-            { role: 'system', content: 'You are an academic manuscript auditor. Respond ONLY with a valid JSON array.' },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.1,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        rawJson = data.choices?.[0]?.message?.content || '';
+      const { signal, cleanup } = createTimeoutSignal(30_000, parentSignal);
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model: modelId || (provider === 'openrouter' ? 'anthropic/claude-3.5-sonnet' : 'gpt-4o'),
+            messages: [
+              { role: 'system', content: 'You are an academic manuscript auditor. Respond ONLY with a valid JSON array.' },
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.1,
+          }),
+          signal,
+        });
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          console.error(`[ClaimExtraction] ${provider.toUpperCase()} HTTP ${res.status}:`, errText.slice(0, 300));
+        } else {
+          const data = await res.json();
+          rawJson = data.choices?.[0]?.message?.content || '';
+        }
+      } finally {
+        cleanup();
       }
     }
 

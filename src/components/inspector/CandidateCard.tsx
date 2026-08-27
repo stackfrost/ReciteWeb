@@ -160,7 +160,7 @@ export default function CandidateCard({
 
         {/* 3-Way Action Matrix */}
         <div className="flex items-center gap-1.5 ml-auto">
-          {/* Action 2: Copy \cite + Bib (Failsafe) */}
+          {/* Action 2: Copy \cite + Bib (Failsafe Secondary) */}
           <button
             type="button"
             onClick={() => {
@@ -170,33 +170,33 @@ export default function CandidateCard({
                 useReciteStore.getState().copyCitationAndBib('', paper);
               }
             }}
-            className="flex items-center gap-1 px-2 py-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded text-[11px] font-sans font-medium transition-colors cursor-pointer border border-zinc-200 dark:border-zinc-700"
+            className="flex items-center gap-1 px-2 py-1 bg-zinc-100 dark:bg-zinc-800/90 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-md text-[11px] font-sans font-medium transition-all active:scale-[0.98] cursor-pointer border border-zinc-200 dark:border-zinc-700/80 focus:ring-1 focus:ring-emerald-500"
             title="Copy \cite{key} & @article block to clipboard for manual pasting"
           >
             <Copy className="w-3 h-3 text-zinc-400" />
             <span>Copy \cite + Bib</span>
           </button>
 
-          {/* Action 3: Dismiss Observation */}
+          {/* Action 3: Dismiss Observation (Ghost Tertiary) */}
           {onDismiss && (
             <button
               type="button"
               onClick={onDismiss}
-              className="px-2 py-1 bg-zinc-100 dark:bg-zinc-800/60 hover:bg-rose-500/10 text-zinc-500 hover:text-rose-500 dark:hover:text-rose-400 rounded text-[11px] font-sans font-medium transition-colors cursor-pointer"
+              className="px-2 py-1 hover:bg-rose-500/10 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md text-[11px] font-sans font-medium transition-all active:scale-[0.98] cursor-pointer"
               title="Silence and ignore this observation"
             >
               <span>Dismiss</span>
             </button>
           )}
 
-          {/* Action 1: Apply Suggestion (Primary) */}
+          {/* Action 1: Apply Suggestion (Primary CTA) */}
           <button
             type="button"
             onClick={() => {
               if (onInsertAndBib) onInsertAndBib(paper);
               else onAccept(paper);
             }}
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-sans font-semibold transition-all shadow-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-md text-[11px] font-sans font-semibold transition-all active:scale-[0.98] shadow-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
             title="Apply suggestion: Append @article to .bib and update citation key in manuscript"
           >
             <PlusCircle className="w-3 h-3" />

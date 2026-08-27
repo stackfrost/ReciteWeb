@@ -11,6 +11,7 @@ import { useReciteStore } from '../lib/store';
 import { validateCitation } from './metadata-cascade';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { generateSemanticId } from '@/utils/hash';
+import { createTimeoutSignal } from '@/utils/timeout-signal';
 
 function safelyParseLLMResponse(rawContent: string): any[] {
   try {
@@ -415,7 +416,15 @@ export class LLMOrchestrator {
         tokenPressure: rateLimiter.getCurrentTokens() 
       });
 
-      response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+      const chunkTag = `[LLMOrchestrator] Chunk ${chunkIndex + 1}/${totalChunks} fetch`;
+      console.time(chunkTag);
+      const { signal: fetchSignal, cleanup } = createTimeoutSignal(30_000);
+      try {
+        response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: fetchSignal });
+      } finally {
+        cleanup();
+        console.timeEnd(chunkTag);
+      }
     } catch (networkError: any) {
       throw new Error(
         `Network error on chunk ${chunkIndex + 1}: ${networkError.message}`

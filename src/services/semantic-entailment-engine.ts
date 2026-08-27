@@ -1,11 +1,11 @@
 /**
  * Semantic Entailment & Citation Contradiction Engine (NLI)
- * 
+ *
  * Performs Natural Language Inference (NLI) on manuscript assertions:
  * 1. Entailed / Strongly Supported (🟢)
  * 2. Tenuous / Extrapolated (🟡)
  * 3. Contradicted / Misattributed (🔴)
- * 
+ *
  * Supports both multi-provider LLM batch inference (Gemini, Claude, GPT, OpenRouter)
  * and fast, deterministic heuristic pattern recognition.
  */
@@ -13,6 +13,7 @@
 import { EntailmentStatus, ContrastiveEvidence, VerifiedLiteratureSource } from '@/types/audit';
 import type { LLMProvider } from '@/lib/models';
 import { yieldToMain } from '@/lib/utils';
+import { createTimeoutSignal } from '@/utils/timeout-signal';
 
 export interface LLMEntailmentEvaluation {
   sourceIndex: number;
@@ -137,162 +138,216 @@ export class SemanticEntailmentEngine {
    * Batch evaluates multiple candidate literature abstracts against a manuscript assertion using an LLM.
    * Extracts verbatim quotes, directional entailment scores (0-100), and academic hedging patches.
    */
+  /**
+   * Batch evaluates multiple candidate literature abstracts against a manuscript assertion using an LLM.
+   *
+   * Key optimisations vs the previous monolithic approach:
+   * - Candidates are chunked into micro-batches of BATCH_SIZE (5) so each LLM call stays small
+   *   and produces a bounded number of output tokens, keeping p99 latency under ~10 s per batch.
+   * - Every fetch is wrapped with a 30-second hard timeout via createTimeoutSignal so a stalled
+   *   Google AI Studio connection cannot hang the pipeline for minutes.
+   * - HTTP errors (res.ok === false) are logged with their status code before the error is thrown
+   *   so silent degradation is eliminated.
+   * - Failure of one micro-batch falls back to heuristic scoring for that batch only; the results
+   *   of previously completed batches are preserved.
+   */
   static async evaluateCandidatesWithLLM(
     claimText: string,
     candidates: VerifiedLiteratureSource[],
     provider: LLMProvider,
     apiKey: string,
     modelId: string,
-    onCandidateEvaluated?: (evalResult: LLMEntailmentEvaluation) => void
+    onCandidateEvaluated?: (evalResult: LLMEntailmentEvaluation) => void,
+    parentSignal?: AbortSignal
   ): Promise<LLMEntailmentEvaluation[]> {
     if (!candidates || candidates.length === 0) return [];
 
-    // Fallback if no valid API key
-    if (!apiKey || apiKey.trim().length === 0) {
-      return candidates.map((c, idx) => {
-        const h = this.evaluateEntailment(claimText, c);
-        const evalRes: LLMEntailmentEvaluation = {
-          sourceIndex: idx,
-          entailmentScore: h.score,
-          status: h.status,
-          verbatimQuote: h.contrastiveEvidence?.sourceQuote || c.abstractSnippet.slice(0, 200),
-          reason: h.contrastiveEvidence?.reason || 'Heuristic semantic alignment evaluation.',
-          hedgingSuggestion: h.contrastiveEvidence?.hedgingSuggestion,
-          contradictionWarning: h.status === 'contradicted' ? h.contrastiveEvidence?.reason : undefined,
-          isDirectProof: h.status === 'entailed',
-        };
-        onCandidateEvaluated?.(evalRes);
-        return evalRes;
-      });
+    // Fallback if no valid API key or already aborted
+    if (!apiKey || apiKey.trim().length === 0 || parentSignal?.aborted) {
+      return this.heuristicFallback(claimText, candidates, onCandidateEvaluated);
     }
 
-    const candidateAbstractsPayload = candidates.slice(0, 15).map((c, idx) => ({
-      index: idx,
-      title: c.title,
-      year: c.year,
-      abstract: c.abstractSnippet.slice(0, 1000),
-    }));
+    const BATCH_SIZE = 5;
+    const topCandidates = candidates.slice(0, 15);
+    const allEvaluations: LLMEntailmentEvaluation[] = [];
 
-    const prompt = `You are a post-doctoral scientific peer reviewer verifying citation entailment.
+    for (let batchStart = 0; batchStart < topCandidates.length; batchStart += BATCH_SIZE) {
+      if (parentSignal?.aborted) break;
+
+      const batch = topCandidates.slice(batchStart, batchStart + BATCH_SIZE);
+      const batchNum = Math.floor(batchStart / BATCH_SIZE) + 1;
+      const batchTag = `[NLI Batch ${batchNum} (${batch.length} papers)]`;
+
+      console.time(batchTag);
+
+      const candidatePayload = batch.map((c, localIdx) => ({
+        index: batchStart + localIdx,
+        title: c.title,
+        year: c.year,
+        // Trim to 750 chars per abstract (was 1000) to keep prompt size smaller per batch
+        abstract: c.abstractSnippet.slice(0, 750),
+      }));
+
+      const prompt = `You are a post-doctoral scientific peer reviewer verifying citation entailment.
 Manuscript assertion to verify:
 "${claimText}"
 
 Evaluate each candidate paper abstract below against the assertion.
 For each candidate determine:
-1. "entailmentScore": 0-100 integer (90-100: direct rigorous proof, 60-89: partial/tenuous support, 0-59: irrelevant or contradictory)
-2. "status": "entailed" | "tenuous" | "contradicted"
-3. "verbatimQuote": exact 1-2 sentences from the abstract that serves as the evidence anchor
-4. "reason": clinical 1-sentence scientific rationale
-5. "hedgingSuggestion": subtle academic phrasing patch if tenuous (or empty string)
-6. "contradictionWarning": warning text if paper contradicts assertion (or empty string)
-7. "isDirectProof": boolean
+1. "sourceIndex": integer matching the input index field
+2. "entailmentScore": 0-100 integer (90-100: direct rigorous proof, 60-89: partial/tenuous support, 0-59: irrelevant or contradictory)
+3. "status": "entailed" | "tenuous" | "contradicted"
+4. "verbatimQuote": exact 1-2 sentences from the abstract that serve as the evidence anchor
+5. "reason": clinical 1-sentence scientific rationale
+6. "hedgingSuggestion": subtle academic phrasing patch if tenuous (or empty string)
+7. "contradictionWarning": warning text if paper contradicts assertion (or empty string)
+8. "isDirectProof": boolean
 
 Candidate papers:
-${JSON.stringify(candidateAbstractsPayload, null, 2)}
+${JSON.stringify(candidatePayload, null, 2)}
 
-Return ONLY a valid JSON array of evaluations matching:
-[
-  {
-    "sourceIndex": 0,
-    "entailmentScore": 95,
-    "status": "entailed",
-    "verbatimQuote": "...",
-    "reason": "...",
-    "hedgingSuggestion": "",
-    "contradictionWarning": "",
-    "isDirectProof": true
-  }
-]`;
+Return ONLY a valid JSON array of evaluations matching the schema above.`;
 
-    try {
-      let rawJson = '';
-      if (provider === 'google') {
-        const model = modelId || 'gemini-1.5-flash';
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
-          }),
-        });
-        if (res.ok) {
+      const { signal, cleanup } = createTimeoutSignal(30_000, parentSignal);
+
+      try {
+        let rawJson = '';
+
+        if (provider === 'google') {
+          const model = modelId || 'gemini-1.5-flash';
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+            }),
+            signal,
+          });
+          if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            console.error(`${batchTag} Google AI Studio HTTP ${res.status}:`, errText.slice(0, 300));
+            throw new Error(`Google API error ${res.status}`);
+          }
           const data = await res.json();
           rawJson = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        }
-      } else if (provider === 'anthropic') {
-        const url = 'https://api.anthropic.com/v1/messages';
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: modelId || 'claude-3-5-sonnet-20241022',
-            max_tokens: 3000,
-            system: 'Respond ONLY with a valid JSON array.',
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.1,
-          }),
-        });
-        if (res.ok) {
+
+        } else if (provider === 'anthropic') {
+          const url = 'https://api.anthropic.com/v1/messages';
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'anthropic-dangerous-direct-browser-access': 'true',
+            },
+            body: JSON.stringify({
+              model: modelId || 'claude-3-5-sonnet-20241022',
+              max_tokens: 3000,
+              system: 'Respond ONLY with a valid JSON array.',
+              messages: [{ role: 'user', content: prompt }],
+              temperature: 0.1,
+            }),
+            signal,
+          });
+          if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            console.error(`${batchTag} Anthropic HTTP ${res.status}:`, errText.slice(0, 300));
+            throw new Error(`Anthropic API error ${res.status}`);
+          }
           const data = await res.json();
           rawJson = data.content?.[0]?.text || '';
-        }
-      } else {
-        // OpenAI or OpenRouter
-        const endpoint = provider === 'openrouter' 
-          ? 'https://openrouter.ai/api/v1/chat/completions' 
-          : 'https://api.openai.com/v1/chat/completions';
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        };
-        if (provider === 'openrouter') {
-          headers['HTTP-Referer'] = 'https://recite.ai';
-          headers['X-Title'] = 'CiteAssist AI Citation Verification';
-        }
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            model: modelId || (provider === 'openrouter' ? 'anthropic/claude-3.5-sonnet' : 'gpt-4o'),
-            messages: [
-              { role: 'system', content: 'You are an academic auditor. Output valid JSON only.' },
-              { role: 'user', content: prompt }
-            ],
-            temperature: 0.1,
-          }),
-        });
-        if (res.ok) {
+
+        } else {
+          // OpenAI or OpenRouter
+          const endpoint = provider === 'openrouter'
+            ? 'https://openrouter.ai/api/v1/chat/completions'
+            : 'https://api.openai.com/v1/chat/completions';
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          };
+          if (provider === 'openrouter') {
+            headers['HTTP-Referer'] = 'https://recite.ai';
+            headers['X-Title'] = 'CiteAssist AI Citation Verification';
+          }
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model: modelId || (provider === 'openrouter' ? 'anthropic/claude-3.5-sonnet' : 'gpt-4o'),
+              messages: [
+                { role: 'system', content: 'You are an academic auditor. Output valid JSON only.' },
+                { role: 'user', content: prompt },
+              ],
+              temperature: 0.1,
+            }),
+            signal,
+          });
+          if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            console.error(`${batchTag} ${provider.toUpperCase()} HTTP ${res.status}:`, errText.slice(0, 300));
+            throw new Error(`${provider} API error ${res.status}`);
+          }
           const data = await res.json();
           rawJson = data.choices?.[0]?.message?.content || '';
         }
-      }
 
-      if (rawJson) {
-        const match = rawJson.match(/\[[\s\S]*\]/);
-        if (match) {
-          const parsed: LLMEntailmentEvaluation[] = JSON.parse(match[0]);
-          for (const item of parsed) {
-            await yieldToMain();
-            onCandidateEvaluated?.(item);
+        if (rawJson) {
+          const match = rawJson.match(/\[[\s\S]*\]/);
+          if (match) {
+            const parsed: LLMEntailmentEvaluation[] = JSON.parse(match[0]);
+            for (const item of parsed) {
+              await yieldToMain();
+              onCandidateEvaluated?.(item);
+              allEvaluations.push(item);
+            }
           }
-          return parsed;
         }
+
+      } catch (err: any) {
+        const reason = err?.name === 'AbortError'
+          ? `timed out or cancelled (${err.message})`
+          : err?.message || String(err);
+        console.warn(`${batchTag} LLM NLI evaluation failed — ${reason}. Falling back to heuristics for this batch.`);
+
+        // Heuristic fallback scoped to this batch only
+        for (let localIdx = 0; localIdx < batch.length; localIdx++) {
+          const globalIdx = batchStart + localIdx;
+          const h = this.evaluateEntailment(claimText, batch[localIdx]);
+          const fallbackEval: LLMEntailmentEvaluation = {
+            sourceIndex: globalIdx,
+            entailmentScore: h.score,
+            status: h.status,
+            verbatimQuote: h.contrastiveEvidence?.sourceQuote || batch[localIdx].abstractSnippet.slice(0, 200),
+            reason: h.contrastiveEvidence?.reason || 'Heuristic semantic alignment evaluation.',
+            hedgingSuggestion: h.contrastiveEvidence?.hedgingSuggestion,
+            contradictionWarning: h.status === 'contradicted' ? h.contrastiveEvidence?.reason : undefined,
+            isDirectProof: h.status === 'entailed',
+          };
+          onCandidateEvaluated?.(fallbackEval);
+          allEvaluations.push(fallbackEval);
+        }
+      } finally {
+        cleanup();
+        console.timeEnd(batchTag);
       }
-    } catch (err) {
-      console.warn('[SemanticEntailmentEngine] LLM NLI evaluation error:', err);
     }
 
-    // Fallback heuristic scoring
+    return allEvaluations;
+  }
+
+  /** Full heuristic evaluation of all candidates — used as the no-key / pre-abort path. */
+  private static heuristicFallback(
+    claimText: string,
+    candidates: VerifiedLiteratureSource[],
+    onCandidateEvaluated?: (evalResult: LLMEntailmentEvaluation) => void
+  ): LLMEntailmentEvaluation[] {
     return candidates.map((c, idx) => {
       const h = this.evaluateEntailment(claimText, c);
-      const fallbackEval: LLMEntailmentEvaluation = {
+      const evalRes: LLMEntailmentEvaluation = {
         sourceIndex: idx,
         entailmentScore: h.score,
         status: h.status,
@@ -302,8 +357,8 @@ Return ONLY a valid JSON array of evaluations matching:
         contradictionWarning: h.status === 'contradicted' ? h.contrastiveEvidence?.reason : undefined,
         isDirectProof: h.status === 'entailed',
       };
-      onCandidateEvaluated?.(fallbackEval);
-      return fallbackEval;
+      onCandidateEvaluated?.(evalRes);
+      return evalRes;
     });
   }
 

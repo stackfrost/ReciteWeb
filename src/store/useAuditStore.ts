@@ -340,7 +340,7 @@ export const useAuditStore = create<AuditState>((set, get) => ({
         reciteStore.setCacheStatus({ isRestored: false, isFresh: true, timestamp: new Date().toISOString() });
       }
 
-      reciteStore.addToast(`Deep Agentic RAG audit complete (${result.allFindings.length} findings in ${result.latencyMs}ms)`, 'success');
+      reciteStore.addToast(`Audit complete (${result.allFindings.length} findings in ${result.latencyMs}ms)`, 'success');
     } catch (err: any) {
       if (err?.name === 'AbortError' || controller.signal.aborted) {
         console.log('[useAuditStore] Audit successfully aborted.');
