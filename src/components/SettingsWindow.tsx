@@ -434,7 +434,7 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                     </div>
                     <div>
                       <span className="text-zinc-500 block text-[11px] mb-0.5">Verification Engine</span>
-                      <span className="text-emerald-600 dark:text-emerald-400 font-medium">Lemon Squeezy API</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-medium">License Verification Service</span>
                     </div>
                   </div>
                 </div>

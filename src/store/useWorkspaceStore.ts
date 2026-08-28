@@ -1,6 +1,15 @@
 import { create } from 'zustand';
-import { open } from '@tauri-apps/plugin-dialog';
-import { loadProjectFiles, saveFileToDisk, watchWorkspace, type LocalFile } from '@/services/local-fs';
+import {
+  loadProjectFiles,
+  saveFileToDisk,
+  watchWorkspace,
+  openProjectDialog,
+  ingestFileList,
+  restoreWorkspaceFromIdb,
+  clearWorkspaceFromIdb,
+  saveWorkspaceToIdb,
+  type LocalFile,
+} from '@/services/local-fs';
 import type { DocumentFormat } from '@/services/universal-ast';
 import { DEMO_MANUSCRIPT, DEMO_BIBTEX } from '@/lib/demo-data';
 
@@ -31,6 +40,7 @@ interface WorkspaceState {
 
   // Native Disk Actions
   mountLocalProject: () => Promise<void>;
+  mountFilesDirect: (dirName: string, diskFiles: Record<string, LocalFile>, targetActiveFile?: string) => Promise<boolean>;
   mountPathDirect: (dirPath: string, targetActiveFile?: string) => Promise<boolean>;
   autoRestoreSession: () => Promise<boolean>;
   resetWorkspace: () => void;
@@ -77,6 +87,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   resetWorkspace: () => {
+    clearWorkspaceFromIdb().catch(() => {});
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         localStorage.removeItem(LAST_WORKSPACE_KEY);
@@ -126,20 +137,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return success;
   },
 
-  mountPathDirect: async (dirPath: string, targetActiveFile?: string): Promise<boolean> => {
-    if (!dirPath) return false;
+  mountFilesDirect: async (dirName: string, diskFiles: Record<string, LocalFile>, targetActiveFile?: string): Promise<boolean> => {
+    const fileCount = Object.keys(diskFiles).length;
+    if (fileCount === 0) return false;
     set({ isLoading: true });
 
     try {
-      const diskFiles = await loadProjectFiles(dirPath);
-      const fileCount = Object.keys(diskFiles).length;
-      if (fileCount === 0) {
-        console.warn(`[WorkspaceStore] No files loaded from directory: ${dirPath}`);
-        set({ isLoading: false });
-        return false;
-      }
-
-      const dirName = dirPath.split(/[/\\]/).pop() || 'Project';
       const virtualFiles: Record<string, VirtualFile> = {
         root: {
           id: 'root',
@@ -187,7 +190,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const bibContent = (firstBibPath && diskFiles[firstBibPath]) ? diskFiles[firstBibPath].content : '';
 
       set({
-        workspacePath: dirPath,
+        workspacePath: dirName,
         activeTexPath: firstTexPath,
         bibPath: firstBibPath,
         activeTexContent: activeContent,
@@ -198,13 +201,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         isLoading: false,
       });
 
-      // Save to persistence
-      if (typeof window !== 'undefined' && window.localStorage) {
-        try {
-          localStorage.setItem(LAST_WORKSPACE_KEY, dirPath);
-          if (activeId) localStorage.setItem(LAST_ACTIVE_FILE_KEY, activeId);
-        } catch {}
-      }
+      // Save to IndexedDB persistence
+      await saveWorkspaceToIdb(dirName, diskFiles);
 
       // Sync with useReciteStore and useEditorStore
       if (typeof window !== 'undefined') {
@@ -228,101 +226,30 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         }
       }
 
-      // Hydrate from .recite/audit-cache.json
-      try {
-        const { readAuditCache } = require('@/services/cache-manager');
-        const cacheResult = await readAuditCache(dirPath, activeContent);
-
-        if (cacheResult && cacheResult.hit && cacheResult.findings.length > 0) {
-          if (typeof window !== 'undefined') {
-            const { useAuditStore } = require('@/store/useAuditStore');
-            const { useReciteStore } = require('@/lib/store');
-            const { useEditorStore } = require('@/store/useEditorStore');
-
-            useAuditStore.getState().setFindings(cacheResult.findings);
-            useReciteStore.getState().setClaims(cacheResult.claims);
-            useReciteStore.getState().setCacheStatus({
-              isRestored: true,
-              isFresh: cacheResult.isFresh,
-              timestamp: cacheResult.timestamp,
-            });
-
-            useEditorStore.getState().setFindings(cacheResult.claims.map((c: any) => ({
-              id: c.id,
-              line: c.lineIndex || 1,
-              index: c.startIndex,
-              length: (c.endIndex || c.startIndex) - c.startIndex,
-              fileId: c.fileId,
-              key: c.category,
-              type: c.auditType || c.category,
-              severity: c.severity,
-              status: c.status === 'accepted' ? 'Resolved' : 'Unresolved',
-              context: c.context,
-              claim: c.text,
-              searchQuery: c.searchQuery,
-              suggestedFix: c.suggestedFix,
-              verifiedSources: c.suggestedPapers,
-            })));
-
-            if (cacheResult.isFresh) {
-              useReciteStore.getState().addToast('Restored audit findings from local cache (.recite/audit-cache.json)', 'info');
-            }
-          }
-        }
-      } catch (cacheErr) {
-        console.warn('[WorkspaceStore] Failed to read audit cache:', cacheErr);
-      }
-
-      // Initialize live directory watcher for external edits
-      await watchWorkspace(dirPath, async (modifiedFilePath) => {
-        if (isInternalWrite) return;
-
-        console.log(`[Workspace] External modification detected: ${modifiedFilePath}`);
-        const updatedFiles = await loadProjectFiles(dirPath);
-        const normalizedModified = modifiedFilePath.replace(/\\/g, '/');
-        const matchedFile = updatedFiles[normalizedModified] || 
-          Object.values(updatedFiles).find(f => f.path === normalizedModified || f.name === normalizedModified.split('/').pop());
-
-        if (matchedFile) {
-          set((state) => ({
-            fileTree: {
-              ...state.fileTree,
-              [matchedFile.path]: matchedFile,
-            },
-            files: {
-              ...state.files,
-              [matchedFile.path]: {
-                ...(state.files[matchedFile.path] || {
-                  id: matchedFile.path,
-                  name: matchedFile.name,
-                  type: 'file',
-                  parentId: 'root',
-                  isOpen: false,
-                }),
-                content: matchedFile.content,
-              },
-            },
-          }));
-        }
-      });
-
       return true;
     } catch (err) {
-      console.error('[WorkspaceStore] Failed to mount directory:', err);
+      console.error('[WorkspaceStore] Failed to mount files:', err);
       set({ isLoading: false });
       return false;
     }
   },
 
+  mountPathDirect: async (dirPath: string, targetActiveFile?: string): Promise<boolean> => {
+    if (!dirPath) return false;
+    const diskFiles = await loadProjectFiles(dirPath);
+    if (Object.keys(diskFiles).length === 0) return false;
+    const dirName = dirPath.split(/[/\\]/).pop() || 'Project';
+    return await get().mountFilesDirect(dirName, diskFiles, targetActiveFile);
+  },
+
   autoRestoreSession: async (): Promise<boolean> => {
-    if (typeof window === 'undefined' || !window.localStorage) return false;
+    if (typeof window === 'undefined') return false;
     try {
-      const savedPath = localStorage.getItem(LAST_WORKSPACE_KEY);
-      const savedActiveFile = localStorage.getItem(LAST_ACTIVE_FILE_KEY);
-      if (!savedPath || savedPath.startsWith('~')) {
-        return false;
+      const restored = await restoreWorkspaceFromIdb();
+      if (restored && Object.keys(restored.files).length > 0) {
+        return await get().mountFilesDirect(restored.dirName, restored.files);
       }
-      return await get().mountPathDirect(savedPath, savedActiveFile || undefined);
+      return false;
     } catch (err) {
       console.warn('[WorkspaceStore] Auto restore session failed:', err);
       return false;
@@ -330,22 +257,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   mountLocalProject: async () => {
-    let dirPath: string | null = null;
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: 'Select LaTeX Manuscript Directory',
-      });
-      if (selected && typeof selected === 'string') {
-        dirPath = selected;
+      const pickedFiles = await openProjectDialog();
+      if (pickedFiles && Object.keys(pickedFiles).length > 0) {
+        await get().mountFilesDirect('Local Project', pickedFiles);
       }
     } catch (error) {
       console.error('[WorkspaceStore] Error selecting directory:', error);
-    }
-    
-    if (dirPath) {
-      await get().mountPathDirect(dirPath);
     }
   },
 
@@ -461,10 +379,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   ingestFiles: async (newFiles: File[]) => {
-    for (const file of newFiles) {
-      const text = await file.text();
-      const format = file.name.endsWith('.docx') ? 'docx' : file.name.endsWith('.md') ? 'markdown' : 'latex';
-      get().createFile(file.name, 'file', 'root', format);
+    try {
+      const loadedTree = await ingestFileList(newFiles);
+      if (Object.keys(loadedTree).length > 0) {
+        await get().mountFilesDirect('Uploaded Manuscript', loadedTree);
+      }
+    } catch (err) {
+      console.error('[WorkspaceStore] Failed to ingest files:', err);
     }
   },
 

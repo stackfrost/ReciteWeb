@@ -2,13 +2,11 @@ import type { NextConfig } from 'next';
 import path from 'path';
 
 const nextConfig: NextConfig = {
-  output: 'export',
-  images: { unoptimized: true }, // Required for static export
-  eslint: { ignoreDuringBuilds: true }, // Speed up local iteration
+  eslint: { ignoreDuringBuilds: true }, // Speed up iteration
   typescript: { ignoreBuildErrors: true },
 
   // Instructs Next.js 15 to completely skip bundling these Node-native packages on the server
-  serverExternalPackages: ["sharp", "onnxruntime-node"],
+  serverExternalPackages: ["sharp", "onnxruntime-node", "stripe"],
 
   // ─────────────────────────────────────────────────────────────────────────
   // Tauri Runtime Module Stubs & Binary Exclusions

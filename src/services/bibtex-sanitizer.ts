@@ -43,13 +43,15 @@ export function sanitizeBibTeX(
 
     let body = bodyRaw;
 
-    // Syntax Healing: Fix missing commas between fields
-    // A field usually looks like: fieldName = {value} or fieldName = "value"
-    // If the next line starts with a word and =, but the previous line didn't end with a comma
-    const missingCommaRegex = /(?<!,)\s*\n\s*([a-zA-Z0-9_]+)\s*=/g;
+    // Syntax Healing: Fix missing commas between fields (e.g. year = {2024} followed by title = {Foo})
+    const missingCommaRegex = /(?<=[}"'\w])\s*\n\s*([a-zA-Z0-9_]+)\s*=/g;
+    // Only replace if not preceded by a comma
+    const hasUncommaFields = /(?<=[^\s,])\s*\n\s*([a-zA-Z0-9_]+)\s*=/g;
     if (missingCommaRegex.test(body)) {
-      healedSyntaxErrors++;
-      body = body.replace(missingCommaRegex, ',\n  $1 =');
+      body = body.replace(/(?<=[}"'\w])(?<!,)\s*\n\s*([a-zA-Z0-9_]+)\s*=/g, (match, field) => {
+        healedSyntaxErrors++;
+        return `,\n  ${field} =`;
+      });
     }
 
     // Syntax Healing: Ensure the entry is closed with a trailing brace

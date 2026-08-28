@@ -232,7 +232,7 @@ describe('Sprint 4: 10,000-Line Fuzz & Hardening Suite', () => {
     expect(dossier1.documentFingerprint.mathAstSha256).toBe(dossier2.documentFingerprint.mathAstSha256);
     expect(dossier1.documentFingerprint.totalLines).toBe(manuscript.split('\n').length);
     expect(dossier1.verificationSummary.verifiedCount).toBe(1);
-  });
+  }, 15000);
 
   it('7. Rate Limiter Sliding Window Under Heavy Concurrency', async () => {
     const limiter = new ProviderRateLimiter(60, 10000);

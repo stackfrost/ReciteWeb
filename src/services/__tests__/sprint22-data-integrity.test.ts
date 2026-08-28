@@ -1,85 +1,50 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockWatch = vi.fn();
-const mockWriteTextFile = vi.fn();
-const mockReadDir = vi.fn();
-const mockReadTextFile = vi.fn();
+const mockIdbStore = new Map<string, any>();
 
-vi.mock('@tauri-apps/plugin-fs', () => ({
-  watch: (...args: any[]) => mockWatch(...args),
-  writeTextFile: (...args: any[]) => mockWriteTextFile(...args),
-  readDir: (...args: any[]) => mockReadDir(...args),
-  readTextFile: (...args: any[]) => mockReadTextFile(...args),
+vi.mock('idb-keyval', () => ({
+  get: vi.fn(async (key: string) => mockIdbStore.get(key)),
+  set: vi.fn(async (key: string, val: any) => mockIdbStore.set(key, val)),
+  del: vi.fn(async (key: string) => mockIdbStore.delete(key)),
+  createStore: vi.fn(() => ({})),
 }));
 
-import { watchWorkspace } from '../local-fs';
+import { saveFileToDisk, saveWorkspaceToIdb, restoreWorkspaceFromIdb } from '../local-fs';
 import { useEditorStore } from '@/store/useEditorStore';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 
-describe('Sprint 22: Data Integrity Lockdown & Bi-Directional Sync', () => {
+describe('Web Platform: Data Integrity & Browser-Native Persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIdbStore.clear();
   });
 
-  describe('Tauri File Watcher (local-fs.ts)', () => {
-    it('initializes watch on directory and filters .tex and .bib changes', async () => {
-      let registeredCallback: ((event: any) => void) | null = null;
-      const unwatchMock = vi.fn();
+  describe('Browser-Native LocalFS & IndexedDB Persistence (local-fs.ts)', () => {
+    it('persists and restores workspace from idb-keyval', async () => {
+      const sampleFiles = {
+        'main.tex': { path: 'main.tex', name: 'main.tex', content: '\\section{Intro}' },
+        'references.bib': { path: 'references.bib', name: 'references.bib', content: '@article{test, title={Test}}' }
+      };
 
-      mockWatch.mockImplementation(async (path: string, cb: (event: any) => void) => {
-        registeredCallback = cb;
-        return unwatchMock;
-      });
+      await saveWorkspaceToIdb('Test Project', sampleFiles);
+      const restored = await restoreWorkspaceFromIdb();
 
-      const onFileChanged = vi.fn();
-      await watchWorkspace('/mock/workspace', onFileChanged);
-
-      expect(mockWatch).toHaveBeenCalledWith(
-        '/mock/workspace',
-        expect.any(Function),
-        { recursive: true }
-      );
-
-      // Simulate a .tex modification
-      registeredCallback!({
-        type: 'modify',
-        paths: ['/mock/workspace/sections/intro.tex'],
-        attrs: null,
-      });
-
-      expect(onFileChanged).toHaveBeenCalledWith('/mock/workspace/sections/intro.tex');
-
-      // Simulate a .bib modification
-      registeredCallback!({
-        type: 'any',
-        paths: ['/mock/workspace/references.bib'],
-        attrs: null,
-      });
-
-      expect(onFileChanged).toHaveBeenCalledWith('/mock/workspace/references.bib');
-
-      // Simulate an unrelated file modification (.png)
-      registeredCallback!({
-        type: 'modify',
-        paths: ['/mock/workspace/figures/diagram.png'],
-        attrs: null,
-      });
-
-      expect(onFileChanged).not.toHaveBeenCalledWith('/mock/workspace/figures/diagram.png');
+      expect(restored).not.toBeNull();
+      expect(restored?.dirName).toBe('Test Project');
+      expect(restored?.files['main.tex'].content).toBe('\\section{Intro}');
     });
 
-    it('cleans up previous watcher when re-initializing', async () => {
-      const unwatchMock1 = vi.fn();
-      const unwatchMock2 = vi.fn();
+    it('saves single file updates to idb-keyval store', async () => {
+      const initialFiles = {
+        'main.tex': { path: 'main.tex', name: 'main.tex', content: 'Original' }
+      };
+      await saveWorkspaceToIdb('Project', initialFiles);
 
-      mockWatch
-        .mockResolvedValueOnce(unwatchMock1)
-        .mockResolvedValueOnce(unwatchMock2);
+      const success = await saveFileToDisk('main.tex', 'Updated Content');
+      expect(success).toBe(true);
 
-      await watchWorkspace('/mock/dir1', vi.fn());
-      await watchWorkspace('/mock/dir2', vi.fn());
-
-      expect(unwatchMock1).toHaveBeenCalled();
+      const restored = await restoreWorkspaceFromIdb();
+      expect(restored?.files['main.tex'].content).toBe('Updated Content');
     });
   });
 
@@ -130,14 +95,16 @@ describe('Sprint 22: Data Integrity Lockdown & Bi-Directional Sync', () => {
   });
 
   describe('Workspace Write Lock & Self-Write Isolation (useWorkspaceStore.ts)', () => {
-    it('sets and releases write-lock through saveFileWithLock', async () => {
-      mockWriteTextFile.mockResolvedValue(undefined);
-
+    it('mounts files directly and syncs state', async () => {
       const store = useWorkspaceStore.getState();
-      const result = await store.saveFileWithLock('/mock/main.tex', 'New Content');
+      const files = {
+        'main.tex': { path: 'main.tex', name: 'main.tex', content: '\\documentclass{article}' }
+      };
 
+      const result = await store.mountFilesDirect('Test Project', files);
       expect(result).toBe(true);
-      expect(mockWriteTextFile).toHaveBeenCalledWith('/mock/main.tex', 'New Content');
+      expect(useWorkspaceStore.getState().workspacePath).toBe('Test Project');
+      expect(useWorkspaceStore.getState().activeTexContent).toBe('\\documentclass{article}');
     });
   });
 });

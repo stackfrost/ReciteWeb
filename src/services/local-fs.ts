@@ -1,141 +1,203 @@
-import { open } from '@tauri-apps/plugin-dialog';
-import { readDir, readTextFile, writeTextFile, watch } from '@tauri-apps/plugin-fs';
+import { get, set, del } from 'idb-keyval';
 
 export interface LocalFile {
   path: string;
   name: string;
   content: string;
+  lastModified?: number;
 }
 
-let unwatchFn: (() => void) | null = null;
+const IDB_WORKSPACE_KEY = 'citeassist_active_workspace';
+const IDB_FILES_KEY = 'citeassist_workspace_files';
 
 export async function watchWorkspace(
-  dirPath: string, 
-  onFileChanged: (filePath: string) => void
+  _dirPath: string, 
+  _onFileChanged: (filePath: string) => void
 ): Promise<void> {
-  if (unwatchFn) {
+  // Browser-native workspace watcher stub (managed via in-memory state & storage events)
+}
+
+/**
+ * 1. Open the browser native Directory Picker (Chromium/Edge)
+ */
+export async function openProjectDialog(): Promise<Record<string, LocalFile> | null> {
+  if (typeof window === 'undefined') return null;
+
+  if ('showDirectoryPicker' in window) {
     try {
-      unwatchFn();
-    } catch (e) {
-      console.warn('[Tauri Watcher] Failed to cleanup previous watcher:', e);
+      const dirHandle = await (window as any).showDirectoryPicker({
+        mode: 'readwrite',
+      });
+      return await readDirectoryHandle(dirHandle);
+    } catch (err: any) {
+      if (err.name === 'AbortError') return null;
+      console.warn('[LocalFS] showDirectoryPicker error, falling back to input:', err);
     }
-    unwatchFn = null;
   }
-  
+  return null;
+}
+
+/**
+ * Recursively read files from a browser FileSystemDirectoryHandle
+ */
+export async function readDirectoryHandle(
+  dirHandle: FileSystemDirectoryHandle,
+  basePath = ''
+): Promise<Record<string, LocalFile>> {
+  const fileTree: Record<string, LocalFile> = {};
+  const currentPath = basePath ? `${basePath}/${dirHandle.name}` : dirHandle.name;
+
+  for await (const entry of (dirHandle as any).values()) {
+    if (entry.kind === 'file') {
+      const name = entry.name as string;
+      if (name.endsWith('.tex') || name.endsWith('.bib') || name.endsWith('.md') || name.endsWith('.txt')) {
+        const file = await entry.getFile();
+        const content = await file.text();
+        const filePath = `${currentPath}/${name}`;
+        fileTree[filePath] = {
+          path: filePath,
+          name,
+          content,
+          lastModified: file.lastModified,
+        };
+      }
+    } else if (entry.kind === 'directory' && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+      const subTree = await readDirectoryHandle(entry, currentPath);
+      Object.assign(fileTree, subTree);
+    }
+  }
+
+  await saveWorkspaceToIdb(currentPath, fileTree);
+  return fileTree;
+}
+
+/**
+ * Ingest browser File objects (e.g. from Drag-and-Drop or <input type="file" multiple />)
+ */
+export async function ingestFileList(files: FileList | File[]): Promise<Record<string, LocalFile>> {
+  const fileTree: Record<string, LocalFile> = {};
+  const fileArray = Array.from(files);
+
+  for (const file of fileArray) {
+    const relPath = (file as any).webkitRelativePath || file.name;
+    const name = file.name;
+    if (name.endsWith('.tex') || name.endsWith('.bib') || name.endsWith('.md') || name.endsWith('.txt')) {
+      const content = await file.text();
+      const normalizedPath = relPath.replace(/\\/g, '/');
+      fileTree[normalizedPath] = {
+        path: normalizedPath,
+        name,
+        content,
+        lastModified: file.lastModified,
+      };
+    }
+  }
+
+  await saveWorkspaceToIdb('Uploaded Project', fileTree);
+  return fileTree;
+}
+
+/**
+ * Persist active workspace files to client-side IndexedDB
+ */
+export async function saveWorkspaceToIdb(dirName: string, files: Record<string, LocalFile>): Promise<void> {
   try {
-    // Watch the directory for Modify events
-    unwatchFn = await watch(
-      dirPath,
-      (event) => {
-        const eventType = event.type as any;
-        const isModify = eventType === 'any' || 
-                         eventType === 'modify' || 
-                         (typeof eventType === 'object' && eventType !== null && 'modify' in eventType);
-
-
-        if (isModify && event.paths) {
-          for (const rawPath of event.paths) {
-            const normalized = rawPath.replace(/\\/g, '/');
-            if (normalized.endsWith('.tex') || normalized.endsWith('.bib')) {
-              onFileChanged(normalized);
-            }
-          }
-        }
-      },
-      { recursive: true }
-    );
+    await set(IDB_WORKSPACE_KEY, dirName);
+    await set(IDB_FILES_KEY, files);
   } catch (err) {
-    console.error('[Tauri Watcher] Failed to initialize:', err);
+    console.warn('[LocalFS] Failed to cache workspace to idb-keyval:', err);
   }
 }
 
-// 1. Open the native OS folder picker
-export async function openProjectDialog(): Promise<string | null> {
+/**
+ * Restore workspace files from client-side IndexedDB
+ */
+export async function restoreWorkspaceFromIdb(): Promise<{ dirName: string; files: Record<string, LocalFile> } | null> {
   try {
-    const selectedPath = await open({ directory: true, multiple: false });
-    return selectedPath ? (selectedPath as string) : null;
-  } catch (error) {
-    console.error('[Tauri FS] Dialog failed:', error);
+    const dirName = await get<string>(IDB_WORKSPACE_KEY);
+    const files = await get<Record<string, LocalFile>>(IDB_FILES_KEY);
+    if (dirName && files && Object.keys(files).length > 0) {
+      return { dirName, files };
+    }
+    return null;
+  } catch (err) {
+    console.warn('[LocalFS] Failed to restore workspace from idb-keyval:', err);
     return null;
   }
 }
 
-// 2. Recursively find .tex and .bib files (simplified flat-read for this sprint)
-export async function loadProjectFiles(dirPath: string): Promise<Record<string, LocalFile>> {
-  const fileTree: Record<string, LocalFile> = {};
-  
+/**
+ * Clear cached workspace from IndexedDB
+ */
+export async function clearWorkspaceFromIdb(): Promise<void> {
   try {
-    const processDir = async (currentDir: string) => {
-      const entries = await readDir(currentDir);
-      for (const entry of entries) {
-        const fullPath = `${currentDir}/${entry.name}`.replace(/\\/g, '/');
-        if (entry.isDirectory) {
-          if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
-            await processDir(fullPath);
-          }
-        } else if ((entry as any).children) {
-          for (const child of (entry as any).children) {
-            if (child.name?.endsWith('.tex') || child.name?.endsWith('.bib')) {
-              const childPath = child.path || `${fullPath}/${child.name}`;
-              const content = await readTextFile(childPath);
-              fileTree[childPath] = { path: childPath, name: child.name, content };
-            }
-          }
-        } else if (entry.name?.endsWith('.tex') || entry.name?.endsWith('.bib') || entry.name?.endsWith('.md')) {
-          const content = await readTextFile(fullPath);
-          fileTree[fullPath] = { path: fullPath, name: entry.name, content };
-        }
-      }
-    };
-
-    await processDir(dirPath);
-    return fileTree;
-  } catch (error) {
-    console.error('[Tauri FS] Directory read failed:', error);
-    return {};
-  }
+    await del(IDB_WORKSPACE_KEY);
+    await del(IDB_FILES_KEY);
+  } catch {}
 }
 
-// 3. Write changes back to the physical hard drive
+/**
+ * 2. Recursively find .tex and .bib files (backward compatibility wrapper)
+ */
+export async function loadProjectFiles(dirPath: string): Promise<Record<string, LocalFile>> {
+  const restored = await restoreWorkspaceFromIdb();
+  if (restored && (restored.dirName === dirPath || !dirPath)) {
+    return restored.files;
+  }
+  return {};
+}
+
+/**
+ * 3. Save file content to storage
+ */
 export async function saveFileToDisk(filePath: string, content: string): Promise<boolean> {
   try {
-    await writeTextFile(filePath, content);
+    const files = (await get<Record<string, LocalFile>>(IDB_FILES_KEY)) || {};
+    const name = filePath.split(/[/\\]/).pop() || filePath;
+    files[filePath] = {
+      path: filePath,
+      name,
+      content,
+      lastModified: Date.now(),
+    };
+    await set(IDB_FILES_KEY, files);
     return true;
-  } catch (error) {
-    console.error(`[Tauri FS] Failed to write to ${filePath}:`, error);
+  } catch (err) {
+    console.error(`[LocalFS] Failed to write ${filePath} to IndexedDB:`, err);
     return false;
   }
 }
 
-// 4. Safely read text file from disk without throwing
+/**
+ * 4. Safely read text file from storage
+ */
 export async function readTextFileSafely(filePath: string): Promise<string | null> {
   try {
-    const { readTextFile } = await import('@tauri-apps/plugin-fs');
-    return await readTextFile(filePath);
-  } catch (error) {
+    const files = await get<Record<string, LocalFile>>(IDB_FILES_KEY);
+    if (files && files[filePath]) {
+      return files[filePath].content;
+    }
+    return null;
+  } catch {
     return null;
   }
 }
 
-// 5. Ensure directory exists
-export async function createDirSafely(dirPath: string): Promise<boolean> {
-  try {
-    const { mkdir } = await import('@tauri-apps/plugin-fs');
-    await mkdir(dirPath, { recursive: true });
-    return true;
-  } catch (error) {
-    return false;
-  }
+/**
+ * 5. Ensure directory exists (no-op in virtual idb)
+ */
+export async function createDirSafely(_dirPath: string): Promise<boolean> {
+  return true;
 }
 
-// 6. Check if file exists
+/**
+ * 6. Check if file exists in storage
+ */
 export async function fileExists(filePath: string): Promise<boolean> {
   try {
-    const { exists } = await import('@tauri-apps/plugin-fs');
-    return await exists(filePath);
+    const files = await get<Record<string, LocalFile>>(IDB_FILES_KEY);
+    return Boolean(files && files[filePath]);
   } catch {
     return false;
   }
 }
-
-

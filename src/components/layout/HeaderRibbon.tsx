@@ -7,26 +7,8 @@ import { useAuditStore } from '@/store/useAuditStore';
 import { Play, Search, Download, Minus, Square, X, Cpu } from 'lucide-react';
 
 export const HeaderRibbon: React.FC = () => {
-  const [inTauri, setInTauri] = useState(false);
   const { activeTexPath, resetWorkspace } = useWorkspaceStore();
   const { findings, isAuditing, runAudit } = useAuditStore();
-
-  useEffect(() => {
-    setInTauri(isTauri());
-  }, []);
-
-  const handleWindow = async (action: 'min' | 'max' | 'close') => {
-    if (!inTauri) return;
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      const win = getCurrentWindow();
-      if (action === 'min') await win.minimize();
-      if (action === 'max') await win.toggleMaximize();
-      if (action === 'close') await win.close();
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
   // Keyboard shortcut Ctrl+Enter to trigger audit
   useEffect(() => {
@@ -109,18 +91,6 @@ export const HeaderRibbon: React.FC = () => {
           <Download className="w-3 h-3"/>
           <span>Export</span>
         </button>
-
-        <div className="flex items-center border-l border-[#21262D] pl-2 ml-1">
-          <button onClick={() => handleWindow('min')} className="h-7 w-7 flex items-center justify-center hover:bg-[#21262D] rounded text-neutral-400 hover:text-white cursor-pointer" title="Minimize">
-            <Minus className="w-3 h-3"/>
-          </button>
-          <button onClick={() => handleWindow('max')} className="h-7 w-7 flex items-center justify-center hover:bg-[#21262D] rounded text-neutral-400 hover:text-white cursor-pointer" title="Maximize">
-            <Square className="w-2.5 h-2.5"/>
-          </button>
-          <button onClick={() => handleWindow('close')} className="h-7 w-7 flex items-center justify-center hover:bg-rose-600 rounded text-neutral-400 hover:text-white cursor-pointer" title="Close">
-            <X className="w-3 h-3"/>
-          </button>
-        </div>
       </div>
     </header>
   );

@@ -12,6 +12,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useReciteStore } from '@/lib/store';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
+import { wasmParser } from '@/lib/wasm-loader';
+import type { Claim } from '@/lib/store';
 import { DEMO_MANUSCRIPT, DEMO_CLAIMS, DEMO_BIBTEX } from '@/lib/demo-data';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import MenuBar from '@/components/MenuBar';
@@ -50,9 +52,11 @@ function ResizeHandle() {
 function SterileEditorEmptyState({
   onMountClick,
   onLoadDemo,
+  onLoadSample,
 }: {
   onMountClick: () => void;
   onLoadDemo: () => void;
+  onLoadSample?: (samplePath: string) => void;
 }) {
   return (
     <div className="h-full flex flex-col items-center justify-center p-8 select-none relative overflow-hidden bg-zinc-50/40 dark:bg-zinc-950 font-sans">
@@ -91,11 +95,11 @@ function SterileEditorEmptyState({
           </button>
 
           <button
-            onClick={onLoadDemo}
+            onClick={() => onLoadSample ? onLoadSample('/samples/ieee-two-column-sample.tex') : onLoadDemo()}
             className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 text-xs transition-colors cursor-pointer"
           >
             <Sparkles size={13} className="text-amber-500" />
-            <span>Sample Demo</span>
+            <span>IEEE 2-Column Sample</span>
           </button>
         </div>
 
@@ -154,12 +158,10 @@ function IDEWorkbench() {
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleDirectFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processDocumentFile = async (file: File) => {
     setWorkspaceStatus('MOUNTING');
-    const text = await file.text();
+    const buffer = await file.arrayBuffer();
+    const text = new TextDecoder('utf-8').decode(buffer);
     const { text: parsed, mathBlocks } = parseMathBlocks(text);
 
     setRawText(text);
@@ -170,11 +172,91 @@ function IDEWorkbench() {
     mountWorkspace(file.name, file.size);
     setWorkspaceStatus('AST_PARSING');
 
-    setTimeout(() => {
-      setWorkspaceStatus('AST_PARSER_IDLE');
-    }, 200);
+    try {
+      const activeTier = typeof window !== 'undefined' ? localStorage.getItem('citeassist_pro_tier') || 'FREE' : 'FREE';
+      const parsedWasm = await wasmParser.parseDocument({
+        content: buffer,
+        format: file.name.endsWith('.docx') ? 'docx' : file.name.endsWith('.typ') ? 'typst' : 'latex',
+        licenseStatus: activeTier,
+        filename: file.name,
+      });
 
+      if (parsedWasm.success && parsedWasm.claims.length > 0) {
+        const mappedClaims: Claim[] = parsedWasm.claims.map((c, i) => ({
+          id: c.id,
+          text: c.claimSentence,
+          category: 'Literature Claim',
+          severity: i % 3 === 0 ? 'Critical' : i % 2 === 0 ? 'High' : 'Medium',
+          status: 'pending',
+          lineIndex: c.line,
+          startIndex: c.column,
+          endIndex: c.column + c.claimSentence.length,
+          context: c.context,
+          citationKey: c.citationKey,
+          auditType: 'Needs Literature',
+        }));
+        setClaims(mappedClaims);
+      }
+    } catch (err) {
+      console.warn('[WASM Parser] Fallback AST parsing active:', err);
+    }
+
+    setWorkspaceStatus('AST_PARSER_IDLE');
+  };
+
+  const handleDirectFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processDocumentFile(file);
     e.target.value = '';
+  };
+
+  const handleLoadSample = async (samplePath = '/samples/ieee-two-column-sample.tex') => {
+    try {
+      setWorkspaceStatus('MOUNTING');
+      const res = await fetch(samplePath);
+      const text = await res.text();
+      const { text: parsed, mathBlocks } = parseMathBlocks(text);
+
+      const fileName = samplePath.split('/').pop() || 'ieee-two-column-sample.tex';
+      setRawText(text);
+      setParsedText(parsed);
+      setMathBlocks(mathBlocks);
+      setDocumentTitle(fileName);
+      setFileFormat('tex');
+      mountWorkspace(fileName, text.length);
+      mountBibTex('quantum_references.bib', DEMO_BIBTEX);
+      setWorkspaceStatus('AST_PARSING');
+
+      const activeTier = typeof window !== 'undefined' ? localStorage.getItem('citeassist_pro_tier') || 'FREE' : 'FREE';
+      const parsedWasm = await wasmParser.parseDocument({
+        content: text,
+        format: 'latex',
+        licenseStatus: activeTier,
+        filename: fileName,
+      });
+
+      if (parsedWasm.success && parsedWasm.claims.length > 0) {
+        const mappedClaims: Claim[] = parsedWasm.claims.map((c, i) => ({
+          id: c.id,
+          text: c.claimSentence,
+          category: 'Literature Claim',
+          severity: i % 3 === 0 ? 'Critical' : i % 2 === 0 ? 'High' : 'Medium',
+          status: 'pending',
+          lineIndex: c.line,
+          startIndex: c.column,
+          endIndex: c.column + c.claimSentence.length,
+          context: c.context,
+          citationKey: c.citationKey,
+          auditType: 'Needs Literature',
+        }));
+        setClaims(mappedClaims);
+      }
+      setWorkspaceStatus('AST_PARSER_IDLE');
+    } catch (err) {
+      console.warn('[Load Sample] Fallback to demo:', err);
+      handleLoadDemo();
+    }
   };
 
   const handleLoadDemo = () => {
@@ -215,7 +297,15 @@ function IDEWorkbench() {
         <Sidebar />
 
         {/* Center & Right Docked Work Area */}
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <main
+          className="flex-1 flex flex-col min-w-0 overflow-hidden"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={async (e) => {
+            e.preventDefault();
+            const file = e.dataTransfer.files?.[0];
+            if (file) await processDocumentFile(file);
+          }}
+        >
           {/* Full-Bleed Action Toolbar */}
           <Toolbar />
 
@@ -233,6 +323,7 @@ function IDEWorkbench() {
                         <SterileEditorEmptyState
                           onMountClick={() => fileInputRef.current?.click()}
                           onLoadDemo={handleLoadDemo}
+                          onLoadSample={handleLoadSample}
                         />
                       )}
                     </div>

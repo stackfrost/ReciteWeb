@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 import { useReciteStore, LLMProvider, calculateDocMetrics } from '@/lib/store';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
 import { DEMO_MANUSCRIPT, DEMO_CLAIMS, DEMO_BIBTEX } from '@/lib/demo-data';
@@ -72,76 +73,7 @@ export default function MenuBar() {
 
   const { resolvedTheme, toggleTheme } = useTheme();
   const [activeMenu, setActiveMenu] = useState<MenuCategory | null>(null);
-  const [isMaximized, setIsMaximized] = useState(false);
   const menuBarRef = useRef<HTMLDivElement>(null);
-
-  // Initialize and listen to Tauri window maximize state
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    async function setupWindowState() {
-      if (typeof window === 'undefined') return;
-      try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        const win = getCurrentWindow();
-        const max = await win.isMaximized();
-        setIsMaximized(max);
-        const unlistenFn = await win.onResized(async () => {
-          try {
-            const isMax = await win.isMaximized();
-            setIsMaximized(isMax);
-          } catch {}
-        });
-        unlisten = unlistenFn;
-      } catch (err) {
-        // In browser / non-Tauri mode
-      }
-    }
-    setupWindowState();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  const handleMinimize = async () => {
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      await getCurrentWindow().minimize();
-    } catch (e) {
-      console.warn('Window minimize only available in desktop app:', e);
-    }
-  };
-
-  const handleMaximize = async () => {
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      const win = getCurrentWindow();
-      const isMax = await win.isMaximized();
-      if (isMax) {
-        await win.unmaximize();
-        setIsMaximized(false);
-      } else {
-        await win.maximize();
-        setIsMaximized(true);
-      }
-    } catch (e) {
-      console.warn('Explicit maximize/unmaximize failed, falling back to toggleMaximize:', e);
-      try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        await getCurrentWindow().toggleMaximize();
-      } catch (err) {
-        console.error('Window maximize error:', err);
-      }
-    }
-  };
-
-  const handleClose = async () => {
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      await getCurrentWindow().close();
-    } catch (e) {
-      console.warn('Window close only available in desktop app:', e);
-    }
-  };
 
   // Close dropdown on outside click or Escape
   useEffect(() => {
@@ -322,12 +254,6 @@ export default function MenuBar() {
   return (
     <header
       ref={menuBarRef}
-      data-tauri-drag-region
-      onDoubleClick={(e) => {
-        if (e.target === e.currentTarget || (e.target as HTMLElement).getAttribute('data-tauri-drag-region') !== null) {
-          handleMaximize();
-        }
-      }}
       className="h-8 w-full bg-zinc-100/95 dark:bg-zinc-950/90 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between px-3 text-[12px] font-sans select-none flex-shrink-0 z-50 transition-colors"
     >
       {/* Left OS Frame & Menus */}
@@ -604,38 +530,16 @@ export default function MenuBar() {
         </button>
       </div>
 
-      {/* Right: Window Controls (Minimize, Maximize, Close) */}
-      <div className="flex items-center -mr-2 h-full select-none" data-tauri-drag-region="false">
-        {/* Minimize Button */}
-        <button
-          onClick={handleMinimize}
-          className="h-full w-10 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-          title="Minimize Window"
+      {/* Right: Settings & Engine Action */}
+      <div className="flex items-center gap-2 h-full select-none">
+        <Link
+          href="/settings"
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors cursor-pointer"
+          title="Account & Workspace Settings"
         >
-          <Minus size={13} />
-        </button>
-
-        {/* Maximize / Restore Button */}
-        <button
-          onClick={handleMaximize}
-          className="h-full w-10 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-          title={isMaximized ? 'Restore Window' : 'Maximize Window'}
-        >
-          {isMaximized ? (
-            <Copy size={11} className="rotate-90" />
-          ) : (
-            <Square size={11} />
-          )}
-        </button>
-
-        {/* Close Button */}
-        <button
-          onClick={handleClose}
-          className="h-full w-11 flex items-center justify-center text-zinc-500 hover:text-white hover:bg-rose-600 dark:hover:bg-rose-600 transition-colors cursor-pointer"
-          title="Close (Alt+F4)"
-        >
-          <X size={14} />
-        </button>
+          <Sliders size={11} />
+          <span>Settings</span>
+        </Link>
       </div>
     </header>
   );

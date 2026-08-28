@@ -70,21 +70,9 @@ export const PdfEvidenceDrawer: React.FC<PdfEvidenceDrawerProps> = ({
         return;
       }
 
-      const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-      if (isTauri && !pdfPath.startsWith('http')) {
-        setIsLoadingPdf(true);
-        try {
-          const { invoke } = await import('@tauri-apps/api/core');
-          const cleanPath = pdfPath.replace(/^file:\/\//, '');
-          const text = await invoke<string>('extract_pdf_text', { path: cleanPath });
-          if (isMounted) setExtractedPdfText(text);
-        } catch (err) {
-          console.warn('[PdfEvidenceDrawer] Failed to extract text from local PDF:', err);
-          if (isMounted) setExtractedPdfText(null);
-        } finally {
-          if (isMounted) setIsLoadingPdf(false);
-        }
-      }
+      // In web app mode, extracted text is provided via props or remote endpoint
+      setIsLoadingPdf(false);
+      setExtractedPdfText(null);
     }
 
     loadPdfContent();

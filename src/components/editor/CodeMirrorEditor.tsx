@@ -6,6 +6,7 @@ import { EditorView } from '@codemirror/view';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { useAuditStore } from '@/store/useAuditStore';
 import { useEditorStore } from '@/store/useEditorStore';
+import { createLockedDiffExtension, type LockedDiffPayload } from './extensions/lockedDiffWidget';
 
 export const CodeMirrorEditor: React.FC = memo(() => {
   const editorRef = useRef<ReactCodeMirrorRef>(null);
@@ -19,6 +20,24 @@ export const CodeMirrorEditor: React.FC = memo(() => {
 
   const rawLatex = useEditorStore((s) => s.rawLatex);
   const updateEditorContent = useEditorStore((s) => s.updateContent);
+
+  const findings = useAuditStore((s) => s.findings);
+  const diffsRef = useRef<LockedDiffPayload[]>([]);
+
+  // Update diffs when findings change
+  useEffect(() => {
+    const isPro = typeof window !== 'undefined' && Boolean(localStorage.getItem('citeassist_pro_token'));
+    diffsRef.current = findings
+      .filter((f) => f.suggestedFix || f.severity === 'Critical')
+      .slice(0, 5) // Display top critical diff previews
+      .map((f) => ({
+        line: f.line,
+        originalText: (f as any).claim || f.context || `\\cite{unresolved}`,
+        suggestedText: f.suggestedFix || `% Suggested verified citation`,
+        issueType: f.type || 'Citation Defect',
+        isLocked: !isPro,
+      }));
+  }, [findings]);
 
   // Atomic derivation: subscribe only to selectedFindingId; resolve line number
   // by reading findings once at selection time — avoids subscribing to the full
@@ -85,10 +104,11 @@ export const CodeMirrorEditor: React.FC = memo(() => {
     }
   }, [activeLine]);
 
-  // Dark IDE Theme with adaptive line wrapping — stable: no deps → built once
+  // Dark IDE Theme with adaptive line wrapping & locked diff inline widgets
   const extensions = useMemo(
     () => [
       EditorView.lineWrapping,
+      createLockedDiffExtension(() => diffsRef.current),
       EditorView.theme({
         '&': {
           height: '100%',

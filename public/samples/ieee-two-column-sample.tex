@@ -1,0 +1,61 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+
+\begin{document}
+
+\title{Non-Equilibrium Spin Transport in Low-Dimensional Van der Waals Heterostructures}
+
+\author{\IEEEauthorblockN{1\textsuperscript{st} Elena Rostova}
+\IEEEauthorblockA{\textit{Department of Applied Physics} \\
+\textit{Institute for Advanced Quantum Studies}\\
+Cambridge, MA, USA \\
+erostova@quantum.mit.edu}
+\and
+\IEEEauthorblockN{2\textsuperscript{nd} Marcus Vance}
+\IEEEauthorblockA{\textit{Cavendish Laboratory} \\
+\textit{University of Cambridge}\\
+Cambridge, CB3 0HE, UK \\
+mvance@cam.ac.uk}
+}
+
+\maketitle
+
+\begin{abstract}
+We report on the experimental observation of room-temperature non-equilibrium spin accumulation across graphene-molybdenum disulfide (MoS2) heterojunctions. By integrating high-frequency spin-torque ferromagnetic resonance with spatial optical Kerr spectroscopy, we demonstrate a 3.4-fold enhancement in spin-to-charge conversion efficiency relative to conventional platinum bilayers. These findings challenge traditional drift-diffusion approximations and establish a microscopic framework for dissipationless quantum interconnects.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Spin-orbit torque, 2D materials, van der Waals heterostructures, spintronics, non-equilibrium transport.
+\end{IEEEkeywords}
+
+\section{Introduction}
+The exploitation of relativistic spin-orbit coupling (SOC) in two-dimensional van der Waals (vdW) heterostructures has opened transformative avenues for low-dissipation logic \cite{vaswani2017attention, shimizu2003}. When non-magnetic Dirac semimetals are brought into proximate contact with semiconducting transition metal dichalcogenides (TMDs), broken inversion symmetry induces interfacial Rashba-Edelstein phenomena \cite{devlin2018bert}.
+
+Previous empirical assessments by Smith and coworkers \cite{smith2024} established that spin diffusion lengths in exfoliated monolayers decay rapidly above 150 K. However, our observations indicate that non-local Hanle precession survives up to ambient temperatures (300 K) under finite in-plane bias \cite{brown2023}.
+
+\section{Experimental Methodology}
+Devices were micro-fabricated on high-resistivity silicon substrates ($\rho > 10^4\,\Omega\cdot\text{cm}$) covered with 285 nm thermally grown SiO2. Monolayer flakes were deterministically transferred via dry viscoelastic stamping under ultra-high vacuum conditions \cite{nature2022}.
+
+\subsection{Hamiltonian Formalism}
+The microscopic dynamics across the interface are governed by the effective Kane-Mele Hamiltonian with broken sublattice symmetry:
+\begin{equation}
+\mathcal{H}_0 = \hbar v_F (\tau_z \sigma_x k_x + \sigma_y k_y) + \Delta_{\text{SO}} \tau_z \sigma_z s_z + \lambda_{\text{R}} (\tau_z \sigma_x s_y - \sigma_y s_x)
+\end{equation}
+where $\tau_z$ and $\sigma_i$ denote the valley and sublattice Pauli matrices, and $s_i$ represents the electron spin operator.
+
+\section{Results and Entailment Analysis}
+As highlighted in recent literature benchmarks \cite{radford2021learning}, giant spin galvanic signals manifest when the chemical potential is tuned within the spin-orbit splitting gap. Contrary to classical drude formulations, the spin Hall conductivity exhibits universal quantization steps \cite{kapoor2024}.
+
+\section{Conclusion}
+Our observations provide unambiguous evidence of high-efficiency room-temperature spin accumulation in pristine vdW junctions \cite{vaswani2017attention}. This platform bridges fundamental Dirac physics with scalable spintronic memory architectures.
+
+\bibliographystyle{IEEEtran}
+\bibliography{quantum_references}
+
+\end{document}

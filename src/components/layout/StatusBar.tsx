@@ -62,7 +62,7 @@ export const StatusBar: React.FC = () => {
       {/* CENTER: Engine Performance Telemetry */}
       <div className="flex items-center gap-0">
         <span className="text-zinc-500">
-          Engine: <span className="text-zinc-300">Entailment v2 (429-Safe)</span>
+          Engine: <span className="text-zinc-300">Gemini 3.7 Flash</span>
         </span>
         <span className="text-zinc-700 px-1.5">│</span>
         <span className="text-zinc-500">
@@ -80,13 +80,13 @@ export const StatusBar: React.FC = () => {
           Claims:{' '}
           <span className="text-emerald-400">{stats.resolvedCount} Verified</span>
           {' / '}
-          <span className={stats.unresolvedCount > 0 ? 'text-cyan-400' : 'text-zinc-400'}>
-            {stats.unresolvedCount} Discoveries
+          <span className={stats.unresolvedCount > 0 ? 'text-zinc-300' : 'text-zinc-400'}>
+            {stats.unresolvedCount} Pending
           </span>
         </span>
         <span className="text-zinc-700 px-1.5">│</span>
         <span className={isOnline ? 'text-zinc-400' : 'text-amber-400'}>
-          {isOnline ? 'Online' : 'Air-Gapped / Local'}
+          {isOnline ? 'Online' : 'Local Mode'}
         </span>
       </div>
     </footer>

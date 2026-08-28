@@ -122,32 +122,10 @@ export class ZoteroBridgeService {
   private static detectedPath: string | null = null;
 
   /**
-   * Returns true if running within the native Tauri desktop runtime.
-   */
-  private static isTauri(): boolean {
-    return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-  }
-
-  /**
    * Auto-detects the local Zotero SQLite database path.
    */
-  static async detectPath(customPath?: string): Promise<string | null> {
+  static async detectPath(_customPath?: string): Promise<string | null> {
     if (this.detectedPath) return this.detectedPath;
-
-    if (this.isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const path = await invoke<string | null>('detect_zotero_path', { customPath });
-        if (path) {
-          this.detectedPath = path;
-          return path;
-        }
-      } catch (err) {
-        console.warn('[ZoteroBridge] Failed to invoke detect_zotero_path:', err);
-      }
-    }
-
-    // Default simulated path in web development mode
     this.detectedPath = '~/Zotero/zotero.sqlite';
     return this.detectedPath;
   }
@@ -155,24 +133,10 @@ export class ZoteroBridgeService {
   /**
    * Retrieves all items from the user's local Zotero library.
    */
-  static async getItems(customPath?: string): Promise<ZoteroItem[]> {
+  static async getItems(_customPath?: string): Promise<ZoteroItem[]> {
     if (this.cachedItems && this.cachedItems.length > 0) {
       return this.cachedItems;
     }
-
-    if (this.isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const items = await invoke<ZoteroItem[]>('get_zotero_items', { dbPath: customPath });
-        if (items && items.length > 0) {
-          this.cachedItems = items;
-          return items;
-        }
-      } catch (err) {
-        console.warn('[ZoteroBridge] get_zotero_items IPC error, using local fallback:', err);
-      }
-    }
-
     this.cachedItems = DEMO_ZOTERO_ITEMS;
     return DEMO_ZOTERO_ITEMS;
   }
@@ -180,24 +144,10 @@ export class ZoteroBridgeService {
   /**
    * Retrieves the Zotero collection tree hierarchy.
    */
-  static async getCollections(customPath?: string): Promise<ZoteroCollection[]> {
+  static async getCollections(_customPath?: string): Promise<ZoteroCollection[]> {
     if (this.cachedCollections && this.cachedCollections.length > 0) {
       return this.cachedCollections;
     }
-
-    if (this.isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const collections = await invoke<ZoteroCollection[]>('get_zotero_collections', { dbPath: customPath });
-        if (collections && collections.length > 0) {
-          this.cachedCollections = collections;
-          return collections;
-        }
-      } catch (err) {
-        console.warn('[ZoteroBridge] get_zotero_collections IPC error:', err);
-      }
-    }
-
     this.cachedCollections = DEMO_ZOTERO_COLLECTIONS;
     return DEMO_ZOTERO_COLLECTIONS;
   }
@@ -208,17 +158,6 @@ export class ZoteroBridgeService {
   static async searchLibrary(query: string, customPath?: string): Promise<ZoteroItem[]> {
     const qLower = query.trim().toLowerCase();
     if (!qLower) return this.getItems(customPath);
-
-    if (this.isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const results = await invoke<ZoteroItem[]>('search_zotero_library', { query, dbPath: customPath });
-        if (results) return results;
-      } catch (err) {
-        console.warn('[ZoteroBridge] search_zotero_library IPC error:', err);
-      }
-    }
-
     const items = await this.getItems(customPath);
     return items.filter((item) => {
       const titleMatch = item.title.toLowerCase().includes(qLower);

@@ -16,13 +16,7 @@
  * Next.js SSR build. Instead, we dynamically detect the Tauri environment at runtime.
  */
 async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  if (typeof window === 'undefined' || !('__TAURI__' in window)) {
-    throw new Error(`Tauri IPC unavailable. Command '${command}' can only be called from within the Tauri desktop shell.`);
-  }
-
-  // Dynamic import to prevent SSR bundler from attempting to resolve @tauri-apps/api
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<T>(command, args);
+  throw new Error(`Command '${command}' is only available when remote PDF extraction is connected.`);
 }
 
 /**

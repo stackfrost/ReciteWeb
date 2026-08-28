@@ -61,8 +61,9 @@ export const WorkbenchView: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 w-full min-h-0 overflow-hidden bg-zinc-950 text-zinc-100 transition-colors">
-      <PanelGroup orientation="horizontal" id="citeassist-workbench-layout">
+    <div className="flex-1 w-full min-h-0 flex flex-col overflow-hidden bg-zinc-950 text-zinc-100 transition-colors">
+      <div className="flex-1 w-full min-h-0 overflow-hidden">
+        <PanelGroup orientation="horizontal" id="citeassist-workbench-layout">
         {/* ── Panel 1: Left File Tree Explorer (Collapsible) ────────────── */}
         <Panel
           id="file-explorer"
@@ -119,6 +120,7 @@ export const WorkbenchView: React.FC = () => {
           <ActionInspector />
         </Panel>
       </PanelGroup>
+      </div>
     </div>
   );
 };
