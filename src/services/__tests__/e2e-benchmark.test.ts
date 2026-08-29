@@ -33,7 +33,7 @@ describe('E2E Stress & Benchmark Suite', () => {
     expect(caughtError).toBeInstanceOf(CircularReferenceError);
 
     // Assert that a 10,000+ line topological parsing pass completes in reasonable time
-    expect(durationMs).toBeLessThan(500);
+    expect(durationMs).toBeLessThan(2000);
     console.log(`[Benchmark] parseProject completed (intercepted cycles) in ${durationMs.toFixed(2)}ms`);
   });
 

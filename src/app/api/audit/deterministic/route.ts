@@ -119,73 +119,77 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 5. Validate DOIs against CrossRef & check for retractions
-    const entries = Array.from(parsedBibMap.values());
-    const doiChecks = entries.map(async (entry) => {
-      const doiMatch = entry.raw.match(/doi\s*=\s*(?:\{|"|)(10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+)(?:\}|"|,|\n|$)/i);
-      if (!doiMatch) return;
+    // 5. Validate DOIs against CrossRef & check for retractions (rate-limited / batch-chunked)
+    const entries = Array.from(parsedBibMap.values()).slice(0, 25); // Cap to 25 DOIs per audit payload
+    const batchSize = 10;
+    
+    for (let i = 0; i < entries.length; i += batchSize) {
+      const batch = entries.slice(i, i + batchSize);
+      const doiChecks = batch.map(async (entry) => {
+        const doiMatch = entry.raw.match(/doi\s*=\s*(?:\{|"|)(10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+)(?:\}|"|,|\n|$)/i);
+        if (!doiMatch) return;
 
-      const doi = doiMatch[1].trim();
-      const cleanTitle = entry.title.toLowerCase();
+        const doi = doiMatch[1].trim();
+        const cleanTitle = entry.title.toLowerCase();
 
-      // Check title for known retraction flags
-      if (cleanTitle.includes('retracted') || cleanTitle.includes('retraction of') || cleanTitle.includes('withdrawn')) {
-        retractions++;
-        redFlags.push({
-          severity: 'critical',
-          category: 'RETRACTION',
-          title: `Retracted Literature Detected: '${entry.key}'`,
-          detail: `Paper '${entry.title}' appears to be retracted or withdrawn. Citing retracted works triggers immediate peer-review rejection and credibility loss.`,
-          citeKey: entry.key,
-          doi,
-          suggestedFix: `Replace citation with updated literature or reference the retraction notice explicitly if analyzing research misconduct.`,
-        });
-        return;
-      }
-
-      // Query CrossRef
-      try {
-        const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
-          headers: { 'User-Agent': 'CiteAssist/1.0 (mailto:verify@citeassist.ai)' },
-          signal: AbortSignal.timeout(4000),
-        });
-
-        if (res.status === 404) {
-          brokenDois++;
+        // Check title for known retraction flags
+        if (cleanTitle.includes('retracted') || cleanTitle.includes('retraction of') || cleanTitle.includes('withdrawn')) {
+          retractions++;
           redFlags.push({
-            severity: 'high',
-            category: 'DEAD_DOI',
-            title: `Invalid/Dead DOI: ${doi}`,
-            detail: `The DOI for '${entry.key}' could not be resolved in CrossRef. This may be a hallucinated citation or typo.`,
+            severity: 'critical',
+            category: 'RETRACTION',
+            title: `Retracted Literature Detected: '${entry.key}'`,
+            detail: `Paper '${entry.title}' appears to be retracted or withdrawn. Citing retracted works triggers immediate peer-review rejection and credibility loss.`,
             citeKey: entry.key,
             doi,
-            suggestedFix: `Verify and update the DOI link.`,
+            suggestedFix: `Replace citation with updated literature or reference the retraction notice explicitly if analyzing research misconduct.`,
           });
-        } else if (res.ok) {
-          const data = await res.json();
-          const item = data.message;
-          if (item?.['update-to']) {
-            const updates = item['update-to'];
-            const isRetracted = updates.some((u: any) => u.type?.toLowerCase().includes('retraction'));
-            if (isRetracted) {
-              retractions++;
-              redFlags.push({
-                severity: 'critical',
-                category: 'RETRACTION',
-                title: `Retracted Paper in CrossRef: '${entry.key}'`,
-                detail: `CrossRef records indicate '${entry.title}' has been retracted.`,
-                citeKey: entry.key,
-                doi,
-              });
+          return;
+        }
+
+        // Query CrossRef
+        try {
+          const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
+            headers: { 'User-Agent': 'ReciteWeb/1.0 (mailto:verify@reciteweb.com)' },
+            signal: AbortSignal.timeout(4000),
+          });
+
+          if (res.status === 404) {
+            brokenDois++;
+            redFlags.push({
+              severity: 'high',
+              category: 'DEAD_DOI',
+              title: `Invalid/Dead DOI: ${doi}`,
+              detail: `The DOI for '${entry.key}' could not be resolved in CrossRef. This may be a hallucinated citation or typo.`,
+              citeKey: entry.key,
+              doi,
+              suggestedFix: `Verify and update the DOI link.`,
+            });
+          } else if (res.ok) {
+            const data = await res.json();
+            const item = data.message;
+            if (item?.['update-to']) {
+              const updates = item['update-to'];
+              const isRetracted = updates.some((u: any) => u.type?.toLowerCase().includes('retraction'));
+              if (isRetracted) {
+                retractions++;
+                redFlags.push({
+                  severity: 'critical',
+                  category: 'RETRACTION',
+                  title: `Retracted Paper in CrossRef: '${entry.key}'`,
+                  detail: `CrossRef records indicate '${entry.title}' has been retracted.`,
+                  citeKey: entry.key,
+                  doi,
+                });
+              }
             }
           }
+        } catch (e) {
+          // Network timeout or non-blocking external failure
         }
-      } catch (e) {
-        // Network timeout or non-blocking external failure
-      }
-    });
-
-    await Promise.all(doiChecks);
+      });
+      await Promise.all(doiChecks);
+    }
 
     // 6. Sanitize BibTeX
     const sanitized = bibtex ? sanitizeBibTeX(bibtex) : { sanitizedContent: '', injectedDois: 0, healedSyntaxErrors: 0, protectedTitles: 0 };

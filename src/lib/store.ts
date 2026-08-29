@@ -512,7 +512,7 @@ const initialState = {
   activeActivityView: null as 'explorer' | 'license' | 'settings' | null,
   softWrap: true,
   activeLineHighlight: null as number | null,
-  isVaultUnlocked: false,
+  isVaultUnlocked: true,
   auditProgress: null as string | null,
   cacheStatus: null as { isRestored: boolean; isFresh: boolean; timestamp?: string } | null,
   stats: { totalClaims: 0, highSeverity: 0, mediumSeverity: 0, lowSeverity: 0, retractedFound: 0, acceptedCount: 0 },

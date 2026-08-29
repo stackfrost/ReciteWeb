@@ -537,8 +537,8 @@ ${texContent.slice(0, 14000)}`;
         Authorization: `Bearer ${apiKey}`,
       };
       if (provider === 'openrouter') {
-        headers['HTTP-Referer'] = 'https://recite.ai';
-        headers['X-Title'] = 'CiteAssist AI Claim Deconstruction';
+        headers['HTTP-Referer'] = 'https://reciteweb.com';
+        headers['X-Title'] = 'ReciteWeb Claim Deconstruction';
       }
       const { signal, cleanup } = createTimeoutSignal(30_000, parentSignal);
       try {

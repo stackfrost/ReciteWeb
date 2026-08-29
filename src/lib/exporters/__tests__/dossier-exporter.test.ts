@@ -29,7 +29,7 @@ describe('dossier-exporter: Pre-Flight Dossier Generator', () => {
   it('generates formatted Markdown report with metadata & table', () => {
     const { markdown } = generatePreFlightDossier(mockMeta, mockFindings);
 
-    expect(markdown).toContain('# CiteAssist AI: Pre-Flight Citation Dossier');
+    expect(markdown).toContain('# ReciteWeb: Pre-Flight Citation Dossier');
     expect(markdown).toContain('Quantum Spin Liquid Ground States.tex');
     expect(markdown).toContain('92/100');
     expect(markdown).toContain('PASS READY');

@@ -5,20 +5,40 @@ node_modules/
 
 # Environment Variables & Secrets (CRITICAL)
 .env
-.env.local
+.env*.local
 .env.development.local
 .env.test.local
 .env.production.local
+.dev.vars
+.dev.vars.local
 
-# Next.js Build Output
+# Next.js & OpenNext Build Output
 .next/
+.open-next/
 out/
 build/
 dist/
+*.tsbuildinfo
 
-# Prisma & SQLite / Local DBs
+# Cloudflare, Wrangler & Miniflare
+.wrangler/
+.mf/
+
+# Rust & WebAssembly (WASM) Build Artifacts
+target/
+src-tauri/target/
+src-wasm/target/
+src-wasm/pkg/
+
+# Prisma, SQLite & Local D1 Databases
 *.db
 *.db-journal
+*.sqlite
+*.sqlite3
+
+# Testing & Coverage
+coverage/
+.vitest/
 
 # Logs & Debugging
 npm-debug.log*
@@ -32,7 +52,4 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
-
-# Rust / Tauri Build Artifacts
-src-tauri/target/
-target/
+*.swo

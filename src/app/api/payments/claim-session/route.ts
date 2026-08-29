@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/app/api/payments/claim-session/route.ts
  *
  * Dodo Payments — Post-Redirect Token Claim Endpoint.
@@ -77,13 +77,13 @@ export async function GET(req: NextRequest) {
     const license = await lookupLicense(db, paymentId);
 
     if (!license) {
-      // In dev with no DODO_WEBHOOK_SECRET, allow a mock claim for any payment_id
-      // that starts with 'dodo_dev_' to unblock UI testing.
-      if (!process.env.DODO_WEBHOOK_SECRET && paymentId.startsWith('dodo_dev_')) {
+      // In non-production environments with no DODO_WEBHOOK_SECRET, allow a mock claim
+      // for payment_ids that start with 'dodo_dev_' to unblock local UI testing.
+      if (process.env.NODE_ENV !== 'production' && !process.env.DODO_WEBHOOK_SECRET && paymentId.startsWith('dodo_dev_')) {
         const tier = paymentId.includes('pro') ? 'annual_pro' : 'emergency_pass' as const;
         const durationMs = tier === 'annual_pro' ? 365 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
         const expiresAt = Date.now() + durationMs;
-        const token = await signToken({ email: 'dev@citeassist.ai', tier, expiresAt, sessionId: paymentId });
+        const token = await signToken({ email: 'dev@reciteweb.com', tier, expiresAt, sessionId: paymentId });
         return NextResponse.json({ status: 'success', token, tier, expiresAt, dev: true });
       }
       return NextResponse.json({ error: 'Payment not found. Complete checkout first.' }, { status: 404 });

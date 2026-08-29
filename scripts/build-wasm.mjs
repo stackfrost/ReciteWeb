@@ -17,7 +17,7 @@ const srcWasmDir = path.join(rootDir, 'src-wasm');
 const outDir = path.join(rootDir, 'src', 'workers', 'wasm-pdf');
 
 console.log('════════════════════════════════════════════════════════════════════════');
-console.log('  🦀 CITEASSIST AI — WASM SPATIAL PDF BUILD PIPELINE');
+console.log('  🦀 RECITEWEB — WASM SPATIAL PDF BUILD PIPELINE');
 console.log('════════════════════════════════════════════════════════════════════════');
 
 let hasWasmPack = false;

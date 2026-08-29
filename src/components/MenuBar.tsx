@@ -39,7 +39,7 @@ import { ReportGenerator } from '@/services/report-generator';
 
 type MenuCategory = 'File' | 'Edit' | 'View' | 'Engine' | 'Terminal' | 'Help';
 
-export default function MenuBar() {
+export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
   const {
     workspace,
     mountWorkspace,
@@ -257,8 +257,18 @@ export default function MenuBar() {
       className="h-8 w-full bg-zinc-100/95 dark:bg-zinc-950/90 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between px-3 text-[12px] font-sans select-none flex-shrink-0 z-50 transition-colors"
     >
       {/* Left OS Frame & Menus */}
-      <div className="flex items-center" data-tauri-drag-region>
-
+      <div className="flex items-center gap-2" data-tauri-drag-region>
+        {onGoHome && (
+          <button
+            onClick={onGoHome}
+            title="Return to Overview / Landing Page"
+            className="flex items-center px-2 py-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 transition cursor-pointer"
+          >
+            <span className="font-extrabold text-[12px] tracking-tight text-zinc-900 dark:text-zinc-100 font-sans">
+              Recite<span className="text-teal-600 dark:text-teal-400 font-semibold">Web</span>
+            </span>
+          </button>
+        )}
 
         {/* Menu Buttons */}
         <div className="flex items-center gap-0.5">
@@ -282,6 +292,19 @@ export default function MenuBar() {
                 <div className="absolute top-full left-0 mt-1 min-w-[240px] bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-lg backdrop-blur-md p-1 font-sans text-xs z-50 animate-in fade-in zoom-in-95 duration-100">
                   {item === 'File' && (
                     <>
+                      {onGoHome && (
+                        <>
+                          <MenuAction
+                            icon={<Shield size={13} className="text-emerald-500" />}
+                            label="Return to Overview / Home"
+                            onClick={() => {
+                              setActiveMenu(null);
+                              onGoHome();
+                            }}
+                          />
+                          <div className="border-b border-zinc-100 dark:border-zinc-800 my-1" />
+                        </>
+                      )}
                       <MenuAction
                         icon={<FolderOpen size={13} className="text-zinc-500" />}
                         label="Open Document..."

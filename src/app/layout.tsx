@@ -23,7 +23,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "ReciteAI // Institutional Manuscript Verification",
+  title: "ReciteWeb // Institutional Manuscript Verification",
   description:
     "Autonomous manuscript pre-flight auditor. Isolates LaTeX math boundaries, indexes uncited claims across arXiv, Semantic Scholar, and OpenAlex, and detects retraction traps before peer review.",
   keywords: [
@@ -35,8 +35,9 @@ export const metadata: Metadata = {
     "OpenAlex",
     "arXiv preprints",
     "peer review defense",
+    "ReciteWeb",
   ],
-  authors: [{ name: "ReciteAI Engineering" }],
+  authors: [{ name: "ReciteWeb Engineering" }],
 };
 
 import { GlobalErrorBoundary } from "@/components/common/GlobalErrorBoundary";
@@ -49,9 +50,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className="dark"
+      className="dark scroll-smooth"
     >
-      <body className={`${inter.variable} ${jetbrainsMono.variable} bg-zinc-950 text-zinc-100 font-sans antialiased flex flex-col h-screen overflow-hidden`}>
+      <body className={`${inter.variable} ${jetbrainsMono.variable} bg-zinc-950 text-zinc-100 font-sans antialiased min-h-screen`}>
         <GlobalErrorBoundary>
           {children}
         </GlobalErrorBoundary>

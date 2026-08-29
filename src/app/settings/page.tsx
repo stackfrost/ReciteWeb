@@ -69,29 +69,36 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans transition-colors">
+    <div className="min-h-screen bg-[#05070d] text-zinc-100 font-sans antialiased selection:bg-teal-400 selection:text-black relative overflow-hidden">
+      {/* ─── Liquid Mesh Texture & Multi-Spectral Atmosphere ─────────────── */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute inset-0 liquid-grid-overlay opacity-50" />
+        <div className="absolute -top-32 left-1/4 -translate-x-1/2 w-[600px] h-[400px] bg-gradient-to-tr from-emerald-500/15 via-teal-400/10 to-transparent rounded-full blur-[140px] animate-liquid-orb" />
+        <div className="absolute top-40 right-1/4 w-[600px] h-[400px] bg-gradient-to-bl from-indigo-500/15 via-violet-500/10 to-transparent rounded-full blur-[150px] animate-liquid-orb" style={{ animationDelay: '3s' }} />
+      </div>
+
       {/* ── TOP NAVIGATION BAR ────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-30 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-zinc-200/80 dark:border-zinc-800">
-        <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
+      <header className="sticky top-0 z-30 bg-[#05070d]/70 backdrop-blur-2xl border-b border-white/[0.08] shadow-[0_4px_30px_rgba(0,0,0,0.5)] relative">
+        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] backdrop-blur-xl border border-white/[0.08] hover:border-white/[0.18] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all cursor-pointer"
             >
               <ChevronLeft size={16} />
               <span>Back to Workbench</span>
             </Link>
 
-            <span className="text-zinc-300 dark:text-zinc-700">/</span>
+            <span className="text-zinc-700">/</span>
 
-            <h1 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            <h1 className="text-sm font-extrabold text-white tracking-tight">
               Account & Preferences
             </h1>
           </div>
 
           <div className="flex items-center gap-2">
             {savedToast && (
-              <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium animate-fadeIn">
+              <span className="flex items-center gap-1 text-xs text-teal-300 font-semibold px-3 py-1 rounded-full bg-teal-500/15 border border-teal-500/30 animate-fadeIn">
                 <CheckCircle2 size={13} />
                 <span>Preferences Saved</span>
               </span>
@@ -101,26 +108,26 @@ export default function SettingsPage() {
       </header>
 
       {/* ── MAIN CONTENT CONTAINER ────────────────────────────────────────── */}
-      <main className="max-w-4xl mx-auto px-4 py-8 space-y-8">
+      <main className="max-w-4xl mx-auto px-4 py-10 space-y-8 relative z-10">
         
         {/* ================================================================= */}
         {/* SEGMENT 1: PROFILE & OAUTH AUTHENTICATION                         */}
         {/* ================================================================= */}
-        <section className="bg-white dark:bg-zinc-900 rounded-2xl ring-1 ring-black/5 dark:ring-white/10 shadow-sm p-6 sm:p-8 space-y-6">
-          <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-4">
+        <section className="p-7 sm:p-9 rounded-3xl bg-gradient-to-b from-white/[0.05] via-white/[0.02] to-transparent border border-white/[0.1] shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_20px_45px_rgba(0,0,0,0.6)] backdrop-blur-2xl space-y-6">
+          <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
             <div className="space-y-1">
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <User size={18} className="text-zinc-500" />
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <User size={18} className="text-teal-400" />
                 <span>Identity & Access</span>
               </h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="text-xs text-zinc-400">
                 Manage your authenticated researcher profile and linked identity providers.
               </p>
             </div>
 
             {user && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-teal-500/15 text-teal-300 border border-teal-500/30 shadow-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
                 OAuth Authenticated
               </span>
             )}
@@ -138,19 +145,19 @@ export default function SettingsPage() {
                   <img
                     src={user.image}
                     alt={user.name || 'User avatar'}
-                    className="w-14 h-14 rounded-full ring-2 ring-zinc-200 dark:ring-zinc-700 object-cover"
+                    className="w-14 h-14 rounded-2xl ring-2 ring-white/20 object-cover shadow-md"
                   />
                 ) : (
-                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white font-semibold text-lg shadow-sm">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-400 via-teal-400 to-indigo-500 flex items-center justify-center text-zinc-950 font-extrabold text-lg shadow-[0_0_20px_rgba(20,184,166,0.3)]">
                     {user.name ? user.name.slice(0, 2).toUpperCase() : 'RA'}
                   </div>
                 )}
 
                 <div className="space-y-0.5">
-                  <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  <div className="text-sm font-bold text-white">
                     {user.name || 'Researcher'}
                   </div>
-                  <div className="text-xs text-zinc-500 font-mono">
+                  <div className="text-xs text-teal-300/80 font-mono">
                     {user.email}
                   </div>
                   <div className="text-[11px] text-zinc-400 pt-0.5">
@@ -161,7 +168,7 @@ export default function SettingsPage() {
 
               <button
                 onClick={handleSignOut}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 dark:hover:bg-rose-950/30 dark:hover:text-rose-400 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-white/[0.08] bg-white/[0.04] hover:bg-rose-950/30 hover:text-rose-300 hover:border-rose-500/30 text-xs font-semibold text-zinc-300 transition-all cursor-pointer shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
               >
                 <LogOut size={13} />
                 <span>Sign Out</span>
@@ -170,7 +177,7 @@ export default function SettingsPage() {
           ) : (
             /* Unauthenticated OAuth Sign-In State */
             <div className="space-y-4 pt-1">
-              <p className="text-xs text-zinc-600 dark:text-zinc-400">
+              <p className="text-xs text-zinc-400">
                 Sign in with your institutional or developer identity to sync audit credits, persistent license keys, and verified citation dossiers across devices.
               </p>
 
@@ -178,7 +185,7 @@ export default function SettingsPage() {
                 {/* Google Sign-in */}
                 <button
                   onClick={() => handleOAuthSignIn('google')}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/80 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-800 dark:text-zinc-200 transition-colors shadow-xs cursor-pointer"
+                  className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/[0.1] bg-white/[0.04] hover:bg-white/[0.08] text-xs font-bold text-zinc-200 transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] cursor-pointer"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
                     <path
@@ -204,7 +211,7 @@ export default function SettingsPage() {
                 {/* Microsoft Sign-in */}
                 <button
                   onClick={() => handleOAuthSignIn('microsoft')}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/80 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-800 dark:text-zinc-200 transition-colors shadow-xs cursor-pointer"
+                  className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/[0.1] bg-white/[0.04] hover:bg-white/[0.08] text-xs font-bold text-zinc-200 transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] cursor-pointer"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 23 23">
                     <path fill="#f35325" d="M1 1h10v10H1z" />
@@ -218,9 +225,9 @@ export default function SettingsPage() {
                 {/* GitHub Sign-in */}
                 <button
                   onClick={() => handleOAuthSignIn('github')}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/80 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-800 dark:text-zinc-200 transition-colors shadow-xs cursor-pointer"
+                  className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/[0.1] bg-white/[0.04] hover:bg-white/[0.08] text-xs font-bold text-zinc-200 transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] cursor-pointer"
                 >
-                  <svg className="w-4 h-4 fill-current text-zinc-900 dark:text-white" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 fill-current text-white" viewBox="0 0 24 24">
                     <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
                   </svg>
                   <span>Continue with GitHub</span>
@@ -234,26 +241,26 @@ export default function SettingsPage() {
         {/* ================================================================= */}
         {/* SEGMENT 2: PLAN, USAGE & AUDIT CREDITS                            */}
         {/* ================================================================= */}
-        <section className="bg-white dark:bg-zinc-900 rounded-2xl ring-1 ring-black/5 dark:ring-white/10 shadow-sm p-6 sm:p-8 space-y-6">
-          <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-4">
+        <section className="p-7 sm:p-9 rounded-3xl bg-gradient-to-b from-white/[0.05] via-white/[0.02] to-transparent border border-white/[0.1] shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_20px_45px_rgba(0,0,0,0.6)] backdrop-blur-2xl space-y-6">
+          <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
             <div className="space-y-1">
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <CreditCard size={18} className="text-zinc-500" />
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <CreditCard size={18} className="text-teal-400" />
                 <span>Billing & Audit Credits</span>
               </h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="text-xs text-zinc-400">
                 Track your active pre-flight allowance and semantic verification entitlements.
               </p>
             </div>
 
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
               isPro
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
-                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700'
+                ? 'bg-teal-500/15 text-teal-300 border border-teal-500/30'
+                : 'bg-white/[0.06] text-zinc-300 border border-white/10'
             }`}>
               {isPro ? (
                 <>
-                  <Sparkles size={12} className="text-emerald-500" />
+                  <Sparkles size={12} className="text-teal-300" />
                   <span>Researcher Pro</span>
                 </>
               ) : (
@@ -264,22 +271,22 @@ export default function SettingsPage() {
 
           {isPro ? (
             /* Active Pro Tier Status */
-            <div className="p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-500/20 space-y-3">
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-teal-500/15 to-emerald-950/30 border border-teal-500/30 space-y-3 backdrop-blur-md">
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
-                  <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-300 flex items-center gap-2">
-                    <CheckCircle2 size={16} className="text-emerald-500" />
+                  <div className="text-sm font-extrabold text-teal-200 flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-teal-400" />
                     <span>Unlimited Entailment Audits Active</span>
                   </div>
-                  <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80">
+                  <p className="text-xs text-teal-300/80 leading-relaxed">
                     Your subscription includes unlimited manuscript audits, semantic evidence extraction, and clean dossier exports.
                   </p>
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
-                <span>Billing Provider: Encrypted Checkout</span>
-                <span className="font-medium">Direct Settlement Verified</span>
+              <div className="pt-3 border-t border-teal-500/20 flex items-center justify-between text-xs text-teal-300">
+                <span>Billing Provider: Encrypted Direct Settlement</span>
+                <span className="font-semibold">Direct Settlement Verified</span>
               </div>
             </div>
           ) : (
@@ -287,13 +294,13 @@ export default function SettingsPage() {
             <div className="space-y-5">
               {/* Audit Credits Progress Bar */}
               <div className="space-y-2">
-                <div className="flex justify-between text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                <div className="flex justify-between text-xs font-semibold text-zinc-300">
                   <span>Monthly Audit Credits</span>
-                  <span className="font-mono">{creditsUsed} of {creditsTotal} credits used</span>
+                  <span className="font-mono text-teal-300">{creditsUsed} of {creditsTotal} credits used</span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+                <div className="w-full h-2 rounded-full bg-white/[0.06] overflow-hidden border border-white/[0.08]">
                   <div
-                    className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                    className="h-full bg-gradient-to-r from-emerald-400 to-teal-400 rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(20,184,166,0.5)]"
                     style={{ width: `${creditsPercent}%` }}
                   />
                 </div>
@@ -303,20 +310,20 @@ export default function SettingsPage() {
               </div>
 
               {/* Upgrade Box */}
-              <div className="p-5 rounded-xl bg-gradient-to-br from-zinc-50 to-emerald-50/40 dark:from-zinc-900 dark:to-emerald-950/20 border border-emerald-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="p-6 rounded-2xl bg-gradient-to-br from-teal-500/10 via-white/[0.02] to-indigo-500/10 border border-teal-400/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 backdrop-blur-xl">
                 <div className="space-y-1">
-                  <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                    <Zap size={15} className="text-emerald-500" />
+                  <div className="text-sm font-extrabold text-white flex items-center gap-1.5">
+                    <Zap size={15} className="text-teal-300" />
                     <span>Upgrade to Researcher Pro</span>
                   </div>
-                  <p className="text-xs text-zinc-600 dark:text-zinc-400 max-w-md">
+                  <p className="text-xs text-zinc-400 max-w-md leading-relaxed">
                     Unlock unlimited pre-submission audits, missing baseline detection, and institutional PDF verification for $49/year.
                   </p>
                 </div>
 
                 <Link
                   href="/"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs rounded-xl transition-colors shadow-sm shrink-0 flex items-center gap-1.5"
+                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300 text-zinc-950 font-extrabold text-xs rounded-xl transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_8px_20px_rgba(20,184,166,0.35)] shrink-0 flex items-center gap-1.5"
                 >
                   <Sparkles size={13} />
                   <span>Get Researcher Pro</span>
@@ -330,27 +337,27 @@ export default function SettingsPage() {
         {/* ================================================================= */}
         {/* SEGMENT 3: WORKSPACE & LOCAL PROCESSING PREFERENCES               */}
         {/* ================================================================= */}
-        <section className="bg-white dark:bg-zinc-900 rounded-2xl ring-1 ring-black/5 dark:ring-white/10 shadow-sm p-6 sm:p-8 space-y-6">
-          <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-4">
+        <section className="p-7 sm:p-9 rounded-3xl bg-gradient-to-b from-white/[0.05] via-white/[0.02] to-transparent border border-white/[0.1] shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_20px_45px_rgba(0,0,0,0.6)] backdrop-blur-2xl space-y-6">
+          <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
             <div className="space-y-1">
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Sliders size={18} className="text-zinc-500" />
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Sliders size={18} className="text-teal-400" />
                 <span>Workspace Preferences</span>
               </h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="text-xs text-zinc-400">
                 Configure local AST processing, citation standards, and verification thresholds.
               </p>
             </div>
           </div>
 
-          <div className="space-y-6 divide-y divide-zinc-100 dark:divide-zinc-800 text-xs">
+          <div className="space-y-6 divide-y divide-white/[0.08] text-xs">
             {/* Toggle: Local Processing */}
             <div className="flex items-start justify-between gap-4 pt-4 first:pt-0">
               <div className="space-y-1 max-w-lg">
-                <label className="text-sm font-medium text-zinc-900 dark:text-zinc-100 block">
+                <label className="text-sm font-semibold text-white block">
                   Local Processing
                 </label>
-                <p className="text-zinc-500">
+                <p className="text-zinc-400 leading-relaxed">
                   Parse LaTeX AST trees, math equations, and bibliography keys locally in your browser memory for air-gapped security and zero-latency performance.
                 </p>
               </div>
@@ -361,7 +368,7 @@ export default function SettingsPage() {
                 aria-checked={localProcessing}
                 onClick={() => setLocalProcessing(!localProcessing)}
                 className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  localProcessing ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-700'
+                  localProcessing ? 'bg-gradient-to-r from-emerald-400 to-teal-400' : 'bg-white/10'
                 }`}
               >
                 <span
@@ -375,10 +382,10 @@ export default function SettingsPage() {
             {/* Dropdown: Citation Style */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4">
               <div className="space-y-1">
-                <label className="text-sm font-medium text-zinc-900 dark:text-zinc-100 block">
+                <label className="text-sm font-semibold text-white block">
                   Default Citation Format
                 </label>
-                <p className="text-zinc-500">
+                <p className="text-zinc-400 leading-relaxed">
                   Standard format applied when inserting references into manuscript files.
                 </p>
               </div>
@@ -386,23 +393,23 @@ export default function SettingsPage() {
               <select
                 value={citationStyle}
                 onChange={(e) => setCitationStyle(e.target.value)}
-                className="w-full sm:w-48 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                className="w-full sm:w-48 bg-white/[0.04] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white font-semibold focus:outline-none focus:border-teal-400"
               >
-                <option value="apa">APA 7th Edition</option>
-                <option value="ieee">IEEE</option>
-                <option value="chicago">Chicago 17th Edition</option>
-                <option value="nature">Nature / Vancouver</option>
-                <option value="acm">ACM Reference Format</option>
+                <option value="apa" className="bg-[#090d18] text-white">APA 7th Edition</option>
+                <option value="ieee" className="bg-[#090d18] text-white">IEEE</option>
+                <option value="chicago" className="bg-[#090d18] text-white">Chicago 17th Edition</option>
+                <option value="nature" className="bg-[#090d18] text-white">Nature / Vancouver</option>
+                <option value="acm" className="bg-[#090d18] text-white">ACM Reference Format</option>
               </select>
             </div>
 
             {/* Selector: Audit Sensitivity */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4">
               <div className="space-y-1">
-                <label className="text-sm font-medium text-zinc-900 dark:text-zinc-100 block">
+                <label className="text-sm font-semibold text-white block">
                   Audit Verification Rigor
                 </label>
-                <p className="text-zinc-500">
+                <p className="text-zinc-400 leading-relaxed">
                   Configure confidence threshold for flagging attribution gaps.
                 </p>
               </div>
@@ -410,21 +417,21 @@ export default function SettingsPage() {
               <select
                 value={auditSensitivity}
                 onChange={(e) => setAuditSensitivity(e.target.value)}
-                className="w-full sm:w-48 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                className="w-full sm:w-48 bg-white/[0.04] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white font-semibold focus:outline-none focus:border-teal-400"
               >
-                <option value="standard">Standard (Balanced)</option>
-                <option value="high">High Rigor (Peer Review)</option>
-                <option value="conservative">Strict (0% Tolerance)</option>
+                <option value="standard" className="bg-[#090d18] text-white">Standard (Balanced)</option>
+                <option value="high" className="bg-[#090d18] text-white">High Rigor (Peer Review)</option>
+                <option value="conservative" className="bg-[#090d18] text-white">Strict (0% Tolerance)</option>
               </select>
             </div>
 
             {/* Toggle: Report Summaries */}
             <div className="flex items-start justify-between gap-4 pt-4">
               <div className="space-y-1 max-w-lg">
-                <label className="text-sm font-medium text-zinc-900 dark:text-zinc-100 block">
+                <label className="text-sm font-semibold text-white block">
                   Audit Export Dossier Sharing
                 </label>
-                <p className="text-zinc-500">
+                <p className="text-zinc-400 leading-relaxed">
                   Include pre-formatted summary text for co-authors and Principal Investigators when generating dossiers.
                 </p>
               </div>
@@ -435,7 +442,7 @@ export default function SettingsPage() {
                 aria-checked={emailSummaries}
                 onClick={() => setEmailSummaries(!emailSummaries)}
                 className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  emailSummaries ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-700'
+                  emailSummaries ? 'bg-gradient-to-r from-emerald-400 to-teal-400' : 'bg-white/10'
                 }`}
               >
                 <span
@@ -447,10 +454,10 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 flex justify-end">
+          <div className="pt-4 border-t border-white/[0.08] flex justify-end">
             <button
               onClick={handleSavePreferences}
-              className="px-4 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-100 hover:bg-zinc-800 dark:hover:bg-white text-white dark:text-zinc-900 text-xs font-semibold transition-colors shadow-sm cursor-pointer"
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300 text-zinc-950 font-extrabold text-xs shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_6px_15px_rgba(20,184,166,0.35)] hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
             >
               Save Preferences
             </button>

@@ -52,7 +52,7 @@ function scanDirectory(dir, findings = []) {
 
 function verifyEnvironment() {
   console.log('════════════════════════════════════════════════════════════════════════');
-  console.log('  🔒 CITEASSIST AI — SECRET SCRUBBER & ENVIRONMENT AUDIT');
+  console.log('  🔒 RECITEWEB — SECRET SCRUBBER & ENVIRONMENT AUDIT');
   console.log('════════════════════════════════════════════════════════════════════════');
 
   const srcDir = path.join(rootDir, 'src');

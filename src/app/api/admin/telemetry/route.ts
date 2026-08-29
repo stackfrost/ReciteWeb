@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 export async function GET(req: NextRequest) {
   const adminKeyHeader = req.headers.get('x-admin-key');
-  const expectedKey = process.env.ADMIN_SECRET_KEY || 'citeassist-admin-secret-key-dev';
+  const isProd = process.env.NODE_ENV === 'production';
+  const expectedKey = process.env.ADMIN_SECRET_KEY || (!isProd ? 'citeassist-admin-secret-key-dev' : undefined);
 
   // Strict Authentication Guard
-  if (!adminKeyHeader || adminKeyHeader !== expectedKey) {
+  if (!expectedKey || !adminKeyHeader || !timingSafeEqual(adminKeyHeader, expectedKey)) {
     return NextResponse.json(
       { error: 'Unauthorized: Invalid or missing x-admin-key header' },
       { status: 401 }

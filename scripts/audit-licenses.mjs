@@ -45,7 +45,7 @@ function normalizeLicense(raw) {
 
 function scanDependencies() {
   console.log('════════════════════════════════════════════════════════════════════════');
-  console.log('  🔍 CITEASSIST AI — DEPENDENCY & ACQUISITION LICENSE AUDIT');
+  console.log('  🔍 RECITEWEB — DEPENDENCY & ACQUISITION LICENSE AUDIT');
   console.log('════════════════════════════════════════════════════════════════════════');
 
   const pkgJsonPath = path.join(rootDir, 'package.json');

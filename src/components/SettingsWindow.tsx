@@ -223,8 +223,8 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
               <NavTabButton
                 active={activeTab === 'engine'}
                 onClick={() => setActiveTab('engine')}
-                icon={<Key className="w-4 h-4" />}
-                label="LLM Routing"
+                icon={<Cpu className="w-4 h-4" />}
+                label="AI Engine"
               />
 
               <NavTabButton
@@ -273,114 +273,63 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
           {/* Right Content Area */}
           <div className="flex-1 bg-white dark:bg-zinc-900/20 p-6 overflow-y-auto font-sans">
 
-            {/* ── TAB 1: LLM ROUTING ─────────────────────────────────────────────── */}
+            {/* ── TAB 1: MANAGED AI INFERENCE ENGINE ─────────────────────────────── */}
             {activeTab === 'engine' && (
               <div className="space-y-5 animate-in fade-in duration-100">
                 <div>
                   <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                     <Cpu className="w-4 h-4 text-emerald-500" />
-                    AI Engine & Model Selection
+                    AI Verification Engine & Gateway
                   </h3>
                   <p className="text-[12px] text-zinc-500 dark:text-zinc-400 mt-1">
-                    Credentials are stored in session memory only and never written to disk or transmitted to ReciteAI servers.
+                    All semantic entailment and citation grounding queries route through ReciteWeb&apos;s managed zero-retention cloud mesh.
                   </p>
                 </div>
 
-                {/* ── Provider Dropdown ──────────────────────────────────────────── */}
-                <div>
-                  <label className={labelCls}>Provider</label>
-                  <div className="relative">
-                    <select
-                      value={selectedProvider}
-                      onChange={(e) => handleProviderChange(e.target.value as LLMProvider)}
-                      className={selectCls}
-                    >
-                      {MODEL_REGISTRY.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+                {/* ── Active Gateway Card ────────────────────────────────────────── */}
+                <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        ReciteWeb Multi-Source Citation Mesh
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-semibold">
+                      Connected · Active
+                    </span>
                   </div>
-                </div>
 
-                {/* ── Model Dropdown ─────────────────────────────────────────────── */}
-                <div>
-                  <label className={labelCls}>Model</label>
-                  <div className="relative">
-                    <select
-                      value={selectedModel}
-                      onChange={(e) => handleModelChange(e.target.value)}
-                      className={selectCls}
-                    >
-                      {getModelsForProvider(selectedProvider).map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}{m.contextWindow ? ` — ${m.contextWindow}` : ''}{m.note ? ` (${m.note})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
-                  </div>
-                </div>
-
-                {/* ── Credential Area ────────────────────────────────────────────── */}
-                {isOllama ? (
-                  <div>
-                    <label className={labelCls}>Ollama Local Endpoint</label>
-                    <input
-                      type="text"
-                      value={ollamaEndpoint}
-                      onChange={(e) => setOllamaEndpoint(e.target.value)}
-                      className={cn(selectCls, 'pr-3')}
-                      placeholder="http://127.0.0.1:11434"
-                    />
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-1.5">
-                      Fully air-gapped. No API key required. Ensure Ollama is running locally.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {isFreeRouter && (
-                      <div className="p-3 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40">
-                        <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
-                          OpenRouter requires an API key to authenticate requests, even for free-tier models. Usage is free, but standard rate limits apply.
-                        </p>
-                      </div>
-                    )}
-                    <div>
-                      <label className={labelCls}>
-                        {providerDescriptor?.label} API Key
-                      </label>
-                      <div className="relative">
-                        <input
-                          type={showKey ? 'text' : 'password'}
-                          value={keyDrafts[selectedProvider]}
-                          onChange={(e) =>
-                            setKeyDrafts((prev) => ({ ...prev, [selectedProvider]: e.target.value }))
-                          }
-                          placeholder={providerDescriptor?.keyPlaceholder ?? 'API key...'}
-                          className={cn(selectCls, 'pr-10 font-mono text-[12px]')}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowKey((v) => !v)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
-                        >
-                          {showKey ? <EyeOff size={13} /> : <Eye size={13} />}
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-1.5">
-                        Stored in session memory only. Never synced to cloud or written to disk.
-                      </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
+                    <div className="p-2.5 rounded bg-white dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800/80 space-y-1">
+                      <span className="text-[11px] text-zinc-500 block">NLI Reasoning Pipeline</span>
+                      <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                        Calibrated NLI Claim Grounding
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded bg-white dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800/80 space-y-1">
+                      <span className="text-[11px] text-zinc-500 block">Data Retention Policy</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        <Lock size={12} /> Zero Server Retention (ZDR)
+                      </span>
                     </div>
                   </div>
-                )}
 
-                {/* ── Context Window Advisory ────────────────────────────────────── */}
-                <p className="text-[10px] text-zinc-500 font-sans border-t border-zinc-200 dark:border-zinc-800 pt-3 leading-relaxed">
-                  Note: Manuscript auditing requires extensive context retention. It is highly recommended to select flagship models (e.g., Claude 5 Opus, Gemini 3.1 Pro, GPT-5.6 Sol) with context windows exceeding 128k tokens. Using legacy or heavily quantized local models may result in hallucinated citation keys or truncated analysis.
-                </p>
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400 pt-1 leading-relaxed border-t border-zinc-200 dark:border-zinc-800">
+                    Manuscript statements and cited abstracts are audited ephemerally over encrypted TLS 1.3. Your research drafts are never indexed, stored on disk, or used for AI model training.
+                  </div>
+                </div>
+
+                {/* ── Enterprise / Institutional Notice ──────────────────────────── */}
+                <div className="p-3.5 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-500/20 space-y-1 text-xs">
+                  <div className="text-indigo-900 dark:text-indigo-300 font-semibold flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-indigo-500" />
+                    <span>Dedicated Institutional Inference Routing</span>
+                  </div>
+                  <p className="text-zinc-600 dark:text-zinc-400 text-[11px] leading-relaxed">
+                    Custom on-premise VPC model routing, campus-wide seat provisioning, and custom DPA integrations are managed under Departmental and Enterprise contracts.
+                  </p>
+                </div>
               </div>
             )}
 

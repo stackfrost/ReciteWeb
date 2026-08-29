@@ -270,8 +270,8 @@ Return ONLY a valid JSON array of evaluations matching the schema above.`;
             Authorization: `Bearer ${apiKey}`,
           };
           if (provider === 'openrouter') {
-            headers['HTTP-Referer'] = 'https://recite.ai';
-            headers['X-Title'] = 'CiteAssist AI Citation Verification';
+            headers['HTTP-Referer'] = 'https://reciteweb.com';
+            headers['X-Title'] = 'ReciteWeb Citation Verification';
           }
           const res = await fetch(endpoint, {
             method: 'POST',
