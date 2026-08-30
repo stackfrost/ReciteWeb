@@ -62,7 +62,7 @@ export const StatusBar: React.FC = () => {
       {/* CENTER: Engine Performance Telemetry */}
       <div className="flex items-center gap-0">
         <span className="text-zinc-500">
-          Engine: <span className="text-zinc-300">Gemini 3.7 Flash</span>
+          Engine: <span className="text-emerald-400 font-medium">Recite Neural Mesh (ZDR)</span>
         </span>
         <span className="text-zinc-700 px-1.5">│</span>
         <span className="text-zinc-500">

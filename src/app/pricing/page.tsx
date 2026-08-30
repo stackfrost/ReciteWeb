@@ -492,8 +492,134 @@ export default function PricingPage() {
           </div>
         )}
 
+        {/* ── Comprehensive Feature Comparison Matrix ── */}
+        <section className="pt-14 border-t border-white/[0.08] space-y-6">
+          <div className="text-center space-y-2">
+            <span className="text-[10px] font-mono font-bold tracking-wider text-teal-400 uppercase bg-teal-500/10 border border-teal-500/20 px-3 py-1 rounded-full">
+              Detailed Plan Matrix
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
+              Compare Capabilities by Plan
+            </h2>
+            <p className="text-xs text-zinc-400 max-w-xl mx-auto">
+              Transparent, predictable academic pricing with zero hidden computation fees.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/[0.08] bg-[#070a12]/80 backdrop-blur-xl overflow-hidden shadow-2xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-white/[0.08] bg-white/[0.02]">
+                    <th className="p-4 font-semibold text-zinc-300 w-2/5">Capability / Feature</th>
+                    <th className="p-4 font-semibold text-zinc-400 text-center w-1/5">Free Starter</th>
+                    <th className="p-4 font-bold text-teal-300 text-center w-1/5 bg-teal-500/5 border-x border-white/[0.06]">Researcher Pro</th>
+                    <th className="p-4 font-semibold text-indigo-300 text-center w-1/5">Lab Multi-Seat</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04] text-zinc-300 font-mono text-[11px]">
+                  {/* Category: Verification & Ingestion */}
+                  <tr className="bg-white/[0.01]">
+                    <td colSpan={4} className="px-4 py-2 text-[10px] font-bold text-teal-400 uppercase tracking-wider font-mono">
+                      Ingestion &amp; AST Analysis
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 font-sans text-zinc-200">Manuscript Volume / Page Limit</td>
+                    <td className="p-4 text-center text-zinc-400">Up to 5 Pages (15k chars)</td>
+                    <td className="p-4 text-center text-emerald-400 font-bold bg-teal-500/5 border-x border-white/[0.06]">Unlimited Pages</td>
+                    <td className="p-4 text-center text-indigo-300 font-bold">Unlimited Multi-File</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 font-sans text-zinc-200">Math Isolation &amp; Zero-Drift AST Engine</td>
+                    <td className="p-4 text-center text-zinc-400">Standard Regex</td>
+                    <td className="p-4 text-center text-emerald-400 bg-teal-500/5 border-x border-white/[0.06]">Full AST Quarantine</td>
+                    <td className="p-4 text-center text-indigo-300">WASM AST Ledger</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 font-sans text-zinc-200">Overleaf &amp; LaTeX Compiler (.tex/.bib) Ingestion</td>
+                    <td className="p-4 text-center text-emerald-400">✓</td>
+                    <td className="p-4 text-center text-emerald-400 bg-teal-500/5 border-x border-white/[0.06]">✓</td>
+                    <td className="p-4 text-center text-indigo-300">✓ (Multi-Archive)</td>
+                  </tr>
+
+                  {/* Category: Peer Review Defense */}
+                  <tr className="bg-white/[0.01]">
+                    <td colSpan={4} className="px-4 py-2 text-[10px] font-bold text-teal-400 uppercase tracking-wider font-mono">
+                      Peer-Review Defense &amp; Scholarly Mesh
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 font-sans text-zinc-200">Retraction &amp; Withdrawn Paper Radar</td>
+                    <td className="p-4 text-center text-zinc-500">Top 50 Lookup</td>
+                    <td className="p-4 text-center text-emerald-400 font-bold bg-teal-500/5 border-x border-white/[0.06]">Full 250M+ Database</td>
+                    <td className="p-4 text-center text-indigo-300 font-bold">Continuous Monitoring</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 font-sans text-zinc-200">AI Claim Semantic Grounding &amp; NLI Check</td>
+                    <td className="p-4 text-center text-zinc-500">2 Trial Claims</td>
+                    <td className="p-4 text-center text-emerald-400 font-bold bg-teal-500/5 border-x border-white/[0.06]">Unlimited Deep NLI</td>
+                    <td className="p-4 text-center text-indigo-300 font-bold">Priority GPU Cluster</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 font-sans text-zinc-200">Missing Reviewer Baseline Radar</td>
+                    <td className="p-4 text-center text-zinc-500">—</td>
+                    <td className="p-4 text-center text-emerald-400 bg-teal-500/5 border-x border-white/[0.06]">✓</td>
+                    <td className="p-4 text-center text-indigo-300">✓ (Venue Calibration)</td>
+                  </tr>
+
+                  {/* Category: Compliance & Billing */}
+                  <tr className="bg-white/[0.01]">
+                    <td colSpan={4} className="px-4 py-2 text-[10px] font-bold text-teal-400 uppercase tracking-wider font-mono">
+                      Compliance, Privacy &amp; Grant Support
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 font-sans text-zinc-200">Zero Server Data Retention (ZDR Guarantee)</td>
+                    <td className="p-4 text-center text-emerald-400">✓</td>
+                    <td className="p-4 text-center text-emerald-400 font-bold bg-teal-500/5 border-x border-white/[0.06]">✓ (Formal DPA)</td>
+                    <td className="p-4 text-center text-indigo-300 font-bold">✓ (Custom Institutional SLA)</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 font-sans text-zinc-200">PI Compliance Handoff Dossier (.md / .html / .json)</td>
+                    <td className="p-4 text-center text-zinc-500">Markdown Only</td>
+                    <td className="p-4 text-center text-emerald-400 bg-teal-500/5 border-x border-white/[0.06]">Full SHA-256 Package</td>
+                    <td className="p-4 text-center text-indigo-300">Lab-Wide Reports</td>
+                  </tr>
+                  <tr>
+                    <td className="p-4 font-sans text-zinc-200">Grant Billing / University Invoice / W-9 Support</td>
+                    <td className="p-4 text-center text-zinc-500">—</td>
+                    <td className="p-4 text-center text-zinc-300 bg-teal-500/5 border-x border-white/[0.06]">Itemized Receipt</td>
+                    <td className="p-4 text-center text-indigo-300 font-bold">Direct PO / Net-30 Invoicing</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        {/* ── University Grant Funding Callout ── */}
+        <div className="p-6 rounded-2xl bg-gradient-to-r from-teal-950/30 via-emerald-950/20 to-indigo-950/30 border border-teal-500/30 backdrop-blur-xl flex flex-col md:flex-row items-center justify-between gap-5">
+          <div className="space-y-1 text-left">
+            <div className="text-xs font-mono font-bold text-teal-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Building size={14} />
+              <span>Paying with University Research Funds or Grant Budgets?</span>
+            </div>
+            <p className="text-xs text-zinc-300 max-w-2xl leading-relaxed">
+              ReciteWeb licenses qualify under standard research computing, software tools, and publication budget categories for <strong>NSF, NIH, DOE, ERC, Horizon Europe, and UKRI</strong> grants. Need an official vendor quotation or W-9 form?
+            </p>
+          </div>
+          <a
+            href="mailto:sales@reciteweb.com?subject=ReciteWeb%20Grant%20Purchase%20Order%20%2F%20Quote%20Request"
+            className="shrink-0 px-4 py-2.5 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 border border-teal-400/40 text-teal-200 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+          >
+            <Mail size={13} />
+            <span>Request Grant Quote</span>
+          </a>
+        </div>
+
         {/* ── FAQ Section ── */}
-        <section className="pt-12 border-t border-white/[0.08] space-y-6">
+        <section className="pt-10 border-t border-white/[0.08] space-y-6">
           <div className="text-center space-y-2">
             <h2 className="text-xl sm:text-2xl font-bold text-white">
               Frequently Asked Questions

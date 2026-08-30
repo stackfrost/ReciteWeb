@@ -29,6 +29,7 @@ import {
   Award,
   Scale,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useReciteStore } from '@/lib/store';
 import PaywallModal from '@/components/modals/PaywallModal';
 import { LegalModal, LegalTab } from '@/components/modals/LegalModal';
@@ -51,6 +52,7 @@ export default function LandingPage({
   const [activePillar, setActivePillar] = useState<number>(0);
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [sandboxScenario, setSandboxScenario] = useState<'retraction' | 'broken' | 'grounding'>('retraction');
 
   const openLegal = (tab: LegalTab) => {
     setLegalModalTab(tab);
@@ -399,6 +401,166 @@ Full SHA-256 verified compliance dossier is attached.`;
             </button>
           </div>
 
+          {/* ── Interactive Live 3-Second Citation Defense Sandbox Widget ── */}
+          <div className="pt-6 max-w-4xl mx-auto text-left font-sans">
+            <div className="rounded-2xl bg-[#090d16]/95 border border-teal-500/30 p-5 shadow-[0_0_50px_rgba(20,184,166,0.15),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl space-y-4 ring-1 ring-white/10">
+              {/* Header Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.08] pb-3.5">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+                  </div>
+                  <span className="text-xs font-mono font-semibold text-zinc-300 ml-2 flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Interactive Pre-Submission Defense Simulator</span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-white/[0.04] p-1 rounded-lg border border-white/[0.06] text-xs font-mono">
+                  <button
+                    onClick={() => setSandboxScenario('retraction')}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md transition-all cursor-pointer text-[11px] font-medium',
+                      sandboxScenario === 'retraction'
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-xs'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    )}
+                  >
+                    1. Retraction Radar
+                  </button>
+                  <button
+                    onClick={() => setSandboxScenario('broken')}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md transition-all cursor-pointer text-[11px] font-medium',
+                      sandboxScenario === 'broken'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    )}
+                  >
+                    2. Dead DOI
+                  </button>
+                  <button
+                    onClick={() => setSandboxScenario('grounding')}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md transition-all cursor-pointer text-[11px] font-medium',
+                      sandboxScenario === 'grounding'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    )}
+                  >
+                    3. Claim Grounding
+                  </button>
+                </div>
+              </div>
+
+              {/* Sandbox Scenario Payload */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                {/* Left: Input LaTeX snippet */}
+                <div className="md:col-span-7 space-y-2">
+                  <div className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                    <span>Manuscript Source Excerpt (.tex)</span>
+                    <span className="text-teal-400 font-semibold">AST Line 42</span>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-black/60 border border-white/[0.08] font-mono text-xs text-zinc-200 leading-relaxed overflow-x-auto shadow-inner">
+                    {sandboxScenario === 'retraction' && (
+                      <div>
+                        <span className="text-indigo-300">Stimulus-triggered acquisition of pluripotency</span>
+                        <span className="text-zinc-400"> was demonstrated in adult somatic cells </span>
+                        <span className="text-rose-400 font-bold bg-rose-950/60 px-1 py-0.5 rounded border border-rose-500/40">{"\\cite{wakayama2014stimulus}"}</span>
+                        <span className="text-zinc-400"> under low pH stress.</span>
+                      </div>
+                    )}
+                    {sandboxScenario === 'broken' && (
+                      <div>
+                        <span className="text-zinc-300">Room-temperature ambient superconductivity in modified lead-apatite </span>
+                        <span className="text-amber-400 font-bold bg-amber-950/60 px-1 py-0.5 rounded border border-amber-500/40">{"\\cite{lee2023lk99reproducibility}"}</span>
+                        <span className="text-zinc-400"> exhibits zero electrical resistance.</span>
+                      </div>
+                    )}
+                    {sandboxScenario === 'grounding' && (
+                      <div>
+                        <span className="text-zinc-300">The multi-head self-attention mechanism replaces recurrent layers </span>
+                        <span className="text-emerald-400 font-bold bg-emerald-950/60 px-1 py-0.5 rounded border border-emerald-500/40">{"\\cite{vaswani2017attention}"}</span>
+                        <span className="text-zinc-400"> achieving parallelizable sequence modeling.</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right: Verification Output */}
+                <div className="md:col-span-5 space-y-2">
+                  <div className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
+                    <span>Autonomous Radar Verdict</span>
+                  </div>
+                  {sandboxScenario === 'retraction' && (
+                    <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 space-y-1.5 font-sans">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-rose-200 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                          <span>CRITICAL: FORMAL RETRACTION</span>
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold">
+                          Nature (2014)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-300 leading-relaxed">
+                        Withdrawn by Nature Editorial Board due to manipulated figure data. Replace citation to eliminate desk rejection risk.
+                      </p>
+                    </div>
+                  )}
+
+                  {sandboxScenario === 'broken' && (
+                    <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 space-y-1.5 font-sans">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-200 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                          <span>UNRESOLVED BIBTEX KEY</span>
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
+                          Dead DOI
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-300 leading-relaxed">
+                        DOI missing from CrossRef &amp; OpenAlex index. Canonical published rebuttal identified in Nature (2023).
+                      </p>
+                    </div>
+                  )}
+
+                  {sandboxScenario === 'grounding' && (
+                    <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 space-y-1.5 font-sans">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>EMPIRICALLY SUPPORTED</span>
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">
+                          NeurIPS (99.4%)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-300 leading-relaxed">
+                        Claim is 100% verified against Vaswani et al. Section 3.2. 142,000+ citations verified across OpenAlex.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Bottom Sandbox Action */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-white/[0.06] text-xs">
+                <span className="text-zinc-400 text-[11px]">
+                  ⚡ Real-time evaluation across 250M+ scholarly records with zero server data retention.
+                </span>
+                <button
+                  onClick={onOpenWorkspace}
+                  className="shrink-0 flex items-center gap-1 text-teal-400 hover:text-teal-300 font-semibold cursor-pointer transition-colors"
+                >
+                  <span>Open Full Workbench &rarr;</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Feature Badges */}
           <div className="pt-4 flex flex-wrap items-center justify-center gap-6 text-xs text-zinc-400 font-mono">
             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.02] border border-white/[0.06] backdrop-blur-md">
@@ -411,7 +573,7 @@ Full SHA-256 verified compliance dossier is attached.`;
               <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" /> Zero Server Data Retention
             </div>
             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.02] border border-white/[0.06] backdrop-blur-md">
-              <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" /> Overleaf & LaTeX Compatible
+              <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" /> Overleaf &amp; LaTeX Compatible
             </div>
           </div>
         </div>

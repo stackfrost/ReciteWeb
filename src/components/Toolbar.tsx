@@ -12,20 +12,14 @@ import {
   Link2,
   Download,
   X,
+  Shield,
+  Sparkles,
 } from 'lucide-react';
 
 import { LaTeXParser } from '@/services/latex-parser';
 import { BibTeXParser } from '@/services/bibtex-parser';
 import { parseMathBlocks } from '@/lib/parsers/math-parser';
 import { useAuditStore } from '@/store/useAuditStore';
-
-const PROVIDER_NAMES: Record<LLMProvider, string> = {
-  anthropic:  'Claude',
-  openai:     'OpenAI',
-  google:     'Gemini',
-  openrouter: 'OpenRouter',
-  ollama:     'Ollama',
-};
 
 export default function Toolbar() {
   const {
@@ -38,7 +32,7 @@ export default function Toolbar() {
     auditProgress,
     filterSeverity,
     setFilterSeverity,
-    llmRouter,
+    license,
     setShowSettings,
     setShowExportModal,
     runAudit,
@@ -110,8 +104,6 @@ export default function Toolbar() {
 
     e.target.value = '';
   };
-
-  const engineName = PROVIDER_NAMES[llmRouter.activeProvider] || llmRouter.activeProvider;
 
   return (
     <header className="h-10 w-full border-b border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur flex items-center justify-between px-3 select-none flex-shrink-0 font-sans text-xs z-30 transition-colors overflow-hidden whitespace-nowrap">
@@ -280,14 +272,28 @@ export default function Toolbar() {
           </span>
         </span>
 
-        {/* Flat Engine Pill */}
+        {/* Subscription Tier Pill */}
         <button
           onClick={() => setShowSettings(true)}
-          className="flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors duration-150 cursor-pointer text-xs font-medium shadow-xs"
-          title="Configure LLM Inference Engine & API Keys"
+          className={cn(
+            'flex items-center gap-1.5 px-2.5 py-1 rounded transition-colors duration-150 cursor-pointer text-xs font-semibold shadow-xs border',
+            license.status === 'ACTIVE'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'
+              : 'bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800'
+          )}
+          title="Account Subscription & Cryptographic License Tier"
         >
-          <Cpu size={13} className="text-emerald-500" />
-          <span>Engine: <strong className="font-semibold">{engineName}</strong></span>
+          {license.status === 'ACTIVE' ? (
+            <>
+              <Shield size={12} className="text-emerald-500" />
+              <span>Researcher Pro</span>
+            </>
+          ) : (
+            <>
+              <Sparkles size={12} className="text-amber-500" />
+              <span>Free Starter</span>
+            </>
+          )}
         </button>
 
 

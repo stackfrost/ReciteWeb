@@ -164,15 +164,22 @@ export const CodeMirrorEditor: React.FC = memo(() => {
     <div className="w-full h-full min-w-0 overflow-hidden bg-[#0A0C0E] flex flex-col">
       {/* Editor Sub-Header / Breadcrumb */}
       <div className="h-7 bg-[#0D1013] border-b border-[#1F242C] flex items-center justify-between px-3 text-[11px] font-mono text-neutral-400 select-none shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
           <ActiveFileLabel />
-          <span className="text-neutral-600">·</span>
-          <span className="text-neutral-500 truncate">LaTeX Manuscript</span>
+          <span className="text-neutral-600">/</span>
+          <span className="text-emerald-500/80 font-medium truncate">AST Verified</span>
+          <span className="text-neutral-600 hidden sm:inline">/</span>
+          <span className="text-neutral-400 truncate hidden sm:inline">Quantum Spin Dynamics</span>
         </div>
-        <div className="flex items-center gap-3 text-[10px] text-neutral-500 shrink-0">
-          <span>{lineCount} lines</span>
-          <span>UTF-8</span>
-          <span className="text-sky-400 font-semibold">Adaptive Wrap</span>
+        <div className="flex items-center gap-3 text-[10px] text-neutral-400 shrink-0 font-mono">
+          <span className="text-zinc-500">{lineCount.toLocaleString()} lines</span>
+          <span className="text-zinc-600">│</span>
+          <span className="text-emerald-400 font-medium flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Zero-Drift
+          </span>
+          <span className="text-zinc-600">│</span>
+          <span className="text-neutral-400">UTF-8</span>
         </div>
       </div>
 

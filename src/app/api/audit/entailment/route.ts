@@ -278,34 +278,89 @@ Rules:
   };
 }
 
+// ─── Free Trial & Anti-Abuse Tracking ─────────────────────────────────────────
+const FREE_TRIAL_MAX_REQUESTS = 2;
+const FREE_TRIAL_MAX_CHARS = 15000; // ~5 pages
+
+export const freeTrialStore = new Map<string, { count: number; lastUsed: number }>();
+
 // ─── Main Route Handler ───────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. Auth Guard
+    // 1. Auth & Free Trial Guard
     const authHeader = req.headers.get('authorization') || '';
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();
 
-    if (!token) {
-      return NextResponse.json(
-        {
-          status: 'error',
-          message:
-            'Missing Authorization Bearer token. Upgrade to Pro ($49/yr) or use an Emergency Pass to unlock deep semantic claim verification.',
-        },
-        { status: 401 }
-      );
+    let isPro = false;
+    let payloadTier: 'annual_pro' | 'emergency_pass' | 'free_trial' = 'free_trial';
+    let verifiedUser: any = null;
+
+    if (token && token !== 'free_trial' && token !== 'free_token' && token !== 'free') {
+      const payload = await verifyToken(token);
+      if (!payload) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            message: 'Invalid or expired Pro session token. Please restore your access link or renew subscription.',
+          },
+          { status: 401 }
+        );
+      }
+      isPro = true;
+      payloadTier = payload.tier;
+      verifiedUser = payload;
     }
 
-    const payload = await verifyToken(token);
-    if (!payload) {
-      return NextResponse.json(
-        {
-          status: 'error',
-          message: 'Invalid or expired Pro session token. Please restore your access link or renew subscription.',
-        },
-        { status: 401 }
-      );
+    // 2. Free Trial / Anonymous Guard (Anti-Incognito Fingerprinting)
+    let fingerprintKey = '';
+    let currentFreeUsage = 0;
+
+    if (!isPro) {
+      const isFreeTrialRequested =
+        req.headers.get('x-free-trial') === 'true' ||
+        Boolean(req.headers.get('x-device-fingerprint')) ||
+        Boolean(req.cookies?.get?.('recite_device_fp'));
+
+      if (!isFreeTrialRequested && !token) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            message:
+              'Missing Authorization Bearer token. Upgrade to Pro ($49/yr) or use an Emergency Pass to unlock deep semantic claim verification.',
+          },
+          { status: 401 }
+        );
+      }
+
+      const deviceFp =
+        req.headers.get('x-device-fingerprint') ||
+        req.cookies?.get?.('recite_device_fp')?.value ||
+        '';
+      const clientIp =
+        req.headers.get('cf-connecting-ip') ||
+        req.headers.get('x-forwarded-for') ||
+        '127.0.0.1';
+
+      fingerprintKey = deviceFp ? `fp_${deviceFp}` : `ip_${clientIp}`;
+
+      const cookieUsage = parseInt(req.cookies?.get?.('recite_free_audits')?.value || '0', 10);
+      const storeRecord = freeTrialStore.get(fingerprintKey);
+      currentFreeUsage = Math.max(cookieUsage, storeRecord ? storeRecord.count : 0);
+
+      if (currentFreeUsage >= FREE_TRIAL_MAX_REQUESTS) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'FREE_TRIAL_EXHAUSTED',
+            message:
+              'Free trial limit reached (2/2 free AI audits used). Upgrade to Researcher Pro ($49/yr) to unlock unlimited manuscript verification.',
+            tier: 'free_trial',
+            freeAuditsRemaining: 0,
+          },
+          { status: 402 }
+        );
+      }
     }
 
     const rawText = await req.text();
@@ -321,6 +376,27 @@ export async function POST(req: NextRequest) {
       body = JSON.parse(rawText);
     } catch {
       return NextResponse.json({ status: 'error', message: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    // 3. Document Length Limit for Free Tier (Max 5 pages / ~15,000 chars)
+    if (!isPro) {
+      const totalChars =
+        (body.claimText?.length || 0) +
+        (body.manuscriptAbstract?.length || 0) +
+        (body.citedAbstract?.length || 0) +
+        (body.context?.length || 0);
+
+      if (totalChars > FREE_TRIAL_MAX_CHARS) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            code: 'PAGE_LIMIT_EXCEEDED',
+            message:
+              'Free tier is limited to 5 manuscript pages (~15,000 characters). Please upgrade to Researcher Pro ($49/yr) for unlimited chapters.',
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const mode: 'entailment' | 'baseline-detection' =
@@ -344,26 +420,56 @@ export async function POST(req: NextRequest) {
 
       const ai = getAI();
       if (!ai) {
-        // Fallback: return empty (no keyword overlap available for baseline detection)
-        return NextResponse.json({
+        const response = NextResponse.json({
           status: 'success',
-          tier: payload.tier,
+          tier: payloadTier,
           mode: 'baseline-detection',
           missingBaselines: [],
           severity: 'Medium',
           canonicalSuggestions: ['Set GEMINI_API_KEY to enable AI-powered baseline detection.'],
           fallback: true,
+          freeAuditsRemaining: !isPro ? Math.max(0, FREE_TRIAL_MAX_REQUESTS - (currentFreeUsage + 1)) : undefined,
         });
+
+        if (!isPro && fingerprintKey) {
+          const newCount = currentFreeUsage + 1;
+          freeTrialStore.set(fingerprintKey, { count: newCount, lastUsed: Date.now() });
+          response.cookies.set('recite_free_audits', String(newCount), {
+            path: '/',
+            httpOnly: true,
+            sameSite: 'lax',
+            maxAge: 30 * 24 * 60 * 60,
+          });
+        }
+        return response;
       }
 
       try {
         const result = await geminiBaselineDetection(ai, { manuscriptAbstract, researchField });
-        return NextResponse.json({ status: 'success', tier: payload.tier, mode: 'baseline-detection', ...result });
+        const response = NextResponse.json({
+          status: 'success',
+          tier: payloadTier,
+          mode: 'baseline-detection',
+          freeAuditsRemaining: !isPro ? Math.max(0, FREE_TRIAL_MAX_REQUESTS - (currentFreeUsage + 1)) : undefined,
+          ...result,
+        });
+
+        if (!isPro && fingerprintKey) {
+          const newCount = currentFreeUsage + 1;
+          freeTrialStore.set(fingerprintKey, { count: newCount, lastUsed: Date.now() });
+          response.cookies.set('recite_free_audits', String(newCount), {
+            path: '/',
+            httpOnly: true,
+            sameSite: 'lax',
+            maxAge: 30 * 24 * 60 * 60,
+          });
+        }
+        return response;
       } catch (geminiErr) {
         console.error('[entailment/baseline-detection] Gemini error:', geminiErr);
         return NextResponse.json({
           status: 'success',
-          tier: payload.tier,
+          tier: payloadTier,
           mode: 'baseline-detection',
           missingBaselines: [],
           severity: 'Medium',
@@ -422,7 +528,7 @@ export async function POST(req: NextRequest) {
     if (!citedAbstract) {
       return NextResponse.json({
         status: 'success',
-        tier: payload.tier,
+        tier: payloadTier,
         mode: 'entailment',
         classification: 'UNVERIFIED_SOURCE',
         confidence: 0.5,
@@ -444,18 +550,32 @@ export async function POST(req: NextRequest) {
           citedPaperTitle,
           citedDoi,
           result,
-          userId: (payload as any).userId,
+          userId: verifiedUser?.userId,
         });
 
-        return NextResponse.json({
+        const response = NextResponse.json({
           status: 'success',
-          tier: payload.tier,
+          tier: payloadTier,
           mode: 'entailment',
+          freeAuditsRemaining: !isPro ? Math.max(0, FREE_TRIAL_MAX_REQUESTS - (currentFreeUsage + 1)) : undefined,
           ...result,
           claimText,
           citedPaperTitle,
           abstractSnippet: citedAbstract.slice(0, 300) + '...',
         });
+
+        if (!isPro && fingerprintKey) {
+          const newCount = currentFreeUsage + 1;
+          freeTrialStore.set(fingerprintKey, { count: newCount, lastUsed: Date.now() });
+          response.cookies.set('recite_free_audits', String(newCount), {
+            path: '/',
+            httpOnly: true,
+            sameSite: 'lax',
+            maxAge: 30 * 24 * 60 * 60,
+          });
+        }
+
+        return response;
       } catch (geminiErr) {
         console.error('[entailment] Gemini error — falling back to keyword overlap:', geminiErr);
         // Fall through to keyword overlap
@@ -469,18 +589,32 @@ export async function POST(req: NextRequest) {
       citedPaperTitle,
       citedDoi,
       result: fallbackResult,
-      userId: (payload as any).userId,
+      userId: undefined,
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       status: 'success',
-      tier: payload.tier,
+      tier: payloadTier,
       mode: 'entailment',
+      freeAuditsRemaining: !isPro ? Math.max(0, FREE_TRIAL_MAX_REQUESTS - (currentFreeUsage + 1)) : undefined,
       ...fallbackResult,
       claimText,
       citedPaperTitle,
       abstractSnippet: citedAbstract.slice(0, 300) + '...',
     });
+
+    if (!isPro && fingerprintKey) {
+      const newCount = currentFreeUsage + 1;
+      freeTrialStore.set(fingerprintKey, { count: newCount, lastUsed: Date.now() });
+      response.cookies.set('recite_free_audits', String(newCount), {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax',
+        maxAge: 30 * 24 * 60 * 60,
+      });
+    }
+
+    return response;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Internal entailment verification error';
     console.error('[API /audit/entailment] Error:', err);

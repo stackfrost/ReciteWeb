@@ -37,7 +37,7 @@ import { FileSystemService } from '@/services/file-system';
 import { DiffGenerator } from '@/services/diff-generator';
 import { ReportGenerator } from '@/services/report-generator';
 
-type MenuCategory = 'File' | 'Edit' | 'View' | 'Engine' | 'Terminal' | 'Help';
+type MenuCategory = 'File' | 'Edit' | 'View' | 'Audit' | 'Help';
 
 export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
   const {
@@ -57,8 +57,6 @@ export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
     setShowExportModal,
     setInspectorTab,
     toggleSidebar,
-    llmRouter,
-    setLLMProvider,
     setFilterSeverity,
     setFilterCategory,
     setFilterStatus,
@@ -245,7 +243,7 @@ export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
   };
 
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
-  const menuItems: MenuCategory[] = ['File', 'Edit', 'View', 'Engine', 'Terminal', 'Help'];
+  const menuItems: MenuCategory[] = ['File', 'Edit', 'View', 'Audit', 'Help'];
 
   const triggerCommandPalette = () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }));
@@ -360,7 +358,7 @@ export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
                     <>
                       <MenuAction
                         icon={<Play size={13} className="text-emerald-500" />}
-                        label="Analyze Document"
+                        label="Run Manuscript Audit"
                         shortcut="Ctrl+Enter"
                         disabled={!isMounted}
                         onClick={handleRunAnalysis}
@@ -373,7 +371,7 @@ export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
                       <div className="border-b border-zinc-100 dark:border-zinc-800 my-1" />
                       <MenuAction
                         icon={<Sliders size={13} className="text-zinc-500" />}
-                        label="Preferences..."
+                        label="Subscription & Preferences..."
                         shortcut="Ctrl+,"
                         onClick={() => {
                           setActiveMenu(null);
@@ -421,7 +419,18 @@ export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
                           toggleTheme();
                         }}
                       />
-                      <div className="border-b border-zinc-100 dark:border-zinc-800 my-1" />
+                    </>
+                  )}
+
+                  {item === 'Audit' && (
+                    <>
+                      <MenuAction
+                        icon={<Play size={13} className="text-emerald-500" />}
+                        label="Verify Citation Entailment"
+                        shortcut="Ctrl+Enter"
+                        disabled={!isMounted}
+                        onClick={handleRunAnalysis}
+                      />
                       <MenuAction
                         icon={<Activity size={13} className="text-emerald-500" />}
                         label="Focus Candidate Citations"
@@ -438,61 +447,21 @@ export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
                           setInspectorTab('health');
                         }}
                       />
-                    </>
-                  )}
-
-                  {item === 'Engine' && (
-                    <>
-                      <div className="px-2.5 py-1 text-[11px] text-zinc-500 font-medium">
-                        Inference Engine
-                      </div>
-                      {([
-                        { id: 'anthropic',  label: 'Claude (Anthropic)' },
-                        { id: 'openai',     label: 'OpenAI' },
-                        { id: 'google',     label: 'Gemini (Google)' },
-                        { id: 'openrouter', label: 'OpenRouter' },
-                        { id: 'ollama',     label: 'Ollama (Local)' },
-                      ] as { id: LLMProvider; label: string }[]).map((prov) => (
-                        <MenuAction
-                          key={prov.id}
-                          icon={<Cpu size={13} className={prov.id === llmRouter.activeProvider ? 'text-emerald-500' : 'text-zinc-400'} />}
-                          label={prov.label}
-                          active={prov.id === llmRouter.activeProvider}
-                          onClick={() => {
-                            setLLMProvider(prov.id);
-                            setActiveMenu(null);
-                          }}
-                        />
-                      ))}
                       <div className="border-b border-zinc-100 dark:border-zinc-800 my-1" />
                       <MenuAction
-                        icon={<Sliders size={13} className="text-zinc-500" />}
-                        label="API Keys & Settings..."
-                        shortcut="Ctrl+,"
-                        onClick={() => {
-                          setActiveMenu(null);
-                          setShowSettings(true);
-                        }}
-                      />
-                    </>
-                  )}
-
-                  {item === 'Terminal' && (
-                    <>
-                      <MenuAction
-                        icon={<Terminal size={13} className="text-emerald-500" />}
-                        label="Diagnostics Status"
-                        onClick={() => {
-                          setActiveMenu(null);
-                          setTelemetry({ apiLatencyMs: 38 });
-                        }}
+                        icon={<FileCode2 size={13} className="text-emerald-500" />}
+                        label="Export Verified Patches (.patch)"
+                        shortcut="Ctrl+Shift+P"
+                        disabled={!isMounted}
+                        onClick={handleExportPatch}
                       />
                       <MenuAction
-                        icon={<Activity size={13} className="text-zinc-500" />}
-                        label="Check OpenAlex & arXiv Nodes"
+                        icon={<Download size={13} className="text-indigo-500" />}
+                        label="Export Publication Package"
+                        disabled={!isMounted}
                         onClick={() => {
                           setActiveMenu(null);
-                          setTelemetry({ apiLatencyMs: 42 });
+                          setShowExportModal(true);
                         }}
                       />
                     </>
@@ -503,22 +472,23 @@ export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
                       <MenuAction
                         icon={<Keyboard size={13} className="text-zinc-500" />}
                         label="Keyboard Shortcuts"
+                        shortcut="Ctrl+/"
                         onClick={() => {
                           setActiveMenu(null);
                           alert('Keyboard Shortcuts:\n\n[J] / [Down]: Step Next Finding\n[K] / [Up]: Step Previous Finding\n[Ctrl+↵]: Run Audit\n[Ctrl+K]: Command Palette\n[Ctrl+O]: Open Document\n[Ctrl+E]: Export Bibliography\n[Ctrl+T]: Toggle Theme\n[Ctrl+,]: Preferences');
                         }}
                       />
                       <MenuAction
-                        icon={<Shield size={13} className="text-zinc-500" />}
-                        label={`Seat License: ${license.status === 'ACTIVE' ? 'Active' : 'Unverified'}`}
+                        icon={<Shield size={13} className="text-emerald-500" />}
+                        label={`Subscription: ${license.status === 'ACTIVE' ? 'Researcher Pro' : 'Free Starter'}`}
                         onClick={() => {
                           setActiveMenu(null);
                           setShowSettings(true);
                         }}
                       />
                       <MenuAction
-                        icon={<Shield size={13} className="text-yellow-500" />}
-                        label="Legal & Privacy Compliance..."
+                        icon={<Shield size={13} className="text-zinc-400" />}
+                        label="Zero-Retention Architecture (ZDR)"
                         onClick={() => {
                           setActiveMenu(null);
                           setShowLegalWindow(true);
@@ -527,7 +497,7 @@ export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
                       <div className="border-b border-zinc-100 dark:border-zinc-800 my-1" />
                       <MenuAction
                         icon={<HelpCircle size={13} className="text-zinc-400" />}
-                        label="ReciteAI Desktop v0.1.0"
+                        label="ReciteWeb Academic Suite v1.0"
                         disabled
                       />
                     </>

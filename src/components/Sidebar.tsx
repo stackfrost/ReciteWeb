@@ -149,7 +149,7 @@ export default function Sidebar() {
             active={false}
             onClick={() => setShowSettings(true)}
             icon={<div className={cn("p-1 rounded", licColor)}><Shield size={19} strokeWidth={1.5} /></div>}
-            title={`Seat License: ${license.status}`}
+            title={license.status === 'ACTIVE' ? 'Subscription: Researcher Pro (Active)' : 'Subscription: Free Starter'}
           />
 
           <RailButton
