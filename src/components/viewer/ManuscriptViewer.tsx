@@ -11,7 +11,7 @@ import { BibTeXParser } from '@/services/bibtex-parser';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import DOMPurify from 'dompurify';
-import { FileCode2, ChevronRight, WrapText, AlignLeft } from 'lucide-react';
+import { FileCode2, ChevronRight, WrapText, AlignLeft, FileText, Maximize2 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § MODULE-LEVEL KaTeX LRU CACHE
@@ -89,6 +89,7 @@ export default function ManuscriptViewer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeClaimRef = useRef<HTMLSpanElement>(null);
   const [scrollProgress, setScrollProgress] = useState<number>(0);
+  const [isFullWidth, setIsFullWidth] = useState<boolean>(false);
 
   // Parse BibTeX database for instant inline hover lookup
   const bibtexMap = useMemo(() => {
@@ -553,12 +554,21 @@ export default function ManuscriptViewer() {
           onClick={updateCursorOffset}
           onKeyUp={updateCursorOffset}
           className={cn(
-            'font-sans text-[14px] text-zinc-800 dark:text-zinc-200 leading-relaxed bg-transparent resize-none outline-none border-none focus:ring-0 flex-1 min-w-0 overflow-y-auto pt-4 px-3',
+            'font-sans text-[14px] text-zinc-800 dark:text-zinc-200 leading-relaxed bg-transparent resize-none outline-none border-none focus:ring-0 flex-1 min-w-0 overflow-y-auto pt-2 px-3',
             softWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre overflow-x-auto'
           )}
           style={{ tabSize: 2 }}
         >
-          {renderedContent}
+          <div
+            className={cn(
+              'transition-all duration-200 ease-out',
+              isFullWidth
+                ? 'w-full px-2 py-3'
+                : 'max-w-4xl mx-auto w-full my-3 px-6 py-6 bg-white dark:bg-zinc-900/40 border border-zinc-200/80 dark:border-zinc-800/80 rounded-xl shadow-xs'
+            )}
+          >
+            {renderedContent}
+          </div>
         </div>
 
         {/* Anomaly Minimap Rail */}
@@ -616,6 +626,18 @@ export default function ManuscriptViewer() {
         </div>
 
         <div className="flex items-center space-x-3">
+          {/* Page Width Toggle */}
+          <button
+            onClick={() => setIsFullWidth(!isFullWidth)}
+            className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+            title={isFullWidth ? 'Switch to Centered Manuscript Page' : 'Switch to Full Width'}
+          >
+            {isFullWidth ? <FileText className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+            <span>View: <strong className="font-semibold">{isFullWidth ? 'Full' : 'Paper'}</strong></span>
+          </button>
+
+          <span className="text-zinc-300 dark:text-zinc-700">│</span>
+
           {/* Soft Wrap Toggle Button */}
           <button
             onClick={() => setSoftWrap(!softWrap)}

@@ -211,7 +211,7 @@ export const IntegrityDiagnosticsPane: React.FC = () => {
         <h4 className="text-[10px] uppercase font-bold text-indigo-400 mb-1">
           Literature Gap (Line {activeFinding.line || '--'})
         </h4>
-        <p className="text-neutral-300 italic font-serif text-[12px] leading-relaxed">
+        <p className="text-neutral-300 italic font-sans text-[12px] leading-relaxed">
           &quot;{activeFinding.claim || getChunkContext()}&quot;
         </p>
       </div>

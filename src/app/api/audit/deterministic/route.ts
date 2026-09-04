@@ -13,6 +13,30 @@ export interface RedFlag {
   suggestedFix?: string;
 }
 
+const DOI_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_DOI_CACHE_SIZE = 1000;
+export const doiResolutionCache = new Map<string, { status: number; item?: any; timestamp: number }>();
+
+function getCachedDoi(doi: string): { status: number; item?: any } | null {
+  const cleanDoi = doi.trim().toLowerCase();
+  const entry = doiResolutionCache.get(cleanDoi);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > DOI_CACHE_TTL_MS) {
+    doiResolutionCache.delete(cleanDoi);
+    return null;
+  }
+  return { status: entry.status, item: entry.item };
+}
+
+function setCachedDoi(doi: string, status: number, item?: any): void {
+  const cleanDoi = doi.trim().toLowerCase();
+  if (doiResolutionCache.size >= MAX_DOI_CACHE_SIZE) {
+    const firstKey = doiResolutionCache.keys().next().value;
+    if (firstKey) doiResolutionCache.delete(firstKey);
+  }
+  doiResolutionCache.set(cleanDoi, { status, item, timestamp: Date.now() });
+}
+
 async function sha256Hex(str: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf))
@@ -147,6 +171,42 @@ export async function POST(req: NextRequest) {
           return;
         }
 
+        // Check in-memory edge cache first
+        const cachedDoiRes = getCachedDoi(doi);
+        if (cachedDoiRes) {
+          if (cachedDoiRes.status === 404) {
+            brokenDois++;
+            redFlags.push({
+              severity: 'high',
+              category: 'DEAD_DOI',
+              title: `Invalid/Dead DOI: ${doi}`,
+              detail: `The DOI for '${entry.key}' could not be resolved in CrossRef. This may be a hallucinated citation or typo.`,
+              citeKey: entry.key,
+              doi,
+              suggestedFix: `Verify and update the DOI link.`,
+            });
+            return;
+          } else if (cachedDoiRes.item) {
+            const item = cachedDoiRes.item;
+            if (item?.['update-to']) {
+              const updates = item['update-to'];
+              const isRetracted = updates.some((u: any) => u.type?.toLowerCase().includes('retraction'));
+              if (isRetracted) {
+                retractions++;
+                redFlags.push({
+                  severity: 'critical',
+                  category: 'RETRACTION',
+                  title: `Retracted Paper in CrossRef: '${entry.key}'`,
+                  detail: `CrossRef records indicate '${entry.title}' has been retracted.`,
+                  citeKey: entry.key,
+                  doi,
+                });
+              }
+            }
+            return;
+          }
+        }
+
         // Query CrossRef
         try {
           const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
@@ -155,6 +215,7 @@ export async function POST(req: NextRequest) {
           });
 
           if (res.status === 404) {
+            setCachedDoi(doi, 404);
             brokenDois++;
             redFlags.push({
               severity: 'high',
@@ -168,6 +229,7 @@ export async function POST(req: NextRequest) {
           } else if (res.ok) {
             const data = await res.json();
             const item = data.message;
+            setCachedDoi(doi, 200, item);
             if (item?.['update-to']) {
               const updates = item['update-to'];
               const isRetracted = updates.some((u: any) => u.type?.toLowerCase().includes('retraction'));

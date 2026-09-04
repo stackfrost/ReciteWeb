@@ -139,13 +139,13 @@ export default function PrivacyPage() {
 
           <div className="pt-6 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-zinc-400">
             <span>To exercise your privacy rights or request data erasure:</span>
-            <a
-              href="mailto:privacy@reciteweb.com"
+            <Link
+              href="/contact?type=privacy"
               className="px-4 py-2 bg-white/[0.06] hover:bg-white/[0.12] text-teal-300 rounded-xl font-bold transition-all border border-white/10 flex items-center gap-1.5"
             >
-              <span>privacy@reciteweb.com</span>
+              <span>Direct Privacy Request</span>
               <ArrowRight size={13} />
-            </a>
+            </Link>
           </div>
 
         </div>

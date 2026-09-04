@@ -11,6 +11,12 @@ import { VerifiedLiteratureSource, DragnetCandidateSummary } from '@/types/audit
 import { SuggestedPaper } from '@/lib/store';
 import { LatexSanitizer } from '@/lib/latex-sanitizer';
 import { yieldToMain } from '@/lib/utils';
+import {
+  PreflightTopicClassifier,
+  DOMAIN_ROUTING_TABLE,
+  type AcademicDomain,
+  type SearchVendorProvenance,
+} from './preflight-topic-classifier';
 
 // ── In-Memory Session Cache ───────────────────────────────────────────────────
 const searchCache = new Map<string, VerifiedLiteratureSource[]>();
@@ -227,6 +233,13 @@ export function constructBibtexEntry(
   });
 }
 
+export {
+  checkRetractionStatus,
+  batchCheckRetractions,
+  isKnownRetractedDoi,
+  KNOWN_RETRACTIONS,
+} from './retraction-radar';
+
 // ── OpenAlex API Query ────────────────────────────────────────────────────────
 export async function queryOpenAlex(query: string, limit = 8, signal?: AbortSignal): Promise<VerifiedLiteratureSource[]> {
   const adminEmail = process.env.NEXT_PUBLIC_RECITE_ADMIN_EMAIL || 'admin@recite.ai';
@@ -255,6 +268,19 @@ export async function queryOpenAlex(query: string, limit = 8, signal?: AbortSign
     const bibKey = generateCitationKey(authors, year, title);
     const { anchorQuote, matchScore } = extractEvidenceAnchor(abstract, query);
 
+    const isRetracted = Boolean(item.is_retracted);
+    const retractionMetadata = isRetracted
+      ? {
+          isRetracted: true,
+          status: 'retracted' as const,
+          noticeUrl: item.retraction_notice || undefined,
+          retractionDate: item.retracted_date || undefined,
+          reason: 'Official retraction confirmed in OpenAlex canonical registry.',
+          crossmarkUpdated: false,
+          source: 'openalex' as const,
+        }
+      : undefined;
+
     return {
       title,
       authors: authors.length > 0 ? authors : ['Unknown Author'],
@@ -269,6 +295,7 @@ export async function queryOpenAlex(query: string, limit = 8, signal?: AbortSign
       provenance: 'openalex' as const,
       citationCount: item.cited_by_count || 0,
       bibtexEntry: constructBibtexEntry(bibKey, title, authors, year, venue, cleanDoi),
+      retractionMetadata,
     };
   });
 }
@@ -298,6 +325,25 @@ export async function queryCrossref(query: string, limit = 8, signal?: AbortSign
     const bibKey = generateCitationKey(authors, year, title);
     const { anchorQuote, matchScore } = extractEvidenceAnchor(abstract, query);
 
+    const updates: Array<any> = item['update-to'] || [];
+    const retractionUpdate = updates.find((u) => {
+      const type = String(u?.type || '').toLowerCase();
+      const label = String(u?.label || '').toLowerCase();
+      return type.includes('retract') || label.includes('retract') || type.includes('withdraw');
+    });
+    const isRetracted = Boolean(retractionUpdate);
+    const retractionMetadata = isRetracted
+      ? {
+          isRetracted: true,
+          status: 'retracted' as const,
+          noticeUrl: retractionUpdate?.DOI ? `https://doi.org/${retractionUpdate.DOI}` : undefined,
+          retractionDate: retractionUpdate?.updated?.['date-time'] || undefined,
+          reason: retractionUpdate?.label || 'Crossmark update indicates paper has been retracted or withdrawn.',
+          crossmarkUpdated: true,
+          source: 'crossref' as const,
+        }
+      : undefined;
+
     return {
       title,
       authors: authors.length > 0 ? authors : ['Unknown Author'],
@@ -312,6 +358,7 @@ export async function queryCrossref(query: string, limit = 8, signal?: AbortSign
       provenance: 'crossref' as const,
       citationCount: item['is-referenced-by-count'] || 0,
       bibtexEntry: constructBibtexEntry(bibKey, title, authors, year, venue, doi),
+      retractionMetadata,
     };
   });
 }
@@ -380,18 +427,133 @@ export async function queryArxiv(query: string, limit = 5, signal?: AbortSignal)
   return sources;
 }
 
-// ── Academic Search Aggregator (Dragnet Dispatch) ─────────────────────────────
+// ── Europe PMC / PubMed REST API Query (Biomedical & Life Sciences) ───────────
+export async function queryEuropePMC(query: string, limit = 8, signal?: AbortSignal): Promise<VerifiedLiteratureSource[]> {
+  const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(query)}&format=json&resultType=core&pageSize=${limit}`;
+
+  const res = await fetch(url, { signal: signal || AbortSignal.timeout(4500) });
+  if (res.status === 429) {
+    throw new RateLimitError(429, res.headers.get('retry-after'));
+  }
+  if (!res.ok) return [];
+
+  const data = await res.json();
+  const items = data.resultList?.result || [];
+
+  return items.map((item: any) => {
+    const title = item.title?.replace(/<[^>]+>/g, '').trim() || 'Untitled Biomedical Work';
+    const authors = item.authorString
+      ? item.authorString.split(',').map((a: string) => a.trim()).filter(Boolean)
+      : ['Biomedical Author'];
+    const year = parseInt(item.pubYear || String(new Date().getFullYear()), 10);
+    const venue = item.journalTitle || item.journalInfo?.journal?.title || 'Europe PMC / PubMed';
+    const doi = item.doi;
+    const abstract = typeof item.abstractText === 'string' ? item.abstractText.replace(/<[^>]+>/g, ' ').trim() : '';
+
+    const bibKey = generateCitationKey(authors, year, title);
+    const { anchorQuote, matchScore } = extractEvidenceAnchor(abstract, query);
+
+    return {
+      title,
+      authors: authors.length > 0 ? authors : ['Unknown Author'],
+      year,
+      venue,
+      doi,
+      bibtexKey: bibKey,
+      relevanceScore: matchScore / 100,
+      abstractSnippet: abstract || anchorQuote,
+      abstractExcerpt: anchorQuote,
+      verificationStatus: 'verified' as const,
+      provenance: 'europepmc' as const,
+      citationCount: item.citedByCount || 0,
+      bibtexEntry: constructBibtexEntry(bibKey, title, authors, year, venue, doi),
+    };
+  });
+}
+
+// ── Semantic Scholar Graph API Query ─────────────────────────────────────────
+export async function querySemanticScholarSearch(query: string, limit = 6, signal?: AbortSignal): Promise<VerifiedLiteratureSource[]> {
+  let key: string | null = null;
+  try {
+    const { useReciteStore } = require('@/lib/store');
+    key = useReciteStore.getState().semanticScholarKey;
+  } catch {}
+
+  const headers: Record<string, string> = {};
+  if (key) {
+    headers['x-api-key'] = key;
+  }
+
+  const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${limit}&fields=title,authors,year,venue,externalIds,abstract,citationCount,influentialCitationCount`;
+
+  const res = await fetch(url, { headers, signal: signal || AbortSignal.timeout(4500) });
+  if (res.status === 429) {
+    throw new RateLimitError(429, res.headers.get('retry-after'));
+  }
+  if (!res.ok) return [];
+
+  const data = await res.json();
+  const items = data.data || [];
+
+  return items.map((item: any) => {
+    const title = item.title || 'Untitled Work';
+    const authors = (item.authors || []).map((a: any) => a.name).filter(Boolean);
+    const year = item.year || new Date().getFullYear();
+    const venue = item.venue || 'Semantic Scholar Graph';
+    const doi = item.externalIds?.DOI;
+    const abstract = item.abstract || '';
+
+    const bibKey = generateCitationKey(authors, year, title);
+    const { anchorQuote, matchScore } = extractEvidenceAnchor(abstract, query);
+
+    return {
+      title,
+      authors: authors.length > 0 ? authors : ['Unknown Author'],
+      year,
+      venue,
+      doi,
+      bibtexKey: bibKey,
+      relevanceScore: matchScore / 100,
+      abstractSnippet: abstract || anchorQuote,
+      abstractExcerpt: anchorQuote,
+      verificationStatus: 'verified' as const,
+      provenance: 'semanticscholar' as const,
+      citationCount: item.citationCount || 0,
+      influentialCitationCount: item.influentialCitationCount || 0,
+      bibtexEntry: constructBibtexEntry(bibKey, title, authors, year, venue, doi),
+    };
+  });
+}
+
+// ── Smart Domain Classification ───────────────────────────────────────────────
+export function detectQueryDomain(query: string): 'biomedical' | 'math_physics_cs' | 'general' {
+  const d = PreflightTopicClassifier.classifyLocally(query);
+  if (d === 'biomedical' || d === 'clinical') return 'biomedical';
+  if (d === 'physics' || d === 'math' || d === 'computer_science') return 'math_physics_cs';
+  return 'general';
+}
+
+// ── Academic Search Aggregator (Multi-Vendor Dragnet Dispatch) ───────────────
 export class AcademicSearchAggregator {
   /**
-   * High-Throughput Parallel Dragnet:
-   * Executes multi-query parallel harvesting across OpenAlex, Crossref, and arXiv.
-   * Employs non-blocking cooperative event loop yielding and streaming telemetry callbacks.
+   * High-Throughput Multi-Vendor Parallel Dragnet:
+   * Dynamically balances queries across 5 global academic repositories using
+   * the deterministic Academic Search Routing Index:
+   * 1. OpenAlex (100M+ Works)
+   * 2. Crossref (150M+ DOIs)
+   * 3. Europe PMC / PubMed (40M+ Biomedical Works)
+   * 4. arXiv (2.4M+ Math/Physics/CS Preprints)
+   * 5. Semantic Scholar (210M+ Literature Graph)
+   *
+   * Employs non-blocking cooperative event loop yielding, automatic deduplication,
+   * domain-aware vendor prioritization, and streaming telemetry callbacks.
    */
   static async executeDragnet(
     queries: string[],
     claimText: string,
     onCandidateHarvested?: (summary: DragnetCandidateSummary) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    overrideDomain?: string
   ): Promise<VerifiedLiteratureSource[]> {
     if (!queries || queries.length === 0) return [];
 
@@ -411,6 +573,12 @@ export class AcademicSearchAggregator {
       return cached;
     }
 
+    let preferredProvider: string = 'auto';
+    try {
+      const { useReciteStore } = require('@/lib/store');
+      preferredProvider = useReciteStore.getState().primarySearchProvider || 'auto';
+    } catch {}
+
     const resultsMap = new Map<string, VerifiedLiteratureSource>();
 
     // Execute queries in parallel batches
@@ -421,28 +589,62 @@ export class AcademicSearchAggregator {
           const cleanQuery = q.trim();
           if (!cleanQuery) return [];
 
+          const domain = (overrideDomain as AcademicDomain) || PreflightTopicClassifier.classifyLocally(cleanQuery);
+          const targetVendors: SearchVendorProvenance[] = (DOMAIN_ROUTING_TABLE as Record<string, SearchVendorProvenance[]>)[domain as string] || DOMAIN_ROUTING_TABLE.general;
           const batchResults: VerifiedLiteratureSource[] = [];
 
-          // Concurrently attempt OpenAlex and Crossref
-          const [openAlexRes, crossrefRes] = await Promise.allSettled([
-            queryOpenAlex(cleanQuery, 6, signal),
-            queryCrossref(cleanQuery, 6, signal),
-          ]);
+          // Determine vendor dispatch strategy based on deterministic routing table & user preferences
+          const vendorCalls: Promise<VerifiedLiteratureSource[]>[] = [];
 
-          if (openAlexRes.status === 'fulfilled') {
-            batchResults.push(...openAlexRes.value);
-          }
-          if (crossrefRes.status === 'fulfilled') {
-            batchResults.push(...crossrefRes.value);
+          if (preferredProvider === 'crossref') {
+            vendorCalls.push(queryCrossref(cleanQuery, 8, signal));
+            vendorCalls.push(queryOpenAlex(cleanQuery, 4, signal));
+          } else if (preferredProvider === 'europepmc') {
+            vendorCalls.push(queryEuropePMC(cleanQuery, 8, signal));
+            vendorCalls.push(queryCrossref(cleanQuery, 4, signal));
+          } else if (preferredProvider === 'arxiv') {
+            vendorCalls.push(queryArxiv(cleanQuery, 6, signal));
+            vendorCalls.push(queryOpenAlex(cleanQuery, 4, signal));
+          } else if (preferredProvider === 'semanticscholar') {
+            vendorCalls.push(querySemanticScholarSearch(cleanQuery, 6, signal));
+            vendorCalls.push(queryCrossref(cleanQuery, 4, signal));
+          } else {
+            // Deterministic Routing: dispatch only to vendors assigned to this domain
+            if (targetVendors.includes('europepmc')) {
+              vendorCalls.push(queryEuropePMC(cleanQuery, 6, signal));
+            }
+            if (targetVendors.includes('arxiv')) {
+              vendorCalls.push(queryArxiv(cleanQuery, 6, signal));
+            }
+            if (targetVendors.includes('openalex')) {
+              vendorCalls.push(queryOpenAlex(cleanQuery, 5, signal));
+            }
+            if (targetVendors.includes('crossref')) {
+              vendorCalls.push(queryCrossref(cleanQuery, 5, signal));
+            }
+            if (targetVendors.includes('semanticscholar')) {
+              vendorCalls.push(querySemanticScholarSearch(cleanQuery, 4, signal));
+            }
           }
 
-          // If batch is sparse, attempt arXiv
-          if (batchResults.length < 3) {
+          const settled = await Promise.allSettled(vendorCalls);
+          for (const s of settled) {
+            if (s.status === 'fulfilled') {
+              batchResults.push(...s.value);
+            }
+          }
+
+          // If results are still sparse (< 3), execute secondary fallback
+          if (batchResults.length < 3 && !signal?.aborted) {
             try {
-              const arxivRes = await queryArxiv(cleanQuery, 4, signal);
-              batchResults.push(...arxivRes);
+              if (!targetVendors.includes('arxiv') && (domain === 'physics' || domain === 'math' || domain === 'computer_science')) {
+                const arxivFallback = await queryArxiv(cleanQuery, 3, signal);
+                batchResults.push(...arxivFallback);
+              }
+              const semanticFallback = await querySemanticScholarSearch(cleanQuery, 3, signal);
+              batchResults.push(...semanticFallback);
             } catch {
-              // arXiv fallback ignored
+              // Fallback failure non-fatal
             }
           }
 

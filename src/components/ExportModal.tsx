@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useReciteStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { Download, FileText, X, AlertTriangle, Database, CheckCircle2, Globe, FileCode2 } from 'lucide-react';
+import { Download, FileText, X, AlertTriangle, Database, CheckCircle2, Globe, FileCode2, Copy, Check } from 'lucide-react';
 import { ReportGenerator } from '@/services/report-generator';
 
 interface ExportModalProps {
@@ -14,6 +14,7 @@ interface ExportModalProps {
 export default function ExportModal({ isOpen, onClose }: ExportModalProps) {
   const { claims, documentTitle, docMetrics } = useReciteStore();
   const [isExporting, setIsExporting] = useState(false);
+  const [copiedOverleaf, setCopiedOverleaf] = useState(false);
 
   if (!isOpen) return null;
 
@@ -31,6 +32,37 @@ export default function ExportModal({ isOpen, onClose }: ExportModalProps) {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  // Export Patched LaTeX Manuscript
+  const handleExportPatchedTex = () => {
+    const { rawText, parsedText, addToast } = useReciteStore.getState();
+    const tex = rawText || parsedText || '';
+    if (!tex) {
+      addToast('No manuscript loaded to export.', 'warning');
+      return;
+    }
+    const cleanName = documentTitle.endsWith('.tex') ? `clean_${documentTitle}` : `${documentTitle}_clean.tex`;
+    downloadFile(cleanName, tex, 'text/x-tex;charset=utf-8');
+    addToast('Downloaded patched LaTeX manuscript.', 'success');
+    onClose();
+  };
+
+  // Copy Patched LaTeX for Overleaf
+  const handleCopyOverleaf = () => {
+    const { rawText, parsedText, addToast } = useReciteStore.getState();
+    const tex = rawText || parsedText || '';
+    if (!tex) {
+      addToast('No manuscript loaded to copy.', 'warning');
+      return;
+    }
+    navigator.clipboard.writeText(tex).then(() => {
+      setCopiedOverleaf(true);
+      addToast('Patched LaTeX copied! Paste directly into your Overleaf main.tex.', 'success');
+      setTimeout(() => setCopiedOverleaf(false), 2000);
+    }).catch(() => {
+      addToast('Failed to copy to clipboard.', 'error');
+    });
   };
 
   // Export Standard BibTeX
@@ -146,9 +178,39 @@ export default function ExportModal({ isOpen, onClose }: ExportModalProps) {
 
           {/* Export Options Grid */}
           <div className="space-y-2 pt-1 text-xs">
-            <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
-              Select Output Format
-            </span>
+            {/* 0A. Copy Patched LaTeX for Overleaf */}
+            <button
+              onClick={handleCopyOverleaf}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 bg-emerald-950/40 hover:bg-emerald-950/70 text-neutral-200 border border-emerald-500/60 hover:border-emerald-400 rounded-lg transition-all cursor-pointer group shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+            >
+              <div className="flex items-center space-x-3">
+                <Copy className="w-4 h-4 text-emerald-400" />
+                <div className="flex flex-col text-left">
+                  <span className="font-semibold text-emerald-200">Copy Patched LaTeX for Overleaf</span>
+                  <span className="text-[10px] text-neutral-400">Copies full updated .tex text directly to clipboard</span>
+                </div>
+              </div>
+              {copiedOverleaf ? (
+                <Check className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <span className="text-[10px] font-mono text-emerald-400 uppercase font-bold">1-Click</span>
+              )}
+            </button>
+
+            {/* 0B. Download Patched LaTeX */}
+            <button
+              onClick={handleExportPatchedTex}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 bg-[#14181D] hover:bg-[#1A2026] text-neutral-200 border border-[#262C34] hover:border-emerald-500/50 rounded-lg transition-all cursor-pointer group"
+            >
+              <div className="flex items-center space-x-3">
+                <FileCode2 className="w-4 h-4 text-emerald-400" />
+                <div className="flex flex-col text-left">
+                  <span className="font-semibold text-neutral-100">Download Clean LaTeX (.tex)</span>
+                  <span className="text-[10px] text-neutral-400">Patched manuscript file with all verified citations injected</span>
+                </div>
+              </div>
+              <Download className="w-4 h-4 text-neutral-400 group-hover:text-emerald-400 transition-colors" />
+            </button>
 
             {/* 1. BibTeX */}
             <button

@@ -12,10 +12,14 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Cookie,
+  Database,
+  HelpCircle,
+  Building,
 } from 'lucide-react';
 
-export type LegalTab = 'terms' | 'privacy' | 'disclaimer' | 'contact';
+export type LegalTab = 'terms' | 'privacy' | 'cookies' | 'disclaimer' | 'contact';
 
 interface LegalModalProps {
   isOpen: boolean;
@@ -94,6 +98,18 @@ export const LegalModal: React.FC<LegalModalProps> = ({
           >
             <Lock size={14} />
             <span>Privacy Policy</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('cookies')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
+              activeTab === 'cookies'
+                ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-teal-200 border border-teal-500/40 shadow-[0_0_15px_rgba(20,184,166,0.2)]'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+            }`}
+          >
+            <Cookie size={14} />
+            <span>Cookie Policy</span>
           </button>
 
           <button
@@ -268,7 +284,53 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                   <li>Opt-out of any non-essential telemetry or email communications.</li>
                 </ul>
                 <p className="pt-1">
-                  To exercise any of these rights, contact our Data Protection Officer at <span className="text-teal-300 font-mono">privacy@reciteweb.com</span>.
+                  To exercise any of these rights, use the self-serve <strong>Account Deletion & Data Portability</strong> controls in your <a href="/settings" className="text-teal-300 font-bold underline underline-offset-2">Account Settings</a> or submit an inquiry through our <a href="/contact" className="text-teal-300 font-bold underline underline-offset-2">Contact Portal</a>.
+                </p>
+              </section>
+            </div>
+          )}
+
+          {/* ──────────────── TAB: COOKIE POLICY ──────────────── */}
+          {activeTab === 'cookies' && (
+            <div className="space-y-6">
+              <div className="border-b border-white/[0.08] pb-4">
+                <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                  <Cookie size={18} className="text-teal-400" />
+                  <span>Cookie & Local Storage Policy</span>
+                </h3>
+                <p className="text-[11px] text-teal-400 font-mono mt-0.5">
+                  Effective August 29, 2026 · Strictly Essential & Functional Only
+                </p>
+              </div>
+
+              <section className="space-y-2">
+                <h4 className="text-sm font-bold text-white">1. Strictly Essential Cookies & Local Storage</h4>
+                <p>
+                  ReciteWeb utilizes strictly essential cookies and client-side browser storage (IndexedDB & LocalStorage) required for application performance, session security, and air-gapped manuscript editing.
+                </p>
+                <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2 mt-2">
+                  <p className="font-mono text-[11px] text-teal-300">Active Storage Keys & Lifetime:</p>
+                  <ul className="list-disc pl-5 space-y-1 text-zinc-400 text-[11px]">
+                    <li><strong className="text-zinc-200">better-auth.session_token</strong> (HTTP Cookie, 30 days): Authenticated session persistence.</li>
+                    <li><strong className="text-zinc-200">recite_free_audits</strong> (HTTP Cookie, 24 hours): Ephemeral rate-limiting counter for free tier.</li>
+                    <li><strong className="text-zinc-200">reciteweb_workspace_files</strong> (IndexedDB, Persistent): Local air-gapped manuscript draft storage.</li>
+                    <li><strong className="text-zinc-200">reciteweb_pro_token</strong> (LocalStorage, Persistent): Ed25519 seat license cryptographic signature.</li>
+                    <li><strong className="text-zinc-200">recite-theme</strong> (LocalStorage, Persistent): UI dark/light theme preference.</li>
+                  </ul>
+                </div>
+              </section>
+
+              <section className="space-y-2">
+                <h4 className="text-sm font-bold text-white">2. Zero Third-Party Tracking</h4>
+                <p>
+                  We do not deploy marketing trackers, advertising cookies (e.g. Meta Pixel, Google Ads Remarketing), or cross-site behavioral tracking cookies.
+                </p>
+              </section>
+
+              <section className="space-y-2">
+                <h4 className="text-sm font-bold text-white">3. User Controls</h4>
+                <p>
+                  You can purge all local browser storage, tokens, and IndexedDB drafts at any time through our dedicated <a href="/cookies" className="text-teal-300 font-bold underline underline-offset-2">Cookie Policy Page</a> or <a href="/settings" className="text-teal-300 font-bold underline underline-offset-2">Account Settings</a>.
                 </p>
               </section>
             </div>
@@ -278,168 +340,123 @@ export const LegalModal: React.FC<LegalModalProps> = ({
           {activeTab === 'disclaimer' && (
             <div className="space-y-6">
               <div className="border-b border-white/[0.08] pb-4">
-                <h3 className="text-base font-extrabold text-white">AI & Academic Integrity Disclaimer</h3>
+                <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                  <AlertTriangle size={18} className="text-amber-400" />
+                  AI & Academic Integrity Disclaimer
+                </h3>
                 <p className="text-[11px] text-teal-400 font-mono mt-0.5">
-                  Pre-Submission Audit Transparency Statement
+                  Pre-Submission Audit Transparency & Human Oversight Notice
                 </p>
               </div>
 
-              <section className="space-y-2">
-                <h4 className="text-sm font-bold text-white">1. Assistive Pre-Flight Verification Tool</h4>
+              <section className="space-y-2 text-xs text-zinc-300 leading-relaxed">
+                <h4 className="text-sm font-bold text-white">1. Decision Support, Not Automated Authorship</h4>
                 <p>
-                  ReciteWeb is designed exclusively as an assistive pre-submission verification and literature discovery platform for scientific authors. It operates as an algorithmic companion to highlight potential attribution gaps, retracted literature, unindexed references, and syntax discrepancies in LaTeX manuscripts.
+                  ReciteWeb provides deterministic and neural decision support designed to highlight potential citation discrepancies, retraction notices, and empirical assertion misalignments in scholarly manuscripts. It does not replace the authorial judgment or peer-review responsibilities of human researchers.
                 </p>
               </section>
 
-              <section className="space-y-2">
+              <section className="space-y-2 text-xs text-zinc-300 leading-relaxed">
                 <h4 className="text-sm font-bold text-white">2. Sole Authorial Responsibility</h4>
                 <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.08] space-y-2 text-zinc-300">
                   <p>
-                    <strong>Final Verification Rests with the Author:</strong> Machine learning algorithms and citation databases may occasionally produce false positives, outdated retraction flags, or incomplete bibliography matches. The author(s) remain solely and entirely responsible for verifying all citations, claims, equations, and literature alignments before submitting their manuscripts to academic journals, conferences, preprint servers, or granting bodies.
+                    <strong>Final Verification Rests with the Author:</strong> Machine learning algorithms and citation databases may occasionally produce false positives, outdated retraction flags, or incomplete bibliography matches. Authors remain solely responsible for reviewing all suggested BibTeX replacements and claim grounding findings before final submission.
                   </p>
                   <p>
-                    <strong>No Editorial Endorsement:</strong> The generation of a ReciteWeb Compliance Dossier or high verification score does not constitute an endorsement or certification of scientific validity by any university, academic publisher, or editorial board.
+                    <strong>No Editorial Endorsement:</strong> The generation of a ReciteWeb Compliance Dossier does not constitute an endorsement or certification of scientific validity by any publisher or conference.
                   </p>
                 </div>
-              </section>
-
-              <section className="space-y-2">
-                <h4 className="text-sm font-bold text-white">3. AI-Assisted Research Ethics</h4>
-                <p>
-                  We encourage all researchers to adhere to COPE (Committee on Publication Ethics) and ICMJE guidelines regarding the disclosure of assistive research software in manuscript acknowledgments where appropriate.
-                </p>
               </section>
             </div>
           )}
 
-          {/* ──────────────── TAB 4: CONTACT & INQUIRIES ──────────────── */}
+          {/* ──────────────── TAB 4: CONTACT & SUPPORT DIRECTORY ──────────────── */}
           {activeTab === 'contact' && (
             <div className="space-y-6">
               <div className="border-b border-white/[0.08] pb-4">
-                <h3 className="text-base font-extrabold text-white">Contact & Legal Inquiries</h3>
+                <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
+                  <Mail size={18} className="text-teal-400" />
+                  Direct Inquiries & Support Portal
+                </h3>
                 <p className="text-[11px] text-teal-400 font-mono mt-0.5">
-                  Official Communication Channels & Service Notices
+                  Web-First Communication Channels & Service Notices
                 </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Channel 1: General & User Support */}
-                <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-2 backdrop-blur-md">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <Mail size={14} className="text-teal-400" />
-                      General & Technical Support
-                    </span>
-                  </div>
+                <a
+                  href="/contact?type=support"
+                  className="p-4 rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] hover:border-teal-500/30 space-y-2 backdrop-blur-md transition-all block group"
+                >
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5 group-hover:text-teal-300 transition-colors">
+                    <HelpCircle size={14} className="text-teal-400" />
+                    Workbench & Citation Support
+                  </span>
                   <p className="text-[11px] text-zinc-400">
                     Questions regarding workbench usage, license keys, or technical bug reports.
                   </p>
-                  <div className="flex items-center justify-between pt-2">
-                    <code className="text-xs font-mono text-teal-300">support@reciteweb.com</code>
-                    <button
-                      onClick={() => copyToClipboard('support@reciteweb.com')}
-                      className="p-1.5 bg-white/[0.06] hover:bg-white/[0.12] rounded-lg text-zinc-300 transition-colors cursor-pointer"
-                      title="Copy email"
-                    >
-                      {copiedEmail === 'support@reciteweb.com' ? (
-                        <CheckCircle2 size={13} className="text-emerald-400" />
-                      ) : (
-                        <Copy size={13} />
-                      )}
-                    </button>
-                  </div>
-                </div>
+                  <span className="text-[10px] font-mono text-teal-400 font-semibold block pt-1">
+                    Open Support Desk →
+                  </span>
+                </a>
 
-                {/* Channel 2: Legal Counsel & Compliance */}
-                <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-2 backdrop-blur-md">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <Scale size={14} className="text-teal-400" />
-                      Legal Counsel & ToS Notices
-                    </span>
-                  </div>
+                {/* Channel 2: Grants & Departmental */}
+                <a
+                  href="/contact?type=enterprise"
+                  className="p-4 rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] hover:border-indigo-500/30 space-y-2 backdrop-blur-md transition-all block group"
+                >
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5 group-hover:text-indigo-300 transition-colors">
+                    <Building size={14} className="text-indigo-400" />
+                    Lab Grants & University POs
+                  </span>
                   <p className="text-[11px] text-zinc-400">
-                    Formal legal notices, contract inquiries, and compliance documentation.
+                    Official quotations, W-9 vendor forms, and campus-wide licensing packages.
                   </p>
-                  <div className="flex items-center justify-between pt-2">
-                    <code className="text-xs font-mono text-teal-300">legal@reciteweb.com</code>
-                    <button
-                      onClick={() => copyToClipboard('legal@reciteweb.com')}
-                      className="p-1.5 bg-white/[0.06] hover:bg-white/[0.12] rounded-lg text-zinc-300 transition-colors cursor-pointer"
-                      title="Copy email"
-                    >
-                      {copiedEmail === 'legal@reciteweb.com' ? (
-                        <CheckCircle2 size={13} className="text-emerald-400" />
-                      ) : (
-                        <Copy size={13} />
-                      )}
-                    </button>
-                  </div>
-                </div>
+                  <span className="text-[10px] font-mono text-indigo-400 font-semibold block pt-1">
+                    Request Quote →
+                  </span>
+                </a>
 
                 {/* Channel 3: Privacy & Data Protection */}
-                <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-2 backdrop-blur-md">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <Lock size={14} className="text-teal-400" />
-                      Privacy & Data Requests
-                    </span>
-                  </div>
+                <a
+                  href="/contact?type=privacy"
+                  className="p-4 rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] hover:border-emerald-500/30 space-y-2 backdrop-blur-md transition-all block group"
+                >
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5 group-hover:text-emerald-300 transition-colors">
+                    <Lock size={14} className="text-emerald-400" />
+                    Privacy & Data Requests
+                  </span>
                   <p className="text-[11px] text-zinc-400">
-                    GDPR / CCPA data subject access requests, deletion requests, or DPA reviews.
+                    GDPR / CCPA data subject access requests and zero retention assurances.
                   </p>
-                  <div className="flex items-center justify-between pt-2">
-                    <code className="text-xs font-mono text-teal-300">privacy@reciteweb.com</code>
-                    <button
-                      onClick={() => copyToClipboard('privacy@reciteweb.com')}
-                      className="p-1.5 bg-white/[0.06] hover:bg-white/[0.12] rounded-lg text-zinc-300 transition-colors cursor-pointer"
-                      title="Copy email"
-                    >
-                      {copiedEmail === 'privacy@reciteweb.com' ? (
-                        <CheckCircle2 size={13} className="text-emerald-400" />
-                      ) : (
-                        <Copy size={13} />
-                      )}
-                    </button>
-                  </div>
-                </div>
+                  <span className="text-[10px] font-mono text-emerald-400 font-semibold block pt-1">
+                    Open Privacy Portal →
+                  </span>
+                </a>
 
                 {/* Channel 4: Security & Vulnerability Disclosures */}
-                <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-2 backdrop-blur-md">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <Shield size={14} className="text-teal-400" />
-                      Security & Responsible Disclosure
-                    </span>
-                  </div>
+                <a
+                  href="/contact?type=security"
+                  className="p-4 rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] hover:border-cyan-500/30 space-y-2 backdrop-blur-md transition-all block group"
+                >
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5 group-hover:text-cyan-300 transition-colors">
+                    <Shield size={14} className="text-cyan-400" />
+                    Security & Responsible Disclosure
+                  </span>
                   <p className="text-[11px] text-zinc-400">
-                    Coordinated vulnerability reporting and security architecture assessments.
+                    Coordinated vulnerability reporting and cryptographic token architecture.
                   </p>
-                  <div className="flex items-center justify-between pt-2">
-                    <code className="text-xs font-mono text-teal-300">security@reciteweb.com</code>
-                    <button
-                      onClick={() => copyToClipboard('security@reciteweb.com')}
-                      className="p-1.5 bg-white/[0.06] hover:bg-white/[0.12] rounded-lg text-zinc-300 transition-colors cursor-pointer"
-                      title="Copy email"
-                    >
-                      {copiedEmail === 'security@reciteweb.com' ? (
-                        <CheckCircle2 size={13} className="text-emerald-400" />
-                      ) : (
-                        <Copy size={13} />
-                      )}
-                    </button>
-                  </div>
-                </div>
+                  <span className="text-[10px] font-mono text-cyan-400 font-semibold block pt-1">
+                    Submit Disclosure →
+                  </span>
+                </a>
               </div>
 
               {/* Mailing Address & Entity Details */}
               <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1.5 text-zinc-400 text-[11px]">
-                <p className="font-semibold text-white">ReciteWeb</p>
-                <p className="text-zinc-500">Official Communication & Legal Notices Directory</p>
-                <p className="text-zinc-500">Inquiries: support@reciteweb.com · legal@reciteweb.com</p>
-                <p className="text-zinc-500 pt-1">
-                  Response SLA: Standard inquiries within 24–48 hours. Security disclosures triaged within 4 hours.
-                </p>
+                <p className="font-semibold text-white">Direct Maintainer & Founder Channel</p>
+                <p className="text-zinc-500">All submissions are monitored and triaged within 24 hours.</p>
               </div>
             </div>
           )}

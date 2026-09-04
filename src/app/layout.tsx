@@ -41,6 +41,7 @@ export const metadata: Metadata = {
 };
 
 import { GlobalErrorBoundary } from "@/components/common/GlobalErrorBoundary";
+import { CookieConsentBanner } from "@/components/common/CookieConsentBanner";
 
 export default function RootLayout({
   children,
@@ -55,6 +56,7 @@ export default function RootLayout({
       <body className={`${inter.variable} ${jetbrainsMono.variable} bg-zinc-950 text-zinc-100 font-sans antialiased min-h-screen`}>
         <GlobalErrorBoundary>
           {children}
+          <CookieConsentBanner />
         </GlobalErrorBoundary>
       </body>
     </html>

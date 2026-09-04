@@ -97,7 +97,7 @@ export const SidebarExplorer: React.FC = React.memo(() => {
     <aside className="w-60 shrink-0 h-full bg-zinc-50/70 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col justify-between overflow-hidden text-xs select-none transition-colors">
       <div className="p-3 space-y-4 overflow-y-auto">
         {/* Explorer Header */}
-        <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 uppercase font-mono text-[10px] tracking-wider">
+        <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 uppercase font-sans font-semibold text-[10px] tracking-wider">
           <div className="flex items-center gap-1.5 font-bold text-zinc-800 dark:text-zinc-200">
             <Layers className="w-3.5 h-3.5 text-sky-500 dark:text-sky-400" />
             <span>Manuscript Explorer</span>
@@ -109,7 +109,7 @@ export const SidebarExplorer: React.FC = React.memo(() => {
 
         {/* Project Files Tree */}
         <div className="space-y-1">
-          <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-500 dark:text-zinc-400 flex items-center justify-between">
+          <span className="text-[10px] uppercase font-sans font-semibold tracking-wider text-zinc-500 dark:text-zinc-400 flex items-center justify-between">
             <span>Project Hierarchy</span>
             <GitBranch className="w-3 h-3 text-zinc-400 dark:text-zinc-500" />
           </span>
@@ -187,7 +187,7 @@ export const SidebarExplorer: React.FC = React.memo(() => {
 
         {/* Document Outline & Section Diagnostics */}
         <div className="space-y-1.5">
-          <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-500 dark:text-zinc-400">
+          <span className="text-[10px] uppercase font-sans font-semibold tracking-wider text-zinc-500 dark:text-zinc-400">
             Section Density
           </span>
           <div className="space-y-1">

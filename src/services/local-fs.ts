@@ -7,8 +7,10 @@ export interface LocalFile {
   lastModified?: number;
 }
 
-const IDB_WORKSPACE_KEY = 'citeassist_active_workspace';
-const IDB_FILES_KEY = 'citeassist_workspace_files';
+const IDB_WORKSPACE_KEY = 'reciteweb_active_workspace';
+const IDB_FILES_KEY = 'reciteweb_workspace_files';
+const LEGACY_IDB_WORKSPACE_KEY = 'citeassist_active_workspace';
+const LEGACY_IDB_FILES_KEY = 'citeassist_workspace_files';
 
 export async function watchWorkspace(
   _dirPath: string, 
@@ -28,65 +30,63 @@ export async function openProjectDialog(): Promise<Record<string, LocalFile> | n
       const dirHandle = await (window as any).showDirectoryPicker({
         mode: 'readwrite',
       });
-      return await readDirectoryHandle(dirHandle);
+      const files: Record<string, LocalFile> = {};
+      await readDirectoryRecursively(dirHandle, '', files);
+      await saveWorkspaceToIdb(dirHandle.name, files);
+      return files;
     } catch (err: any) {
-      if (err.name === 'AbortError') return null;
-      console.warn('[LocalFS] showDirectoryPicker error, falling back to input:', err);
+      if (err.name !== 'AbortError') {
+        console.error('[LocalFS] Directory picker error:', err);
+      }
+      return null;
     }
   }
+
   return null;
 }
 
 /**
- * Recursively read files from a browser FileSystemDirectoryHandle
+ * Recursive reader for FileSystemDirectoryHandle
  */
-export async function readDirectoryHandle(
-  dirHandle: FileSystemDirectoryHandle,
-  basePath = ''
-): Promise<Record<string, LocalFile>> {
-  const fileTree: Record<string, LocalFile> = {};
-  const currentPath = basePath ? `${basePath}/${dirHandle.name}` : dirHandle.name;
-
-  for await (const entry of (dirHandle as any).values()) {
+async function readDirectoryRecursively(
+  dirHandle: any,
+  currentPath: string,
+  outFiles: Record<string, LocalFile>
+): Promise<void> {
+  for await (const entry of dirHandle.values()) {
+    const entryPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
     if (entry.kind === 'file') {
-      const name = entry.name as string;
-      if (name.endsWith('.tex') || name.endsWith('.bib') || name.endsWith('.md') || name.endsWith('.txt')) {
-        const file = await entry.getFile();
+      const file = await entry.getFile();
+      if (file.name.endsWith('.tex') || file.name.endsWith('.bib') || file.name.endsWith('.sty') || file.name.endsWith('.cls')) {
         const content = await file.text();
-        const filePath = `${currentPath}/${name}`;
-        fileTree[filePath] = {
-          path: filePath,
-          name,
+        outFiles[entryPath] = {
+          path: entryPath,
+          name: file.name,
           content,
           lastModified: file.lastModified,
         };
       }
-    } else if (entry.kind === 'directory' && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
-      const subTree = await readDirectoryHandle(entry, currentPath);
-      Object.assign(fileTree, subTree);
+    } else if (entry.kind === 'directory') {
+      if (!entry.name.startsWith('.') && entry.name !== 'node_modules' && entry.name !== 'target') {
+        await readDirectoryRecursively(entry, entryPath, outFiles);
+      }
     }
   }
-
-  await saveWorkspaceToIdb(currentPath, fileTree);
-  return fileTree;
 }
 
 /**
- * Ingest browser File objects (e.g. from Drag-and-Drop or <input type="file" multiple />)
+ * Ingest files from standard HTML file input (webkitdirectory)
  */
-export async function ingestFileList(files: FileList | File[]): Promise<Record<string, LocalFile>> {
+export async function ingestFileList(fileList: FileList): Promise<Record<string, LocalFile>> {
   const fileTree: Record<string, LocalFile> = {};
-  const fileArray = Array.from(files);
-
-  for (const file of fileArray) {
-    const relPath = (file as any).webkitRelativePath || file.name;
-    const name = file.name;
-    if (name.endsWith('.tex') || name.endsWith('.bib') || name.endsWith('.md') || name.endsWith('.txt')) {
+  for (let i = 0; i < fileList.length; i++) {
+    const file = fileList[i];
+    const path = (file as any).webkitRelativePath || file.name;
+    if (path.endsWith('.tex') || path.endsWith('.bib') || path.endsWith('.sty') || path.endsWith('.cls')) {
       const content = await file.text();
-      const normalizedPath = relPath.replace(/\\/g, '/');
-      fileTree[normalizedPath] = {
-        path: normalizedPath,
-        name,
+      fileTree[path] = {
+        path,
+        name: file.name,
         content,
         lastModified: file.lastModified,
       };
@@ -114,8 +114,12 @@ export async function saveWorkspaceToIdb(dirName: string, files: Record<string, 
  */
 export async function restoreWorkspaceFromIdb(): Promise<{ dirName: string; files: Record<string, LocalFile> } | null> {
   try {
-    const dirName = await get<string>(IDB_WORKSPACE_KEY);
-    const files = await get<Record<string, LocalFile>>(IDB_FILES_KEY);
+    let dirName = await get<string>(IDB_WORKSPACE_KEY);
+    let files = await get<Record<string, LocalFile>>(IDB_FILES_KEY);
+    if (!dirName || !files) {
+      dirName = await get<string>(LEGACY_IDB_WORKSPACE_KEY);
+      files = await get<Record<string, LocalFile>>(LEGACY_IDB_FILES_KEY);
+    }
     if (dirName && files && Object.keys(files).length > 0) {
       return { dirName, files };
     }
@@ -133,6 +137,8 @@ export async function clearWorkspaceFromIdb(): Promise<void> {
   try {
     await del(IDB_WORKSPACE_KEY);
     await del(IDB_FILES_KEY);
+    await del(LEGACY_IDB_WORKSPACE_KEY);
+    await del(LEGACY_IDB_FILES_KEY);
   } catch {}
 }
 

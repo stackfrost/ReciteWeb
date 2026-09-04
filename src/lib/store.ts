@@ -6,6 +6,7 @@ import { LaTeXParser, rehydrateQuarantinedMath, calculateLineNumber, extractCont
 import { BibTeXParser } from '@/services/bibtex-parser';
 import { FileSystemService } from '@/services/file-system';
 import { LicenseManager } from '@/services/license-manager';
+import { AtomicPatchEngine } from '@/services/atomic-patch-engine';
 import { type LLMProvider, getDefaultModel } from './models';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,6 +65,10 @@ export interface SuggestedPaper {
   abstractSnippet?: string;
   verificationStatus?: 'verified' | 'unverified' | 'rejected';
   bibtexEntry?: string;
+  entailmentStatus?: 'entailed' | 'contradicted' | 'tenuous';
+  hedgingSuggestion?: string;
+  contradictionWarning?: string;
+  provenance?: string;
 }
 
 export interface Claim {
@@ -81,6 +86,8 @@ export interface Claim {
   acceptedPaper?: SuggestedPaper;
   isRetracted?: boolean;
   retractedReason?: string;
+  retractionNoticeUrl?: string;
+  retractionDate?: string;
   suggestedFix?: string;
   context?: string;
   auditType?: 'MissingCitation' | 'WeakCitation' | 'Hallucination' | 'Misattribution' | 'Needs Literature' | 'Unsupported Assertion' | 'Weak Attribution' | 'Empirical Gap' | 'Syntax Mismatch';
@@ -91,7 +98,7 @@ export interface Claim {
 export type FilterCategory = 'All' | ClaimCategory;
 export type FilterSeverity = 'All' | ClaimSeverity;
 export type FilterStatus = 'All' | ClaimStatus;
-export type StreamFilter = 'all' | 'integrity' | 'discovery';
+export type StreamFilter = 'all' | 'integrity' | 'discovery' | 'retracted';
 
 interface Stats {
   totalClaims: number;
@@ -255,6 +262,8 @@ interface ReciteState extends EditorState {
   isAuditing: boolean;
   isExporting: boolean;
   showExportModal: boolean;
+  showPaywallModal: boolean;
+  paywallReason: string | null;
   showSettings: boolean;
   showLegalWindow: boolean;
   sidebarOpen: boolean;
@@ -290,6 +299,9 @@ interface ReciteState extends EditorState {
   telemetry: TelemetryState;
   showTelemetry: boolean;
   semanticScholarKey: string | null;
+  primarySearchProvider: 'auto' | 'openalex' | 'crossref' | 'europepmc' | 'arxiv' | 'semanticscholar';
+  setSemanticScholarKey: (key: string | null) => void;
+  setPrimarySearchProvider: (provider: 'auto' | 'openalex' | 'crossref' | 'europepmc' | 'arxiv' | 'semanticscholar') => void;
 
   // ── Transient Editor State Actions ────────────────────────────────────────
   setCursorOffset: (offset: number) => void;
@@ -327,6 +339,7 @@ interface ReciteState extends EditorState {
   setIsAuditing: (value: boolean) => void;
   setIsExporting: (value: boolean) => void;
   setShowExportModal: (value: boolean) => void;
+  setShowPaywall: (open: boolean, reason?: string) => void;
   setShowSettings: (value: boolean) => void;
   setShowLegalWindow: (value: boolean) => void;
   setInspectorTab: (tab: 'candidates' | 'health' | 'zotero') => void;
@@ -350,6 +363,7 @@ interface ReciteState extends EditorState {
   restoreClaim: (claimId: string) => void;
   debouncedReindexLines: (texContent: string) => void;
   applyFix: (claimId: string) => Promise<void>;
+  bulkAutoRemediate: () => Promise<number>;
 
   // ── Global Modals & Notifications Actions ───────────────────────────────
   addToast: (message: string, type: Toast['type']) => void;
@@ -371,7 +385,6 @@ interface ReciteState extends EditorState {
   setActiveFile: (path: string) => void;
   unmountWorkspace: () => void;
   setTelemetry: (patch: Partial<TelemetryState>) => void;
-  setSemanticScholarKey: (key: string | null) => void;
 
   // ── Reset ─────────────────────────────────────────────────────────────────
   reset: () => void;
@@ -411,6 +424,7 @@ export interface IssueStatistics {
   resolvedCount: number;
   dismissedCount: number;
   unresolvedCount: number;
+  retractedCount: number;
 }
 
 export function computeStats(claims: Claim[]): Stats {
@@ -438,12 +452,15 @@ export function computeIssueStatistics(claims: Claim[]): IssueStatistics {
   let low = 0;
   let resolved = 0;
   let dismissed = 0;
+  let retracted = 0;
 
   for (const c of claims) {
     if (c.status === 'dismissed') {
       dismissed++;
       continue;
     }
+
+    if (c.isRetracted) retracted++;
 
     if (getClaimStream(c) === 'integrity') integrity++;
     else discovery++;
@@ -468,6 +485,7 @@ export function computeIssueStatistics(claims: Claim[]): IssueStatistics {
     resolvedCount: resolved,
     dismissedCount: dismissed,
     unresolvedCount: activeTotal - resolved,
+    retractedCount: retracted,
   };
 }
 
@@ -502,6 +520,8 @@ const initialState = {
   isAuditing: false,
   isExporting: false,
   showExportModal: false,
+  showPaywallModal: false,
+  paywallReason: null as string | null,
   showSettings: false,
   showLegalWindow: false,
   sidebarOpen: true,
@@ -552,6 +572,7 @@ const initialState = {
   },
   showTelemetry: true,
   semanticScholarKey: null as string | null,
+  primarySearchProvider: 'auto' as 'auto' | 'openalex' | 'crossref' | 'europepmc' | 'arxiv' | 'semanticscholar',
   cursorOffset: 0,
   scrollLine: 0,
   diagnosticPins: [] as DiagnosticPin[],
@@ -613,6 +634,8 @@ export const useReciteStore = create<ReciteState>()(
       filtered = filtered.filter((c) => getClaimStream(c) === 'integrity');
     } else if (streamFilter === 'discovery') {
       filtered = filtered.filter((c) => getClaimStream(c) === 'discovery');
+    } else if (streamFilter === 'retracted') {
+      filtered = filtered.filter((c) => Boolean(c.isRetracted));
     }
     if (filterCategory !== 'All') filtered = filtered.filter((c) => c.category === filterCategory);
     if (filterSeverity !== 'All') filtered = filtered.filter((c) => c.severity === filterSeverity);
@@ -635,6 +658,7 @@ export const useReciteStore = create<ReciteState>()(
   setIsAuditing: (value) => set({ isAuditing: value }),
   setIsExporting: (value) => set({ isExporting: value }),
   setShowExportModal: (value) => set({ showExportModal: value }),
+  setShowPaywall: (value, reason) => set({ showPaywallModal: value, paywallReason: reason || null }),
   setShowSettings: (value) => set({ showSettings: value }),
   setShowLegalWindow: (value) => set({ showLegalWindow: value }),
   setInspectorTab: (tab) => set({ inspectorTab: tab }),
@@ -676,8 +700,6 @@ export const useReciteStore = create<ReciteState>()(
     const claim = claims.find((c) => c.id === claimId);
     if (!claim) return;
 
-    const { AtomicPatchEngine } = require('@/services/atomic-patch-engine');
-    
     // 1. Deduplicate & format BibTeX entry
     const { updatedBib, assignedKey } = AtomicPatchEngine.appendBibtexWithDeduplication(bibtexContent, paper);
 
@@ -785,8 +807,6 @@ export const useReciteStore = create<ReciteState>()(
       return;
     }
 
-    const { AtomicPatchEngine } = require('@/services/atomic-patch-engine');
-
     const targetText = claim.text;
     const replacement = claim.suggestedFix;
 
@@ -840,8 +860,102 @@ export const useReciteStore = create<ReciteState>()(
     addToast('Remediation patch applied to manuscript.', 'success');
   },
 
+  bulkAutoRemediate: async () => {
+    const { claims, rawText, parsedText, bibtexContent, workspace, bibtexFileName, addToast } = get();
+
+    const eligibleClaims = claims.filter((c) => {
+      if (c.status !== 'pending') return false;
+      if (c.isRetracted) return false;
+      if (c.suggestedFix) return true;
+      const topPaper = c.suggestedPapers?.[0];
+      if (topPaper && topPaper.entailmentStatus !== 'contradicted' && !topPaper.contradictionWarning) {
+        const score = topPaper.matchScore ?? (topPaper.influentialCitationCount ? Math.min(90 + Math.floor(topPaper.influentialCitationCount / 2), 99) : 92);
+        return score >= 80;
+      }
+      return false;
+    });
+
+    if (eligibleClaims.length === 0) {
+      addToast('No unambiguous high-confidence citations to auto-fill.', 'info');
+      return 0;
+    }
+
+    let currentTex = rawText || parsedText || '';
+    let currentBib = bibtexContent || '';
+    let appliedCount = 0;
+    const acceptedClaimIds = new Set<string>();
+
+    for (const claim of eligibleClaims) {
+      if (claim.suggestedFix) {
+        const { updatedTex } = AtomicPatchEngine.applyPatchToManuscript(
+          currentTex,
+          currentBib,
+          claim.text,
+          claim.suggestedFix,
+          claim.id
+        );
+        currentTex = updatedTex;
+        acceptedClaimIds.add(claim.id);
+        appliedCount++;
+      } else if (claim.suggestedPapers?.[0]) {
+        const paper = claim.suggestedPapers[0];
+        const { updatedBib, assignedKey } = AtomicPatchEngine.appendBibtexWithDeduplication(currentBib, paper);
+        currentBib = updatedBib;
+
+        const { updatedTex } = AtomicPatchEngine.injectCitationIntoClaim(
+          currentTex,
+          currentBib,
+          claim.text,
+          assignedKey,
+          claim.id
+        );
+        currentTex = updatedTex;
+        acceptedClaimIds.add(claim.id);
+        appliedCount++;
+      }
+    }
+
+    const { text: parsed, mathBlocks } = parseMathBlocks(currentTex);
+    const docMetrics = calculateDocMetrics(parsed || currentTex);
+
+    const updatedClaims = claims.map((c) =>
+      acceptedClaimIds.has(c.id) ? { ...c, status: 'accepted' as const } : c
+    );
+
+    set({
+      bibtexContent: currentBib,
+      rawText: currentTex,
+      parsedText: parsed,
+      mathBlocks,
+      docMetrics,
+      claims: updatedClaims,
+      stats: computeStats(updatedClaims),
+    });
+
+    get().applyFilters();
+    get().debouncedReindexLines(currentTex);
+
+    if (typeof window !== 'undefined') {
+      try {
+        const { useAuditStore } = require('@/store/useAuditStore');
+        for (const id of acceptedClaimIds) {
+          useAuditStore.getState().resolveFinding(id);
+        }
+      } catch {}
+    }
+
+    AtomicPatchEngine.persistToDisk(
+      workspace.fileName || 'main.tex',
+      currentTex,
+      bibtexFileName || 'references.bib',
+      currentBib
+    );
+
+    addToast(`Successfully auto-filled ${appliedCount} verified citation${appliedCount > 1 ? 's' : ''} into manuscript.`, 'success');
+    return appliedCount;
+  },
+
   undoLastPatch: () => {
-    const { AtomicPatchEngine } = require('@/services/atomic-patch-engine');
     const snapshot = AtomicPatchEngine.undoLastPatch();
 
     if (!snapshot) {
@@ -1174,11 +1288,16 @@ export const useReciteStore = create<ReciteState>()(
       setAuditProgress(null);
     }
   },
+
+  setPrimarySearchProvider: (provider: 'auto' | 'openalex' | 'crossref' | 'europepmc' | 'arxiv' | 'semanticscholar') =>
+    set({ primarySearchProvider: provider }),
 }),
     {
       name: 'recite-enterprise-store',
       partialize: (state) => ({
         license: state.license,
+        primarySearchProvider: state.primarySearchProvider,
+        semanticScholarKey: state.semanticScholarKey,
         // LLM router: persist provider selection and model ONLY.
         // API keys are managed exclusively by SecurityVault (Stronghold / session-memory).
         // They MUST NOT be written to IndexedDB/localStorage.

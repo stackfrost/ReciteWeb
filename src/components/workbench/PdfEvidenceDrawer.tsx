@@ -194,7 +194,7 @@ export const PdfEvidenceDrawer: React.FC<PdfEvidenceDrawerProps> = ({
                 <ShieldCheck className="w-3 h-3" />
                 <span>Evidence Anchor</span>
               </div>
-              <p className="text-emerald-100 text-[11px] italic leading-relaxed font-serif break-words">
+              <p className="text-emerald-100 text-[11px] italic leading-relaxed font-sans break-words">
                 &ldquo;{evidenceQuote}&rdquo;
               </p>
             </div>
@@ -207,7 +207,7 @@ export const PdfEvidenceDrawer: React.FC<PdfEvidenceDrawerProps> = ({
                 <BookOpen className="w-3 h-3 text-sky-400" />
                 <span>Abstract</span>
               </div>
-              <p className="text-zinc-300 text-[11px] leading-relaxed font-serif bg-zinc-900/60 p-2.5 rounded border border-zinc-800 break-words">
+              <p className="text-zinc-300 text-[11px] leading-relaxed font-sans bg-zinc-900/60 p-2.5 rounded border border-zinc-800 break-words">
                 {abstractText}
               </p>
             </div>
@@ -332,7 +332,7 @@ export const PdfEvidenceDrawer: React.FC<PdfEvidenceDrawerProps> = ({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs font-serif leading-relaxed">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs font-sans leading-relaxed">
         {/* Extracted Evidence Anchor Box */}
         {evidenceQuote && (
           <div

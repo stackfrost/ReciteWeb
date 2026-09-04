@@ -47,6 +47,16 @@ export const DEMO_BIBTEX = `@article{shimizu2003,
   number = {4},
   pages = {043902},
   year = {2021}
+},
+
+@article{dias2020,
+  title = {Room-temperature superconductivity in a carbonaceous sulfur hydride},
+  author = {Dias, Ranga P. and Snider, Elliot and Dasenbrock-Gammon, Nathan},
+  journal = {Nature (RETRACTED)},
+  volume = {586},
+  pages = {373--377},
+  year = {2020},
+  doi = {10.1038/s41586-020-2801-z}
 }`;
 
 export const DEMO_MANUSCRIPT = `Nuclear Magnetic Resonance and Cryogenic Laser Spectroscopy in the Quantum Spin Liquid Phase of $\\kappa$-(BEDT-TTF)$_2$Cu$_2$(CN)$_3$
@@ -79,7 +89,7 @@ In the low-temperature asymptotic regime $T < 1.2\\text{ K}$, the Korringa-like 
 
 $$T_1^{-1}(T) = \\gamma_n^2 k_B T \\lim_{\\omega \\to 0} \\sum_{\\mathbf{q}} |A_{hf}(\\mathbf{q})|^2 \\frac{\\text{Im}\\,\\chi_{\\perp}(\\mathbf{q},\\omega)}{\\hbar\\omega} \\propto T^{\\eta}$$
 
-where $\\eta = 1.02 \\pm 0.04$, matching the predicted scaling for a $U(1)$ gauge-field coupled spinon Fermi surface \\cite{zheng2017}. High-field continuous-wave optical spectroscopy confirms the absence of single-particle gap openings or structural dimerization down to $45\\text{ mK}$.`;
+where $\\eta = 1.02 \\pm 0.04$, matching the predicted scaling for a $U(1)$ gauge-field coupled spinon Fermi surface \\cite{zheng2017}. High-field continuous-wave optical spectroscopy confirms the absence of single-particle gap openings or structural dimerization down to $45\\text{ mK}$. Early room-temperature transport anomalies in sulfur hydride superlattices were cited as baseline precedent \\cite{dias2020}.`;
 
 export const DEMO_CLAIMS: Claim[] = [
   {
@@ -246,6 +256,41 @@ export const DEMO_CLAIMS: Claim[] = [
         verificationStatus: 'verified',
         citationCount: 185,
         influentialCitationCount: 32,
+      },
+    ],
+  },
+  {
+    id: 'claim-6-retracted',
+    text: 'Early room-temperature transport anomalies in sulfur hydride superlattices were cited as baseline precedent \\cite{dias2020}.',
+    category: 'Literature Claim',
+    streamType: 'integrity',
+    severity: 'Critical',
+    status: 'pending',
+    lineIndex: 32,
+    startIndex: 2532,
+    endIndex: 2660,
+    citationKey: 'dias2020',
+    isRetracted: true,
+    retractedReason: 'Official Retraction: Nature 2022 (doi: 10.1038/s41586-022-05287-7) due to non-standard, user-defined background subtraction irreproducible by independent researchers.',
+    retractionNoticeUrl: 'https://doi.org/10.1038/s41586-022-05287-7',
+    retractionDate: '2022-09-26',
+    context: 'High-field continuous-wave optical spectroscopy confirms the absence of single-particle gap openings or structural dimerization down to $45\\text{ mK}$. Early room-temperature transport anomalies in sulfur hydride superlattices were cited as baseline precedent \\cite{dias2020}.',
+    suggestedFix: 'Room-temperature transport anomalies in sulfur hydride superlattices were re-evaluated using standard baseline subtractions \\cite{shimizu2003}.',
+    auditType: 'Misattribution',
+    suggestedPapers: [
+      {
+        paperId: 's2-shimizu-clean',
+        title: 'Spin Liquid State in an Organic Spin-1/2 Triangular Lattice Antiferromagnet κ-(BEDT-TTF)2Cu2(CN)3',
+        year: 2003,
+        authors: ['Y. Shimizu', 'K. Miyagawa', 'K. Kanoda'],
+        venue: 'Physical Review Letters',
+        doi: '10.1103/PhysRevLett.91.107001',
+        bibtexKey: 'shimizu2003',
+        matchScore: 92,
+        abstractExcerpt: 'Robust, reproducible ground-state transport and susceptibility calibrations without background drift.',
+        verificationStatus: 'verified',
+        citationCount: 1420,
+        influentialCitationCount: 290,
       },
     ],
   },

@@ -149,8 +149,8 @@ export interface AuditState {
 }
 
 export const useAuditStore = create<AuditState>((set, get) => ({
-  findings: INITIAL_DEMO_FINDINGS,
-  selectedFindingId: INITIAL_DEMO_FINDINGS[0]?.id || null,
+  findings: [],
+  selectedFindingId: null,
   activeFilter: 'all',
   isAuditing: false,
   activeTab: 'remediation',
@@ -182,7 +182,7 @@ export const useAuditStore = create<AuditState>((set, get) => ({
     }
   },
 
-  resolveFinding: (id) =>
+  resolveFinding: (id) => {
     set((state) => {
       const nextFindings = state.findings.map((f) =>
         f.id === id ? { ...f, status: 'resolved' as const } : f
@@ -192,9 +192,23 @@ export const useAuditStore = create<AuditState>((set, get) => ({
         findings: nextFindings,
         selectedFindingId: nextUnresolved ? nextUnresolved.id : id,
       };
-    }),
+    });
 
-  dismissFinding: (id) =>
+    if (typeof window !== 'undefined') {
+      try {
+        const { useReciteStore } = require('@/lib/store');
+        const recite = useReciteStore.getState();
+        if (recite.claims && recite.claims.length > 0) {
+          const updatedClaims = recite.claims.map((c: any) =>
+            c.id === id ? { ...c, status: 'accepted' as const } : c
+          );
+          recite.setClaims(updatedClaims);
+        }
+      } catch {}
+    }
+  },
+
+  dismissFinding: (id) => {
     set((state) => {
       const nextFindings = state.findings.map((f) =>
         f.id === id ? { ...f, status: 'dismissed' as const } : f
@@ -204,14 +218,42 @@ export const useAuditStore = create<AuditState>((set, get) => ({
         findings: nextFindings,
         selectedFindingId: nextUnresolved ? nextUnresolved.id : id,
       };
-    }),
+    });
 
-  restoreFinding: (id) =>
+    if (typeof window !== 'undefined') {
+      try {
+        const { useReciteStore } = require('@/lib/store');
+        const recite = useReciteStore.getState();
+        if (recite.claims && recite.claims.length > 0) {
+          const updatedClaims = recite.claims.map((c: any) =>
+            c.id === id ? { ...c, status: 'dismissed' as const } : c
+          );
+          recite.setClaims(updatedClaims);
+        }
+      } catch {}
+    }
+  },
+
+  restoreFinding: (id) => {
     set((state) => ({
       findings: state.findings.map((f) =>
         f.id === id ? { ...f, status: 'unresolved' as const } : f
       ),
-    })),
+    }));
+
+    if (typeof window !== 'undefined') {
+      try {
+        const { useReciteStore } = require('@/lib/store');
+        const recite = useReciteStore.getState();
+        if (recite.claims && recite.claims.length > 0) {
+          const updatedClaims = recite.claims.map((c: any) =>
+            c.id === id ? { ...c, status: 'pending' as const } : c
+          );
+          recite.setClaims(updatedClaims);
+        }
+      } catch {}
+    }
+  },
 
   copyCitationAndBib: (id, source) => {
     const { LatexSanitizer } = require('@/lib/latex-sanitizer');

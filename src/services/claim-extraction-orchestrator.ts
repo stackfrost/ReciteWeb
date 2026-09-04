@@ -50,8 +50,16 @@ export class ClaimExtractionOrchestrator {
     const t0 = performance.now();
     const lineOffsets = buildLineOffsets(texContent);
 
+    // ── STAGE 0: Pre-Flight Academic Domain Classification ──────────────────────
+    onProgress?.('Classifying Academic Domain & Initializing Search Routing Table...');
+    await yieldToMain();
+
+    const { title: docTitle, abstract: docAbstract } = extractTitleAndAbstract(texContent);
+    const { PreflightTopicClassifier } = await import('@/services/preflight-topic-classifier');
+    const domainResult = await PreflightTopicClassifier.classifyDomain(docTitle, docAbstract, signal);
+
     // ── STAGE 1: Deterministic AST & Integrity Check ────────────────────────────
-    onProgress?.('Running Deterministic AST Integrity Checks...');
+    onProgress?.(`Running Deterministic AST Integrity Checks (${domainResult.domain.toUpperCase()})...`);
     await yieldToMain();
     console.time('[Pipeline] Stage 1: AST Integrity');
 
@@ -141,7 +149,7 @@ export class ClaimExtractionOrchestrator {
       let verifiedSources: VerifiedLiteratureSource[] = [];
 
       try {
-        // Execute parallel dragnet across OpenAlex, Crossref, and arXiv
+        // Execute parallel dragnet across OpenAlex, Crossref, arXiv, Europe PMC, or S2
         const { signal: dragnetSignal } = createTimeoutSignal(30000, signal);
         verifiedSources = await AcademicSearchAggregator.executeDragnet(
           claim.searchQueries,
@@ -153,7 +161,8 @@ export class ClaimExtractionOrchestrator {
               onTelemetryUpdate?.({ ...telemetryState, overallElapsedMs: Math.round(performance.now() - t0) });
             }
           },
-          dragnetSignal
+          dragnetSignal,
+          domainResult.domain
         );
 
         // Also check local Zotero library if available
@@ -776,4 +785,23 @@ function extractContextSnippet(
   if (start > 0) snippet = '...' + snippet;
   if (end < text.length) snippet = snippet + '...';
   return snippet;
+}
+
+/**
+ * Extracts manuscript title and abstract from LaTeX or raw manuscript text.
+ */
+function extractTitleAndAbstract(tex: string): { title: string; abstract: string } {
+  if (!tex) return { title: '', abstract: '' };
+
+  // 1. Try LaTeX \title{...}
+  const titleMatch = tex.match(/\\title\{([^}]+)\}/i);
+  const title = titleMatch ? titleMatch[1].replace(/\\/g, '').trim() : '';
+
+  // 2. Try LaTeX \begin{abstract}...\end{abstract}
+  const abstractMatch = tex.match(/\\begin\{abstract\}([\s\S]*?)\\end\{abstract\}/i);
+  const abstract = abstractMatch
+    ? abstractMatch[1].replace(/\\[a-zA-Z]+/g, ' ').replace(/\s+/g, ' ').trim()
+    : tex.slice(0, 1500).replace(/\\[a-zA-Z]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  return { title, abstract };
 }

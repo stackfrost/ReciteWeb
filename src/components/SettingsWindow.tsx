@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useReciteStore } from '@/lib/store';
+import { purgeAllLocalData } from '@/lib/account-cleanup';
 
 interface SettingsWindowProps {
   isOpen?: boolean;
@@ -241,7 +242,7 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                         <span>Unlock Unlimited Manuscript Audits</span>
                       </div>
                       <p className="text-[11px] text-zinc-600 dark:text-zinc-400 mt-0.5">
-                        Upgrade to Researcher Pro ($49/yr with promo code) for unlimited chapters and multi-file projects.
+                        Upgrade to Researcher Pro for unlimited chapters and multi-file projects.
                       </p>
                     </div>
                     <Link
@@ -344,25 +345,71 @@ export default function SettingsWindow({ isOpen: propIsOpen, onClose: propOnClos
                     </p>
                   </div>
 
+                  {/* Action 1: Export Personal Data (GDPR Art. 20) */}
                   <div className="p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 block">Purge Local Manuscript Cache</span>
-                      <span className="text-zinc-500 text-[11px]">Deletes all cached citation matches and temporary tokens</span>
+                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 block">Export Account Data (JSON)</span>
+                      <span className="text-zinc-500 text-[11px]">Download your profile metadata and audit history (GDPR Art. 20)</span>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/user/export-data');
+                          const blob = await res.blob();
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `reciteweb_account_export_${Date.now()}.json`;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(url);
+                          addToast('Account data exported successfully.', 'success');
+                        } catch {
+                          addToast('Failed to export data.', 'error');
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg text-xs transition-colors font-semibold cursor-pointer"
+                    >
+                      Export JSON
+                    </button>
+                  </div>
+
+                  {/* Action 2: Purge Local Workspace Cache */}
+                  <div className="p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 block">Purge Local Workspace Cache</span>
+                      <span className="text-zinc-500 text-[11px]">Wipes all client IndexedDB drafts and temporary tokens</span>
                     </div>
                     <button
                       onClick={() => {
                         openConfirm(
                           'Purge Local Cache?',
-                          'This will clear all locally cached citation resolutions and reset local IndexedDB.',
-                          () => {
-                            addToast('Local cache purged successfully', 'success');
+                          'This will clear all locally cached drafts, citation resolutions, and reset IndexedDB on this browser.',
+                          async () => {
+                            await purgeAllLocalData();
+                            addToast('Local cache purged successfully.', 'success');
                           }
                         );
                       }}
-                      className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded-lg text-xs transition-colors font-semibold cursor-pointer"
+                      className="px-3 py-1.5 bg-cyan-50 dark:bg-cyan-950/40 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 border border-cyan-200 dark:border-cyan-800 text-cyan-700 dark:text-cyan-300 rounded-lg text-xs transition-colors font-semibold cursor-pointer"
                     >
                       Purge Cache
                     </button>
+                  </div>
+
+                  {/* Action 3: Permanent Account Deletion */}
+                  <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/5 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-rose-700 dark:text-rose-300 block">Account Deletion & Data Erasure</span>
+                      <span className="text-zinc-500 text-[11px]">Irrevocably erase account and database records (GDPR Art. 17)</span>
+                    </div>
+                    <Link
+                      href="/settings"
+                      className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 rounded-lg text-xs transition-colors font-semibold cursor-pointer block"
+                    >
+                      Manage Account →
+                    </Link>
                   </div>
                 </div>
               </div>

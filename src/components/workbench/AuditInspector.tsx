@@ -312,7 +312,7 @@ export const AuditInspector: React.FC = () => {
                   <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider">
                     Manuscript Context
                   </span>
-                  <div className="p-2.5 bg-[#14181D] border border-[#21262D] rounded-md italic text-neutral-300 leading-relaxed font-serif text-[13px] break-words">
+                  <div className="p-2.5 bg-[#14181D] border border-[#21262D] rounded-md italic text-neutral-300 leading-relaxed font-sans text-[13px] break-words">
                     "{selectedFinding.context}"
                   </div>
                 </div>
@@ -465,7 +465,7 @@ export const AuditInspector: React.FC = () => {
                       {selectedFinding.contrastiveEvidence.reason}
                     </p>
 
-                    <div className="p-2 bg-[#0A0D10]/80 rounded border border-[#21262D] space-y-1 font-serif italic text-neutral-300">
+                    <div className="p-2 bg-[#0A0D10]/80 rounded border border-[#21262D] space-y-1 font-sans italic text-neutral-300">
                       <span className="font-sans font-semibold text-[9px] uppercase tracking-wider text-neutral-500 not-italic block">
                         Source Evidence Anchor:
                       </span>
@@ -555,7 +555,7 @@ export const AuditInspector: React.FC = () => {
                             <span className="text-[9px] font-mono text-neutral-500 uppercase">
                               Abstract Anchor Excerpt:
                             </span>
-                            <p className="text-[11px] font-serif italic text-neutral-300 leading-relaxed border-l border-sky-500/50 pl-1.5">
+                            <p className="text-[11px] font-sans italic text-neutral-300 leading-relaxed border-l border-sky-500/50 pl-1.5">
                               "{source.abstractExcerpt || source.abstractSnippet}"
                             </p>
                           </div>
@@ -785,7 +785,7 @@ export const AuditInspector: React.FC = () => {
                           </p>
 
                           {item.abstractNote && (
-                            <p className="text-[11px] font-serif italic text-neutral-300 leading-relaxed bg-[#0A0C0E] p-2 rounded border border-[#1C2229] break-words line-clamp-3">
+                            <p className="text-[11px] font-sans italic text-neutral-300 leading-relaxed bg-[#0A0C0E] p-2 rounded border border-[#1C2229] break-words line-clamp-3">
                               "{item.abstractNote}"
                             </p>
                           )}

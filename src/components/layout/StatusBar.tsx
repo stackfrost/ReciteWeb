@@ -47,7 +47,7 @@ export const StatusBar: React.FC = () => {
   const fileFormat = workspace.status !== 'NO_WORKSPACE_MOUNTED' ? 'LaTeX (pdfTeX)' : '--';
 
   return (
-    <footer className="h-6 w-full bg-zinc-950 border-t border-zinc-800 flex items-center justify-between px-3 text-[11px] font-mono text-zinc-400 select-none shrink-0 z-40">
+    <footer className="h-6 w-full bg-zinc-950 border-t border-zinc-800/80 flex items-center justify-between px-3 text-[10px] font-mono text-zinc-400 select-none shrink-0 z-40">
       {/* LEFT: Document & AST Diagnostics */}
       <div className="flex items-center gap-0">
         <span className="text-zinc-500">UTF-8</span>
@@ -60,7 +60,7 @@ export const StatusBar: React.FC = () => {
       </div>
 
       {/* CENTER: Engine Performance Telemetry */}
-      <div className="flex items-center gap-0">
+      <div className="hidden md:flex items-center gap-0">
         <span className="text-zinc-500">
           Engine: <span className="text-emerald-400 font-medium">Recite Neural Mesh (ZDR)</span>
         </span>
@@ -78,9 +78,9 @@ export const StatusBar: React.FC = () => {
       <div className="flex items-center gap-0">
         <span className="text-zinc-500">
           Claims:{' '}
-          <span className="text-emerald-400">{stats.resolvedCount} Verified</span>
+          <span className="text-emerald-400 font-medium">{stats.resolvedCount} Verified</span>
           {' / '}
-          <span className={stats.unresolvedCount > 0 ? 'text-zinc-300' : 'text-zinc-400'}>
+          <span className={stats.unresolvedCount > 0 ? 'text-zinc-300' : 'text-zinc-500'}>
             {stats.unresolvedCount} Pending
           </span>
         </span>

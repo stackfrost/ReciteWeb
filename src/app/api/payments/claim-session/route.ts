@@ -79,11 +79,13 @@ export async function GET(req: NextRequest) {
     if (!license) {
       // In non-production environments with no DODO_WEBHOOK_SECRET, allow a mock claim
       // for payment_ids that start with 'dodo_dev_' to unblock local UI testing.
-      if (process.env.NODE_ENV !== 'production' && !process.env.DODO_WEBHOOK_SECRET && paymentId.startsWith('dodo_dev_')) {
-        const tier = paymentId.includes('pro') ? 'annual_pro' : 'emergency_pass' as const;
-        const durationMs = tier === 'annual_pro' ? 365 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+      if (process.env.NODE_ENV !== 'production' && !process.env.DODO_WEBHOOK_SECRET && (paymentId.startsWith('dodo_dev_') || paymentId === 'dev_session')) {
+        const tier = paymentId.includes('lab')
+          ? 'lab_multiseat'
+          : (paymentId.includes('pro') ? 'annual_pro' : 'emergency_pass');
+        const durationMs = tier === 'emergency_pass' ? 7 * 24 * 60 * 60 * 1000 : 365 * 24 * 60 * 60 * 1000;
         const expiresAt = Date.now() + durationMs;
-        const token = await signToken({ email: 'dev@reciteweb.com', tier, expiresAt, sessionId: paymentId });
+        const token = await signToken({ email: 'dev@reciteweb.com', tier: tier as any, expiresAt, sessionId: paymentId });
         return NextResponse.json({ status: 'success', token, tier, expiresAt, dev: true });
       }
       return NextResponse.json({ error: 'Payment not found. Complete checkout first.' }, { status: 404 });

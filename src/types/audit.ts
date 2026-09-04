@@ -2,6 +2,16 @@ export type FindingSeverity = 'critical' | 'medium' | 'low' | 'Critical' | 'High
 export type FindingCategory = 'bib_mismatch' | 'literature_discovery';
 export type StreamType = 'integrity' | 'discovery';
 
+export interface RetractionMetadata {
+  isRetracted: boolean;
+  status: 'clean' | 'retracted' | 'expression_of_concern' | 'corrected';
+  noticeUrl?: string;
+  retractionDate?: string;
+  reason?: string;
+  crossmarkUpdated: boolean;
+  source: 'openalex' | 'crossref' | 'curated_index' | 'none';
+}
+
 export interface VerifiedLiteratureSource {
   title: string;
   authors: string[];
@@ -13,7 +23,7 @@ export interface VerifiedLiteratureSource {
   abstractSnippet: string;
   abstractExcerpt?: string;
   verificationStatus: 'verified' | 'unverified' | 'rejected';
-  provenance?: 'zotero' | 'openalex' | 'crossref' | 'arxiv';
+  provenance?: 'zotero' | 'openalex' | 'crossref' | 'arxiv' | 'europepmc' | 'semanticscholar' | 'pubmed';
   isPersonalLibraryMatch?: boolean;
   bibtexEntry?: string;
   citationCount?: number;
@@ -21,6 +31,7 @@ export interface VerifiedLiteratureSource {
   entailmentStatus?: 'entailed' | 'tenuous' | 'contradicted';
   hedgingSuggestion?: string;
   contradictionWarning?: string;
+  retractionMetadata?: RetractionMetadata;
 }
 
 export type EntailmentStatus = 'entailed' | 'tenuous' | 'contradicted';
@@ -50,6 +61,7 @@ export interface AuditFinding {
   sectionTitle?: string;
   fileId?: string;
   isRetracted?: boolean;
+  retractionMetadata?: RetractionMetadata;
   suggestedPatch?: {
     diffRemove: string;
     diffAdd: string;

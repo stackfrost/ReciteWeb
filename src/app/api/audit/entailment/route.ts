@@ -1,7 +1,7 @@
 /**
  * src/app/api/audit/entailment/route.ts
  *
- * CiteAssist AI — NLI Entailment + Reviewer Blindspot Baseline Detection.
+ * ReciteWeb — NLI Entailment + Reviewer Blindspot Baseline Detection.
  *
  * Powered by Gemini 3.7 Flash (streaming, buffered JSON output).
  * Falls back to lexical keyword-overlap when GEMINI_API_KEY is absent.

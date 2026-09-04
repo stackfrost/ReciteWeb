@@ -3,7 +3,7 @@
 import React from 'react';
 import { SuggestedPaper } from '@/lib/store';
 import { formatAuthorList, formatCitationCount, formatDoiUrl } from '@/lib/utils';
-import { ExternalLink, CheckCircle2, Quote, PlusCircle, Sparkles, AlertTriangle, AlertCircle, Copy } from 'lucide-react';
+import { ExternalLink, CheckCircle2, Quote, PlusCircle, Sparkles, AlertTriangle, AlertCircle, Copy, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CandidateCardProps {
@@ -38,27 +38,32 @@ export default function CandidateCard({
         ? 'border-rose-500/50 dark:border-rose-500/50 bg-rose-50/30 dark:bg-rose-950/20'
         : 'border-zinc-200 dark:border-zinc-800 hover:border-emerald-500/60 dark:hover:border-emerald-500/60'
     )}>
-      {/* ── 1. Header Metadata & Entailment Score ──────────────────────────── */}
+      {/* ── 1. Header Metadata & Telemetry Match Score ──────────────────────────── */}
       <div className="flex justify-between items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap mb-1">
-            {/* Entailment Score Pill */}
-            <span className={cn(
-              'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold flex items-center gap-1 border',
-              isContradicted
-                ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                : isTenuous
-                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-            )}>
-              {isContradicted ? (
-                <AlertCircle className="w-3 h-3 text-rose-500" />
-              ) : isTenuous ? (
-                <AlertTriangle className="w-3 h-3 text-amber-500" />
-              ) : (
-                <Sparkles className="w-3 h-3 text-emerald-500" />
+            {/* Telemetry Assurance Match Pill */}
+            <span
+              data-testid="match-telemetry-pill"
+              className={cn(
+                'px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold flex items-center gap-1.5 border transition-all',
+                isContradicted
+                  ? 'bg-rose-950/80 text-rose-300 border-rose-500/60 shadow-[0_0_10px_rgba(244,63,94,0.25)]'
+                  : isTenuous || matchPct < 85
+                  ? 'bg-amber-950/80 text-amber-300 border-amber-500/60 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                  : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/60 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
               )}
-              <span>{matchPct}% {isContradicted ? 'Contradiction' : isTenuous ? 'Tenuous' : 'Entailed'}</span>
+            >
+              {isContradicted ? (
+                <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              ) : isTenuous || matchPct < 85 ? (
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              ) : (
+                <Target className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              )}
+              <span>
+                Match: {matchPct}% {isContradicted ? '· Contradiction Risk' : isTenuous ? '· Tenuous Match' : '· Empirical Grounding'}
+              </span>
             </span>
 
             {/* Provenance Badge */}
@@ -110,9 +115,9 @@ export default function CandidateCard({
               <Quote className="w-3 h-3 text-emerald-500" />
               <span>Verbatim Evidence in Abstract</span>
             </span>
-            <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[9px] font-semibold">100% Match</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[9px] font-semibold">{matchPct}% Excerpt Match</span>
           </div>
-          <p className="text-[11px] font-serif italic text-zinc-800 dark:text-zinc-200 leading-relaxed pl-2 border-l-2 border-emerald-500 bg-emerald-500/5 py-1 pr-1.5 rounded-r">
+          <p className="text-[11px] font-sans italic text-zinc-800 dark:text-zinc-200 leading-relaxed pl-2 border-l-2 border-emerald-500 bg-emerald-500/5 py-1 pr-1.5 rounded-r">
             &ldquo;{paper.abstractExcerpt || paper.abstractSnippet}&rdquo;
           </p>
         </div>

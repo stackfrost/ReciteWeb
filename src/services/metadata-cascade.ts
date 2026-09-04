@@ -1,6 +1,7 @@
 import { ProviderRateLimiter } from './rate-limiter';
 import { useReciteStore } from '../lib/store';
 import { saveCitationMetadata, getCitationMetadata } from './indexed-db';
+import { checkRetractionStatus } from './retraction-radar';
 
 export interface ValidationResult {
   query: string;
@@ -32,6 +33,7 @@ const metadataCache = new Map<string, ValidationResult>();
 const crossrefLimiter = new ProviderRateLimiter(30, 999999);
 const semanticScholarLimiter = new ProviderRateLimiter(100, 999999);
 const openAlexLimiter = new ProviderRateLimiter(600, 999999);
+const europePmcLimiter = new ProviderRateLimiter(100, 999999);
 
 /**
  * Validates a citation key/query across local cache and external providers.
@@ -92,6 +94,18 @@ export async function validateCitation(queryKey: string): Promise<ValidationResu
 
     if (result) {
       result.lastAccessed = Date.now();
+      if (result.doi) {
+        try {
+          const ret = await checkRetractionStatus(result.doi);
+          if (ret.isRetracted) {
+            result.isRetracted = true;
+            result.status = 'retracted';
+            result.retractionUrl = ret.noticeUrl;
+            (result as any).retractionNotice = ret.reason;
+            (result as any).retractionMetadata = ret;
+          }
+        } catch {}
+      }
       metadataCache.set(cacheKey, result);
       saveCitationMetadata(cacheKey, result).catch(e => console.error(e));
       return result;
@@ -107,7 +121,7 @@ export async function validateCitation(queryKey: string): Promise<ValidationResu
     verified: false,
     message: isLikelyRawSlug
       ? `Citation key '${normalizedKey}' not resolved. (Missing definition in .bib?)`
-      : `No matching record found across Crossref, OpenAlex, or Semantic Scholar.`,
+      : `No matching record found across Crossref, OpenAlex, Europe PMC, or Semantic Scholar.`,
   };
 
   metadataCache.set(cacheKey, fallbackResult);
@@ -115,29 +129,28 @@ export async function validateCitation(queryKey: string): Promise<ValidationResu
 }
 
 /**
- * Executes polite-pool requests through Crossref -> Semantic Scholar -> OpenAlex
+ * Executes polite-pool requests through Crossref -> OpenAlex -> Europe PMC -> Semantic Scholar
  */
 async function executeProviderCascade(query: string, retries: number): Promise<ValidationResult | null> {
   try {
     const crossrefResult = await queryCrossref(query, retries);
     if (crossrefResult) return crossrefResult;
-  } catch {
-    // Fallthrough
-  }
-
-  try {
-    const semanticScholarResult = await querySemanticScholar(query, retries);
-    if (semanticScholarResult) return semanticScholarResult;
-  } catch {
-    // Fallthrough
-  }
+  } catch {}
 
   try {
     const openAlexResult = await queryOpenAlex(query, retries);
     if (openAlexResult) return openAlexResult;
-  } catch {
-    // Fallthrough
-  }
+  } catch {}
+
+  try {
+    const europePmcResult = await queryEuropePMCValidation(query, retries);
+    if (europePmcResult) return europePmcResult;
+  } catch {}
+
+  try {
+    const semanticScholarResult = await querySemanticScholar(query, retries);
+    if (semanticScholarResult) return semanticScholarResult;
+  } catch {}
 
   return null;
 }
@@ -155,9 +168,17 @@ async function queryCrossref(query: string, _retries: number): Promise<Validatio
   const item = data.message?.items?.[0];
   if (!item) return null;
 
+  const updates: Array<any> = item['update-to'] || [];
+  const retractionUpdate = updates.find((u) => {
+    const type = String(u?.type || '').toLowerCase();
+    const label = String(u?.label || '').toLowerCase();
+    return type.includes('retract') || label.includes('retract') || type.includes('withdraw');
+  });
+  const isRetracted = Boolean(retractionUpdate);
+
   return {
     query,
-    status: 'verified',
+    status: isRetracted ? 'retracted' : 'verified',
     verified: true,
     doi: item.DOI,
     title: Array.isArray(item.title) ? item.title[0] : item.title,
@@ -166,6 +187,8 @@ async function queryCrossref(query: string, _retries: number): Promise<Validatio
     venue: Array.isArray(item['container-title']) ? item['container-title'][0] : item['container-title'],
     year: item.issued?.['date-parts']?.[0]?.[0],
     citationCount: item['is-referenced-by-count'],
+    isRetracted,
+    retractionUrl: retractionUpdate?.DOI ? `https://doi.org/${retractionUpdate.DOI}` : undefined,
     primarySource: 'crossref',
     provider: 'crossref',
   };
@@ -220,9 +243,11 @@ async function queryOpenAlex(query: string, _retries: number): Promise<Validatio
   const item = data.results?.[0];
   if (!item) return null;
 
+  const isRetracted = Boolean(item.is_retracted);
+
   return {
     query,
-    status: 'verified',
+    status: isRetracted ? 'retracted' : 'verified',
     verified: true,
     doi: item.doi ? item.doi.replace('https://doi.org/', '') : undefined,
     title: item.display_name || item.title,
@@ -231,7 +256,42 @@ async function queryOpenAlex(query: string, _retries: number): Promise<Validatio
     venue: item.primary_location?.source?.display_name,
     year: item.publication_year,
     citationCount: item.cited_by_count,
+    isRetracted,
+    retractionUrl: item.retraction_notice || undefined,
     primarySource: 'openalex',
     provider: 'openalex',
   };
 }
+
+async function queryEuropePMCValidation(query: string, _retries: number): Promise<ValidationResult | null> {
+  await europePmcLimiter.acquire(1);
+
+  const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(query)}&format=json&resultType=core&pageSize=1`;
+  
+  const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  const item = data.resultList?.result?.[0];
+  if (!item) return null;
+
+  const authors = item.authorString
+    ? item.authorString.split(',').map((a: string) => a.trim()).filter(Boolean)
+    : [];
+
+  return {
+    query,
+    status: 'verified',
+    verified: true,
+    doi: item.doi,
+    title: item.title?.replace(/<[^>]+>/g, '').trim(),
+    authors,
+    journal: item.journalTitle || item.journalInfo?.journal?.title,
+    venue: item.journalTitle || item.journalInfo?.journal?.title,
+    year: parseInt(item.pubYear || '0', 10) || undefined,
+    citationCount: item.citedByCount || 0,
+    primarySource: 'europepmc' as any,
+    provider: 'europepmc' as any,
+  };
+}
+

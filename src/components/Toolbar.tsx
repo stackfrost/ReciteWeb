@@ -14,6 +14,8 @@ import {
   X,
   Shield,
   Sparkles,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 import { LaTeXParser } from '@/services/latex-parser';
@@ -50,6 +52,22 @@ export default function Toolbar() {
   const { findings, runAudit: runAuditStore } = useAuditStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMounted = workspace.status !== 'NO_WORKSPACE_MOUNTED';
+  const [overleafCopied, setOverleafCopied] = React.useState(false);
+
+  const handleCopyForOverleaf = () => {
+    const text = rawText || parsedText || '';
+    if (!text) {
+      useReciteStore.getState().addToast('No manuscript loaded to copy.', 'warning');
+      return;
+    }
+    navigator.clipboard.writeText(text).then(() => {
+      setOverleafCopied(true);
+      useReciteStore.getState().addToast('Patched LaTeX copied! Paste directly into your Overleaf main.tex.', 'success');
+      setTimeout(() => setOverleafCopied(false), 2000);
+    }).catch(() => {
+      useReciteStore.getState().addToast('Failed to copy to clipboard.', 'error');
+    });
+  };
 
   // ── Synchronized Diagnostics Counts ────────────────────────────────────────
   const stats = useMemo(() => {
@@ -276,36 +294,54 @@ export default function Toolbar() {
         <button
           onClick={() => setShowSettings(true)}
           className={cn(
-            'flex items-center gap-1.5 px-2.5 py-1 rounded transition-colors duration-150 cursor-pointer text-xs font-semibold shadow-xs border',
+            'flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors duration-150 cursor-pointer text-xs font-medium shadow-xs border',
             license.status === 'ACTIVE'
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'
-              : 'bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+              : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850 hover:border-zinc-700'
           )}
           title="Account Subscription & Cryptographic License Tier"
         >
           {license.status === 'ACTIVE' ? (
             <>
-              <Shield size={12} className="text-emerald-500" />
-              <span>Researcher Pro</span>
+              <Shield size={12} className="text-emerald-400" />
+              <span className="font-semibold text-emerald-400">Researcher Pro</span>
             </>
           ) : (
             <>
-              <Sparkles size={12} className="text-amber-500" />
+              <Sparkles size={12} className="text-amber-400" />
               <span>Free Starter</span>
             </>
           )}
         </button>
 
+        <span className="hidden sm:inline text-zinc-800">|</span>
 
-        <span className="hidden sm:inline text-zinc-300 dark:text-zinc-800">|</span>
+        {/* 1-Click Overleaf Fast-Sync */}
+        <button
+          onClick={handleCopyForOverleaf}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-600/90 hover:bg-emerald-500 text-white transition-all duration-150 cursor-pointer text-xs font-semibold shadow-[0_0_10px_rgba(16,185,129,0.3)] active:scale-[0.97]"
+          title="Copy patched LaTeX manuscript to clipboard for Overleaf"
+        >
+          {overleafCopied ? (
+            <>
+              <Check size={13} className="text-white" />
+              <span>Copied for Overleaf!</span>
+            </>
+          ) : (
+            <>
+              <Copy size={13} className="text-emerald-100" />
+              <span>Copy for Overleaf</span>
+            </>
+          )}
+        </button>
 
         {/* Export Button */}
         <button
           onClick={() => setShowExportModal(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors duration-150 cursor-pointer text-xs font-medium border border-indigo-500/20 shadow-xs"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 hover:bg-zinc-850 text-zinc-300 hover:text-white transition-colors duration-150 cursor-pointer text-xs font-medium border border-zinc-800 hover:border-zinc-700 shadow-xs"
           title="Export Publication Package"
         >
-          <Download size={13} />
+          <Download size={13} className="text-zinc-400" />
           <span>Export</span>
         </button>
       </div>

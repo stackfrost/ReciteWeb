@@ -31,7 +31,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useReciteStore } from '@/lib/store';
-import PaywallModal from '@/components/modals/PaywallModal';
 import { LegalModal, LegalTab } from '@/components/modals/LegalModal';
 
 interface LandingPageProps {
@@ -46,7 +45,6 @@ export default function LandingPage({
   onFileUpload,
 }: LandingPageProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [showPaywall, setShowPaywall] = useState(false);
   const [legalModalOpen, setLegalModalOpen] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<LegalTab>('terms');
   const [activePillar, setActivePillar] = useState<number>(0);
@@ -249,7 +247,7 @@ Full SHA-256 verified compliance dossier is attached.`;
     },
     {
       q: 'What are the licensing options for individual researchers, labs, and departments?',
-      a: 'Free Starter provides basic syntax audits (up to 5 pages). Researcher Pro ($59/yr, or $49/yr with promo code) unlocks unlimited manuscripts and deep AI claim verification. Lab Multi-Seat ($299/yr for 6 seats) includes grant invoicing and shared bibliographies. For department-wide seat pools and custom model routing, our enterprise team can be reached at sales@reciteweb.com.',
+      a: 'Free Starter provides basic syntax audits (up to 5 pages). Researcher Pro ($59/yr) unlocks unlimited manuscripts and deep AI claim verification. Lab Multi-Seat ($299/yr for 6 seats) includes grant invoicing and shared bibliographies. For department-wide seat pools and custom model routing, our team can be reached directly via our Contact portal.',
     },
   ];
 
@@ -275,9 +273,6 @@ Full SHA-256 verified compliance dossier is attached.`;
         accept=".tex,.latex,.docx,.txt,.md,.pdf,.bib"
         onChange={handleFileChange}
       />
-
-      {/* Paywall Modal */}
-      <PaywallModal isOpen={showPaywall} onClose={() => setShowPaywall(false)} />
 
       {/* ─── 1. Top Liquid Glass Navigation Bar ─────────────────────────────── */}
       <header className="sticky top-0 z-50 w-full bg-[#05070d]/70 backdrop-blur-2xl border-b border-white/[0.08] shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
@@ -787,7 +782,6 @@ Full SHA-256 verified compliance dossier is attached.`;
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-3xl font-extrabold text-white font-mono">$59</span>
                   <span className="text-xs text-zinc-300">/ year</span>
-                  <span className="text-[10px] text-teal-300 font-mono">($49 w/ code)</span>
                 </div>
                 <p className="text-xs text-zinc-300 leading-relaxed">Deep AI claim verification & canonical baseline radar for serious submissions.</p>
                 <div className="border-t border-white/[0.1] pt-4 space-y-2.5 text-xs text-zinc-200">
@@ -805,12 +799,13 @@ Full SHA-256 verified compliance dossier is attached.`;
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => setShowPaywall(true)}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300 hover:from-emerald-300 hover:to-cyan-200 text-zinc-950 font-extrabold text-xs shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_10px_25px_rgba(20,184,166,0.45)] hover:shadow-[0_12px_30px_rgba(20,184,166,0.6)] transition-all cursor-pointer"
+              <Link
+                href="/checkout?plan=researcher_pro"
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300 hover:from-emerald-300 hover:to-cyan-200 text-zinc-950 font-extrabold text-xs shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_10px_25px_rgba(20,184,166,0.45)] hover:shadow-[0_12px_30px_rgba(20,184,166,0.6)] transition-all cursor-pointer flex items-center justify-center gap-1.5 text-center"
               >
-                Upgrade to Pro ($59/yr)
-              </button>
+                <span>Upgrade to Researcher Pro</span>
+                <ArrowRight size={13} />
+              </Link>
             </div>
 
             {/* Lab Multi-Seat */}
@@ -842,12 +837,13 @@ Full SHA-256 verified compliance dossier is attached.`;
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => setShowPaywall(true)}
-                className="w-full py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] backdrop-blur-xl border border-white/10 hover:border-white/20 text-xs font-bold text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] transition-all cursor-pointer"
+              <Link
+                href="/checkout?plan=lab_multiseat"
+                className="w-full py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] backdrop-blur-xl border border-white/10 hover:border-white/20 text-xs font-bold text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] transition-all cursor-pointer flex items-center justify-center gap-1.5 text-center"
               >
-                Get Lab Pass ($299)
-              </button>
+                <span>Get Lab Pass ($299)</span>
+                <ArrowRight size={13} />
+              </Link>
             </div>
 
             {/* Department & Institution */}
@@ -879,13 +875,13 @@ Full SHA-256 verified compliance dossier is attached.`;
                   </div>
                 </div>
               </div>
-              <a
-                href="mailto:sales@reciteweb.com?subject=ReciteWeb%20Departmental%20%26%20Institutional%20Inquiry"
+              <Link
+                href="/contact?type=enterprise"
                 className="w-full py-3 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-200 border border-indigo-400/30 hover:border-indigo-400/60 backdrop-blur-xl text-xs font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center"
               >
                 <span>Contact Enterprise Sales</span>
                 <ArrowRight className="w-3.5 h-3.5" />
-              </a>
+              </Link>
             </div>
           </div>
 
@@ -1068,33 +1064,33 @@ Full SHA-256 verified compliance dossier is attached.`;
             <div className="space-y-3">
               <h4 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
                 <Mail size={13} className="text-teal-400" />
-                Contact Channels
+                Contact & Support
               </h4>
               <ul className="space-y-2 text-zinc-400 text-xs">
                 <li>
-                  <a href="mailto:support@reciteweb.com" className="hover:text-teal-300 transition-colors font-mono text-[11px] block">
-                    support@reciteweb.com
-                  </a>
+                  <Link href="/contact?type=support" className="hover:text-teal-300 transition-colors block">
+                    Workbench Support Desk
+                  </Link>
                 </li>
                 <li>
-                  <a href="mailto:legal@reciteweb.com" className="hover:text-teal-300 transition-colors font-mono text-[11px] block">
-                    legal@reciteweb.com
-                  </a>
+                  <Link href="/contact?type=enterprise" className="hover:text-teal-300 transition-colors block">
+                    Grant & Department Quotes
+                  </Link>
                 </li>
                 <li>
-                  <a href="mailto:privacy@reciteweb.com" className="hover:text-teal-300 transition-colors font-mono text-[11px] block">
-                    privacy@reciteweb.com
-                  </a>
+                  <Link href="/contact?type=privacy" className="hover:text-teal-300 transition-colors block">
+                    Privacy & Data Protection
+                  </Link>
                 </li>
                 <li>
-                  <a href="mailto:security@reciteweb.com" className="hover:text-teal-300 transition-colors font-mono text-[11px] block">
-                    security@reciteweb.com
-                  </a>
+                  <Link href="/contact?type=security" className="hover:text-teal-300 transition-colors block">
+                    Security Disclosures
+                  </Link>
                 </li>
                 <li>
-                  <button onClick={() => openLegal('contact')} className="text-teal-300 hover:text-teal-200 transition-colors font-semibold text-left cursor-pointer pt-0.5">
-                    Open Contact Directory →
-                  </button>
+                  <Link href="/contact" className="text-teal-300 hover:text-teal-200 transition-colors font-semibold block pt-0.5">
+                    Open Direct Web Form →
+                  </Link>
                 </li>
               </ul>
             </div>
@@ -1127,6 +1123,9 @@ Full SHA-256 verified compliance dossier is attached.`;
               <button onClick={() => openLegal('privacy')} className="hover:text-zinc-300 transition-colors cursor-pointer">
                 Privacy
               </button>
+              <Link href="/cookies" className="hover:text-zinc-300 transition-colors">
+                Cookie Policy
+              </Link>
               <button onClick={() => openLegal('disclaimer')} className="hover:text-zinc-300 transition-colors cursor-pointer">
                 AI Disclaimer
               </button>

@@ -27,6 +27,7 @@ import {
   Command,
   FileCode2,
   FileText,
+  FileCheck2,
   Minus,
   Square,
   X,
@@ -432,6 +433,14 @@ export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
                         onClick={handleRunAnalysis}
                       />
                       <MenuAction
+                        icon={<FileCheck2 size={13} className="text-teal-400" />}
+                        label="Open PI Compliance Hub..."
+                        onClick={() => {
+                          setActiveMenu(null);
+                          window.location.href = '/compliance';
+                        }}
+                      />
+                      <MenuAction
                         icon={<Activity size={13} className="text-emerald-500" />}
                         label="Focus Candidate Citations"
                         onClick={() => {
@@ -523,8 +532,16 @@ export default function MenuBar({ onGoHome }: { onGoHome?: () => void }) {
         </button>
       </div>
 
-      {/* Right: Settings & Engine Action */}
+      {/* Right: Settings & PI Compliance Action */}
       <div className="flex items-center gap-2 h-full select-none">
+        <Link
+          href="/compliance"
+          className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-bold bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 dark:text-teal-300 border border-teal-500/30 transition-all cursor-pointer shadow-xs"
+          title="Open PI Executive Compliance Hub"
+        >
+          <FileCheck2 size={12} />
+          <span>PI Compliance</span>
+        </Link>
         <Link
           href="/settings"
           className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors cursor-pointer"

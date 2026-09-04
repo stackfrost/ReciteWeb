@@ -1,7 +1,7 @@
 /**
  * src/app/api/payments/webhook/route.ts
  *
- * Dodo Payments Webhook Handler for CiteAssist AI.
+ * Dodo Payments Webhook Handler for ReciteWeb.
  *
  * Webhook signature format from Dodo:
  *   Header: webhook-signature: t={timestamp},v1={hmac_sha256_hex}

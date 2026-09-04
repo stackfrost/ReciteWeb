@@ -162,8 +162,74 @@ export class SemanticEntailmentEngine {
   ): Promise<LLMEntailmentEvaluation[]> {
     if (!candidates || candidates.length === 0) return [];
 
-    // Fallback if no valid API key or already aborted
-    if (!apiKey || apiKey.trim().length === 0 || parentSignal?.aborted) {
+    if (parentSignal?.aborted) {
+      return this.heuristicFallback(claimText, candidates, onCandidateEvaluated);
+    }
+
+    // Hosted serverless inference via /api/audit/entailment if in browser without a custom BYOK key
+    if ((!apiKey || apiKey.trim().length === 0) && typeof window !== 'undefined') {
+      try {
+        const token = localStorage.getItem('citeassist_pro_token') || '';
+        const { getDeviceFingerprint } = await import('@/lib/browser-fingerprint');
+        const fp = await getDeviceFingerprint();
+
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'x-device-fingerprint': fp,
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        } else {
+          headers['x-free-trial'] = 'true';
+        }
+
+        const res = await fetch('/api/audit/entailment', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            mode: 'entailment',
+            claimText,
+            candidates: candidates.slice(0, 5).map((c, i) => ({
+              index: i,
+              title: c.title,
+              year: c.year,
+              abstractSnippet: c.abstractSnippet.slice(0, 750),
+            })),
+          }),
+        });
+
+        if (res.status === 402) {
+          const { useReciteStore } = await import('@/lib/store');
+          useReciteStore.getState().setShowPaywall(
+            true,
+            'Free trial limit reached (2 scans). Unlock Researcher Pro ($49/yr) for unlimited deep claim entailment.'
+          );
+        } else if (res.status === 400) {
+          const data = await res.json().catch(() => ({}));
+          if (data.code === 'PAGE_LIMIT_EXCEEDED') {
+            const { useReciteStore } = await import('@/lib/store');
+            useReciteStore.getState().setShowPaywall(
+              true,
+              'Free tier is limited to 5 pages. Upgrade to Researcher Pro for unlimited manuscript length.'
+            );
+          }
+        } else if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.evaluations) && data.evaluations.length > 0) {
+            for (const item of data.evaluations) {
+              onCandidateEvaluated?.(item);
+            }
+            return data.evaluations;
+          }
+        }
+      } catch (e) {
+        console.warn('[SemanticEntailmentEngine] Hosted API evaluation bypassed, falling back to heuristics:', e);
+      }
+
+      return this.heuristicFallback(claimText, candidates, onCandidateEvaluated);
+    }
+
+    if (!apiKey || apiKey.trim().length === 0) {
       return this.heuristicFallback(claimText, candidates, onCandidateEvaluated);
     }
 

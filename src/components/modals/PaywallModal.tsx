@@ -54,11 +54,11 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
     }
 
     const code = discountCode.trim().toUpperCase();
-    if (validPromoCodes.has(code) || code === 'PHD2026') {
+    if (validPromoCodes.has(code)) {
       setIsDiscountApplied(true);
       setDiscountError(null);
     } else {
-      setDiscountError('Invalid code. Try "PHD2026"');
+      setDiscountError('Invalid promo code. Please check and try again.');
       setIsDiscountApplied(false);
     }
   };
@@ -91,7 +91,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           plan,
-          discountCode: plan === 'researcher_pro' && isDiscountApplied ? discountCode || 'PHD2026' : undefined,
+          discountCode: plan === 'researcher_pro' && isDiscountApplied ? discountCode.trim().toUpperCase() : undefined,
           returnUrl: `${window.location.origin}/workbench?payment_success=1`,
         }),
       });
@@ -474,12 +474,12 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
               <div className="px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs bg-white/[0.02] border-y border-white/[0.08] my-2 backdrop-blur-md">
                 <div className="flex items-center gap-2 text-zinc-300">
                   <Tag size={13} className="text-amber-400" />
-                  <span>Have a student or conference promo code? (e.g. <b>PHD2026</b>)</span>
+                  <span>Have a promotional discount code?</span>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <input
                     type="text"
-                    placeholder="Promo Code"
+                    placeholder="Enter code..."
                     value={discountCode}
                     onChange={(e) => setDiscountCode(e.target.value)}
                     className="px-3 py-1 bg-white/[0.04] border border-white/[0.12] rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-teal-400 uppercase font-mono w-28 text-center"
@@ -504,7 +504,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
               <div className="px-6 py-2.5 flex items-center justify-between text-[11px] bg-white/[0.02] border-y border-white/[0.08] my-2 text-zinc-400">
                 <div className="flex items-center gap-2">
                   <Tag size={12} className="text-zinc-500" />
-                  <span>Promo codes (e.g. <b>PHD2026</b>) apply exclusively to <b>Researcher Pro</b> individual licenses.</span>
+                  <span>Promo codes apply exclusively to <b>Researcher Pro</b> individual licenses.</span>
                 </div>
                 <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-mono">Individual Tier Only</span>
               </div>

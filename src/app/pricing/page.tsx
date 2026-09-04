@@ -2,112 +2,24 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   ShieldCheck,
-  Zap,
   Check,
-  CheckCircle2,
   Sparkles,
-  Lock,
   ArrowRight,
   ChevronLeft,
   Users,
-  Award,
-  Tag,
-  HelpCircle,
   Building,
+  HelpCircle,
   Mail,
-  Layers,
+  Lock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export type PlanTier = 'free' | 'researcher_pro' | 'lab_multiseat' | 'departmental';
 
 export default function PricingPage() {
-  const router = useRouter();
-  const [selectedPlan, setSelectedPlan] = useState<PlanTier>('researcher_pro');
-  const [discountCode, setDiscountCode] = useState('');
-  const [isDiscountApplied, setIsDiscountApplied] = useState(false);
-  const [discountError, setDiscountError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
-
-  const validPromoCodes = new Set(['PHD2026', 'NEURIPS', 'STUDENT10', 'ICML2026', 'RESEARCHER']);
-
-  const handleApplyDiscount = () => {
-    const code = discountCode.trim().toUpperCase();
-    if (validPromoCodes.has(code) || code === 'PHD2026') {
-      setIsDiscountApplied(true);
-      setDiscountError(null);
-    } else {
-      setDiscountError('Invalid code. Try "PHD2026"');
-      setIsDiscountApplied(false);
-    }
-  };
-
-  const handleCheckout = async (plan: PlanTier) => {
-    if (plan === 'free') {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('citeassist_pro_tier', 'free');
-      }
-      router.push('/workbench');
-      return;
-    }
-
-    if (plan === 'departmental') {
-      if (typeof window !== 'undefined') {
-        window.location.href =
-          'mailto:sales@reciteweb.com?subject=ReciteWeb%20Departmental%20%26%20Campus%20Inquiry';
-      }
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMsg(null);
-
-    try {
-      const res = await fetch('/api/payments/create-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          plan,
-          discountCode: plan === 'researcher_pro' && isDiscountApplied ? discountCode || 'PHD2026' : undefined,
-          returnUrl: `${window.location.origin}/workbench?payment_success=1`,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (data.status === 'success') {
-        if (data.mode === 'sandbox_dev' && data.checkoutUrl) {
-          // Claim dev session token
-          const claimRes = await fetch(data.checkoutUrl);
-          const claimData = await claimRes.json();
-          if (claimData.token) {
-            localStorage.setItem('citeassist_pro_token', claimData.token);
-            localStorage.setItem('citeassist_pro_tier', plan);
-            router.push('/workbench?activation=success');
-            return;
-          }
-        }
-
-        if (data.checkoutUrl) {
-          window.location.href = data.checkoutUrl;
-          return;
-        }
-      }
-
-      throw new Error(data.message || 'Unable to initiate payment checkout');
-    } catch (err: any) {
-      console.error('[PricingPage] Checkout error:', err);
-      setErrorMsg(err.message || 'Payment initiation failed. Please try again.');
-      setIsLoading(false);
-    }
-  };
-
-  const proPrice = isDiscountApplied ? 49 : 59;
 
   const faqs = [
     {
@@ -186,22 +98,14 @@ export default function PricingPage() {
         {/* ── 4-Tier Pricing Grid ── */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch">
           {/* TIER 1: FREE STARTER */}
-          <div
-            onClick={() => setSelectedPlan('free')}
-            className={cn(
-              'p-6 rounded-3xl border transition-all flex flex-col justify-between backdrop-blur-2xl cursor-pointer relative',
-              selectedPlan === 'free'
-                ? 'bg-white/[0.06] border-white/30 shadow-[0_0_30px_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.2)] ring-1 ring-white/20'
-                : 'bg-white/[0.02] border-white/[0.08] hover:border-white/[0.18]'
-            )}
-          >
+          <div className="p-6 rounded-3xl bg-white/[0.02] border border-white/[0.08] hover:border-white/[0.18] transition-all flex flex-col justify-between backdrop-blur-2xl">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                  Free Starter
+                  Starter
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-zinc-300 font-mono border border-white/10">
-                  Preview
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-zinc-300 font-mono">
+                  Single File
                 </span>
               </div>
 
@@ -211,50 +115,39 @@ export default function PricingPage() {
               </div>
 
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Basic citation exploration for small preprints and short drafts.
+                Core syntax hygiene and local BibTeX integrity for standalone LaTeX drafts.
               </p>
 
-              <div className="pt-2 border-t border-white/[0.06] space-y-2 text-xs text-zinc-300">
+              <div className="pt-2 border-t border-white/[0.08] space-y-2 text-xs text-zinc-300">
                 <div className="flex items-center gap-2">
-                  <Check size={14} className="text-zinc-500 shrink-0" />
-                  <span>5 pages per document</span>
+                  <Check size={14} className="text-teal-400 shrink-0" />
+                  <span>Up to 3 Editor Pages</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Check size={14} className="text-zinc-500 shrink-0" />
-                  <span>Retraction matching</span>
+                  <Check size={14} className="text-teal-400 shrink-0" />
+                  <span>Fast BibTeX Syntax Linter</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Check size={14} className="text-zinc-500 shrink-0" />
-                  <span>Basic AST syntax parsing</span>
+                  <Check size={14} className="text-teal-400 shrink-0" />
+                  <span>Local CrossRef Parsing</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Check size={14} className="text-zinc-500 shrink-0" />
-                  <span>Local client-side execution</span>
+                <div className="flex items-center gap-2 text-zinc-500">
+                  <span className="w-3.5 text-center">&times;</span>
+                  <span>No Neural NLI Grounding</span>
                 </div>
               </div>
             </div>
 
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCheckout('free');
-              }}
-              className="mt-6 w-full py-3 bg-white/[0.06] hover:bg-white/[0.12] text-zinc-200 rounded-xl text-xs font-bold transition-all border border-white/10 flex items-center justify-center gap-1.5 cursor-pointer shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
+            <Link
+              href="/workbench"
+              className="mt-6 w-full py-3 bg-white/[0.06] hover:bg-white/[0.12] text-zinc-200 rounded-xl text-xs font-bold transition-all border border-white/10 flex items-center justify-center gap-1.5 cursor-pointer shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] text-center"
             >
               <span>Launch Free Workspace</span>
-            </button>
+            </Link>
           </div>
 
           {/* TIER 2: RESEARCHER PRO (FEATURED) */}
-          <div
-            onClick={() => setSelectedPlan('researcher_pro')}
-            className={cn(
-              'p-6 rounded-3xl border-2 transition-all flex flex-col justify-between backdrop-blur-2xl cursor-pointer relative',
-              selectedPlan === 'researcher_pro'
-                ? 'bg-gradient-to-b from-teal-500/20 via-emerald-950/40 to-indigo-950/30 border-teal-400 shadow-[0_0_40px_rgba(20,184,166,0.35),inset_0_1px_0_rgba(255,255,255,0.3)] ring-1 ring-teal-400/40'
-                : 'bg-white/[0.03] border-teal-500/40 hover:border-teal-400/70'
-            )}
-          >
+          <div className="p-6 rounded-3xl border-2 bg-gradient-to-b from-teal-500/20 via-emerald-950/40 to-indigo-950/30 border-teal-400 shadow-[0_0_40px_rgba(20,184,166,0.35),inset_0_1px_0_rgba(255,255,255,0.3)] ring-1 ring-teal-400/40 transition-all flex flex-col justify-between backdrop-blur-2xl relative">
             {/* Most Popular Badge */}
             <div className="absolute -top-3 right-4 px-3 py-1 bg-gradient-to-r from-emerald-400 to-teal-300 text-zinc-950 font-extrabold text-[9px] uppercase tracking-wider rounded-full shadow-md">
               Most Popular
@@ -272,49 +165,13 @@ export default function PricingPage() {
               </div>
 
               <div className="flex items-baseline gap-1.5">
-                <span className="text-3xl font-extrabold text-white font-mono">${proPrice}</span>
+                <span className="text-3xl font-extrabold text-white font-mono">$59</span>
                 <span className="text-xs text-zinc-300">/ year</span>
-                {isDiscountApplied && (
-                  <span className="text-xs line-through text-zinc-500 font-mono ml-1">$59</span>
-                )}
               </div>
 
               <p className="text-xs text-zinc-300 leading-relaxed">
                 1 Individual seat with unlimited pre-submission claim audits.
               </p>
-
-              {/* Promo Code Input (Strictly on Researcher Pro) */}
-              <div className="p-3 rounded-xl bg-white/[0.04] border border-white/10 space-y-2">
-                <div className="flex items-center justify-between text-[11px] text-zinc-300">
-                  <span className="flex items-center gap-1">
-                    <Tag size={12} className="text-amber-400" /> Promo Code
-                  </span>
-                  {isDiscountApplied && (
-                    <span className="text-teal-300 font-bold">-$10 Applied</span>
-                  )}
-                </div>
-                <div className="flex gap-1.5">
-                  <input
-                    type="text"
-                    placeholder="e.g. PHD2026"
-                    value={discountCode}
-                    onChange={(e) => setDiscountCode(e.target.value)}
-                    className="flex-1 px-2.5 py-1 bg-black/40 border border-white/15 rounded-lg text-xs text-white uppercase font-mono placeholder-zinc-500 focus:outline-none focus:border-teal-400"
-                  />
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleApplyDiscount();
-                    }}
-                    className="px-2.5 py-1 bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/30 rounded-lg text-xs font-bold cursor-pointer"
-                  >
-                    Apply
-                  </button>
-                </div>
-                {discountError && (
-                  <p className="text-[10px] text-rose-400">{discountError}</p>
-                )}
-              </div>
 
               <div className="pt-2 border-t border-white/[0.08] space-y-2 text-xs text-zinc-200">
                 <div className="flex items-center gap-2">
@@ -336,35 +193,17 @@ export default function PricingPage() {
               </div>
             </div>
 
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCheckout('researcher_pro');
-              }}
-              disabled={isLoading}
-              className="mt-6 w-full py-3 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300 text-zinc-950 rounded-xl text-xs font-extrabold transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_8px_20px_rgba(20,184,166,0.45)] hover:shadow-[0_10px_25px_rgba(20,184,166,0.6)] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+            <Link
+              href="/checkout?plan=researcher_pro"
+              className="mt-6 w-full py-3.5 bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300 hover:from-emerald-300 hover:to-cyan-200 text-zinc-950 rounded-xl text-xs font-extrabold transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),0_8px_20px_rgba(20,184,166,0.45)] hover:shadow-[0_10px_25px_rgba(20,184,166,0.6)] flex items-center justify-center gap-1.5 cursor-pointer text-center"
             >
-              {isLoading ? (
-                <span>Connecting to Gateway...</span>
-              ) : (
-                <>
-                  <span>Unlock Researcher Pro (${proPrice})</span>
-                  <ArrowRight size={13} />
-                </>
-              )}
-            </button>
+              <span>Unlock Researcher Pro</span>
+              <ArrowRight size={13} />
+            </Link>
           </div>
 
           {/* TIER 3: LAB MULTI-SEAT ($299 / 6 SEATS) */}
-          <div
-            onClick={() => setSelectedPlan('lab_multiseat')}
-            className={cn(
-              'p-6 rounded-3xl border transition-all flex flex-col justify-between backdrop-blur-2xl cursor-pointer relative',
-              selectedPlan === 'lab_multiseat'
-                ? 'bg-white/[0.06] border-cyan-400 shadow-[0_0_30px_rgba(6,182,212,0.25),inset_0_1px_0_rgba(255,255,255,0.2)] ring-1 ring-cyan-400/40'
-                : 'bg-white/[0.02] border-white/[0.08] hover:border-white/[0.18]'
-            )}
-          >
+          <div className="p-6 rounded-3xl border bg-white/[0.03] border-white/[0.09] hover:border-white/[0.18] transition-all flex flex-col justify-between backdrop-blur-2xl relative">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
@@ -382,65 +221,48 @@ export default function PricingPage() {
               </div>
 
               <p className="text-xs text-zinc-400 leading-relaxed">
-                6 Member seats (~$49/seat). Built for university research groups and grant billing.
+                6 Team seats for research labs, postdocs, and grant consortia.
               </p>
 
-              <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06] text-[11px] text-zinc-400 flex items-center gap-2">
-                <Tag size={12} className="text-zinc-500 shrink-0" />
-                <span>Bulk discounted package (no promo code required).</span>
-              </div>
-
-              <div className="pt-2 border-t border-white/[0.06] space-y-2 text-xs text-zinc-300">
+              <div className="pt-2 border-t border-white/[0.08] space-y-2 text-xs text-zinc-300">
                 <div className="flex items-center gap-2">
                   <Check size={14} className="text-cyan-400 shrink-0" />
-                  <span className="font-semibold text-white">6 Full Member Seats</span>
+                  <span>6 Researcher Pro Seats</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Check size={14} className="text-cyan-400 shrink-0" />
-                  <span>Centralized PI Audit Hub</span>
+                  <span>Centralized PI Dashboard</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Check size={14} className="text-cyan-400 shrink-0" />
-                  <span>Shared Zotero Sync</span>
+                  <span>Shared Zotero Library</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Check size={14} className="text-cyan-400 shrink-0" />
-                  <span>Direct Grant PO & Invoicing</span>
+                  <span>Grant / PO Invoicing</span>
                 </div>
               </div>
             </div>
 
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCheckout('lab_multiseat');
-              }}
-              disabled={isLoading}
-              className="mt-6 w-full py-3 bg-white/[0.08] hover:bg-white/[0.15] text-white rounded-xl text-xs font-bold transition-all border border-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+            <Link
+              href="/checkout?plan=lab_multiseat"
+              className="mt-6 w-full py-3 bg-white/[0.06] hover:bg-white/[0.12] text-zinc-200 rounded-xl text-xs font-bold transition-all border border-white/10 flex items-center justify-center gap-1.5 cursor-pointer shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] text-center"
             >
-              <span>Get Lab Pass ($299)</span>
+              <span>Unlock Lab Pass ($299)</span>
               <ArrowRight size={13} />
-            </button>
+            </Link>
           </div>
 
-          {/* TIER 4: DEPARTMENTAL & INSTITUTIONAL */}
-          <div
-            onClick={() => setSelectedPlan('departmental')}
-            className={cn(
-              'p-6 rounded-3xl border transition-all flex flex-col justify-between backdrop-blur-2xl cursor-pointer relative',
-              selectedPlan === 'departmental'
-                ? 'bg-indigo-950/40 border-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.25),inset_0_1px_0_rgba(255,255,255,0.2)] ring-1 ring-indigo-400/40'
-                : 'bg-white/[0.02] border-white/[0.08] hover:border-white/[0.18]'
-            )}
-          >
+          {/* TIER 4: DEPARTMENTAL / ENTERPRISE */}
+          <div className="p-6 rounded-3xl border bg-indigo-950/20 border-indigo-400/30 hover:border-indigo-400/60 transition-all flex flex-col justify-between backdrop-blur-2xl">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
-                  <Award size={13} />
-                  Enterprise
+                  <Building size={13} />
+                  Department
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 font-mono border border-indigo-500/30">
-                  Custom
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 font-mono border border-indigo-500/40">
+                  Site License
                 </span>
               </div>
 
@@ -473,24 +295,15 @@ export default function PricingPage() {
               </div>
             </div>
 
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCheckout('departmental');
-              }}
-              className="mt-6 w-full py-3 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 rounded-xl text-xs font-bold transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] flex items-center justify-center gap-1.5 cursor-pointer"
+            <Link
+              href="/contact?type=enterprise"
+              className="mt-6 w-full py-3 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 rounded-xl text-xs font-bold transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] flex items-center justify-center gap-1.5 cursor-pointer text-center"
             >
-              <span>Contact Sales</span>
+              <span>Contact Enterprise Sales</span>
               <ArrowRight size={13} />
-            </button>
+            </Link>
           </div>
         </div>
-
-        {errorMsg && (
-          <div className="p-3 bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs rounded-xl text-center">
-            {errorMsg}
-          </div>
-        )}
 
         {/* ── Comprehensive Feature Comparison Matrix ── */}
         <section className="pt-14 border-t border-white/[0.08] space-y-6">
@@ -609,13 +422,13 @@ export default function PricingPage() {
               ReciteWeb licenses qualify under standard research computing, software tools, and publication budget categories for <strong>NSF, NIH, DOE, ERC, Horizon Europe, and UKRI</strong> grants. Need an official vendor quotation or W-9 form?
             </p>
           </div>
-          <a
-            href="mailto:sales@reciteweb.com?subject=ReciteWeb%20Grant%20Purchase%20Order%20%2F%20Quote%20Request"
+          <Link
+            href="/contact?type=enterprise"
             className="shrink-0 px-4 py-2.5 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 border border-teal-400/40 text-teal-200 font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
           >
             <Mail size={13} />
             <span>Request Grant Quote</span>
-          </a>
+          </Link>
         </div>
 
         {/* ── FAQ Section ── */}

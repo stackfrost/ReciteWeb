@@ -8,41 +8,83 @@ export interface MountResult {
 export class FileSystemService {
   /**
    * Prompts the user to select a local file, reads its contents,
-   * and returns the text along with the native file handle.
+   * and returns the text along with the native file handle (or null if fallback used).
+   * Fully supports Chromium, Safari, Firefox, and mobile browsers.
    */
   static async mountFile(): Promise<MountResult> {
-    if (!('showOpenFilePicker' in window)) {
-      throw new Error('Native File System Access API is not supported in this environment.');
-    }
-
-    try {
-      const [handle] = await (window as any).showOpenFilePicker({
-        types: [
-          {
-            description: 'Manuscript Files',
-            accept: {
-              'text/plain': ['.tex', '.latex', '.txt', '.md'],
+    if (typeof window !== 'undefined' && 'showOpenFilePicker' in window) {
+      try {
+        const [handle] = await (window as any).showOpenFilePicker({
+          types: [
+            {
+              description: 'Manuscript Files',
+              accept: {
+                'text/plain': ['.tex', '.latex', '.txt', '.md', '.docx'],
+              },
             },
-          },
-        ],
-        multiple: false,
-      });
+          ],
+          multiple: false,
+        });
 
-      const file = await handle.getFile();
-      const text = await file.text();
+        const file = await handle.getFile();
+        const text = await file.text();
 
-      return {
-        text,
-        fileHandle: handle,
-        fileName: file.name,
-        fileSize: file.size,
-      };
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        throw new Error('USER_ABORTED');
+        return {
+          text,
+          fileHandle: handle,
+          fileName: file.name,
+          fileSize: file.size,
+        };
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          throw new Error('USER_ABORTED');
+        }
+        // If native picker fails, fall through to browser standard input fallback
       }
-      throw err;
     }
+
+    // Standard cross-browser <input type="file"> fallback for Safari / Firefox
+    return new Promise<MountResult>((resolve, reject) => {
+      if (typeof document === 'undefined') {
+        reject(new Error('Window or Document not available.'));
+        return;
+      }
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.tex,.latex,.txt,.md,.docx';
+      input.style.display = 'none';
+      document.body.appendChild(input);
+
+      input.onchange = async () => {
+        try {
+          const file = input.files?.[0];
+          if (!file) {
+            document.body.removeChild(input);
+            reject(new Error('USER_ABORTED'));
+            return;
+          }
+          const text = await file.text();
+          document.body.removeChild(input);
+          resolve({
+            text,
+            fileHandle: null,
+            fileName: file.name,
+            fileSize: file.size,
+          });
+        } catch (e) {
+          document.body.removeChild(input);
+          reject(e);
+        }
+      };
+
+      input.oncancel = () => {
+        document.body.removeChild(input);
+        reject(new Error('USER_ABORTED'));
+      };
+
+      input.click();
+    });
   }
 
   /**
@@ -50,55 +92,115 @@ export class FileSystemService {
    * and returns all .tex and .bib files in a flat map keyed by relative path.
    */
   static async mountDirectory(): Promise<{ directoryName: string; files: Record<string, MountResult> }> {
-    if (!('showDirectoryPicker' in window)) {
-      throw new Error('Native File System Access API is not supported in this environment.');
-    }
+    if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+      try {
+        const dirHandle = await (window as any).showDirectoryPicker({
+          mode: 'readwrite',
+        });
 
-    try {
-      const dirHandle = await (window as any).showDirectoryPicker({
-        mode: 'readwrite',
-      });
-
-      const files: Record<string, MountResult> = {};
-      
-      async function traverse(handle: any, currentPath: string) {
-        for await (const entry of handle.values()) {
-          if (entry.kind === 'file') {
-            if (entry.name.endsWith('.tex') || entry.name.endsWith('.bib') || entry.name.endsWith('.txt')) {
-              try {
-                const file = await entry.getFile();
-                const text = await file.text();
-                files[currentPath + entry.name] = {
-                  text,
-                  fileHandle: entry,
-                  fileName: entry.name,
-                  fileSize: file.size,
-                };
-              } catch (e) {
-                console.warn(`Failed to read file ${entry.name}`, e);
+        const files: Record<string, MountResult> = {};
+        
+        async function traverse(handle: any, currentPath: string) {
+          for await (const entry of handle.values()) {
+            if (entry.kind === 'file') {
+              if (entry.name.endsWith('.tex') || entry.name.endsWith('.bib') || entry.name.endsWith('.txt')) {
+                try {
+                  const file = await entry.getFile();
+                  const text = await file.text();
+                  files[currentPath + entry.name] = {
+                    text,
+                    fileHandle: entry,
+                    fileName: entry.name,
+                    fileSize: file.size,
+                  };
+                } catch (e) {
+                  console.warn(`Failed to read file ${entry.name}`, e);
+                }
               }
-            }
-          } else if (entry.kind === 'directory') {
-            // Ignore common excluded directories
-            if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
-              await traverse(entry, currentPath + entry.name + '/');
+            } else if (entry.kind === 'directory') {
+              // Ignore common excluded directories
+              if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
+                await traverse(entry, currentPath + entry.name + '/');
+              }
             }
           }
         }
-      }
 
-      await traverse(dirHandle, '');
+        await traverse(dirHandle, '');
 
-      return {
-        directoryName: dirHandle.name,
-        files,
-      };
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        throw new Error('USER_ABORTED');
+        return {
+          directoryName: dirHandle.name,
+          files,
+        };
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          throw new Error('USER_ABORTED');
+        }
+        // Fall through to fallback
       }
-      throw err;
     }
+
+    // Standard cross-browser directory upload fallback
+    return new Promise<{ directoryName: string; files: Record<string, MountResult> }>((resolve, reject) => {
+      if (typeof document === 'undefined') {
+        reject(new Error('Window or Document not available.'));
+        return;
+      }
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      (input as any).webkitdirectory = true;
+      (input as any).directory = true;
+      input.multiple = true;
+      input.style.display = 'none';
+      document.body.appendChild(input);
+
+      input.onchange = async () => {
+        try {
+          const fileList = input.files;
+          if (!fileList || fileList.length === 0) {
+            document.body.removeChild(input);
+            reject(new Error('USER_ABORTED'));
+            return;
+          }
+
+          const files: Record<string, MountResult> = {};
+          let directoryName = 'Project';
+
+          for (let i = 0; i < fileList.length; i++) {
+            const file = fileList[i];
+            const relPath = (file as any).webkitRelativePath || file.name;
+            if (i === 0 && (file as any).webkitRelativePath) {
+              directoryName = (file as any).webkitRelativePath.split('/')[0] || 'Project';
+            }
+
+            if (file.name.endsWith('.tex') || file.name.endsWith('.bib') || file.name.endsWith('.txt')) {
+              const text = await file.text();
+              const normalizedPath = relPath.replace(/\\/g, '/');
+              files[normalizedPath] = {
+                text,
+                fileHandle: null,
+                fileName: file.name,
+                fileSize: file.size,
+              };
+            }
+          }
+
+          document.body.removeChild(input);
+          resolve({ directoryName, files });
+        } catch (e) {
+          document.body.removeChild(input);
+          reject(e);
+        }
+      };
+
+      input.oncancel = () => {
+        document.body.removeChild(input);
+        reject(new Error('USER_ABORTED'));
+      };
+
+      input.click();
+    });
   }
 
   /**
@@ -106,55 +208,108 @@ export class FileSystemService {
    * and returns the text along with the file metadata.
    */
   static async mountBibFile(): Promise<MountResult> {
-    if (!('showOpenFilePicker' in window)) {
-      throw new Error('Native File System Access API is not supported in this environment.');
-    }
-
-    try {
-      const [handle] = await (window as any).showOpenFilePicker({
-        types: [
-          {
-            description: 'BibTeX Database Files (*.bib, *.bibtex, *.txt)',
-            accept: {
-              'text/plain': ['.bib', '.bibtex', '.txt'],
+    if (typeof window !== 'undefined' && 'showOpenFilePicker' in window) {
+      try {
+        const [handle] = await (window as any).showOpenFilePicker({
+          types: [
+            {
+              description: 'BibTeX Database Files (*.bib, *.bibtex, *.txt)',
+              accept: {
+                'text/plain': ['.bib', '.bibtex', '.txt'],
+              },
             },
-          },
-        ],
-        multiple: false,
-      });
+          ],
+          multiple: false,
+        });
 
-      const file = await handle.getFile();
-      const text = await file.text();
+        const file = await handle.getFile();
+        const text = await file.text();
 
-      return {
-        text,
-        fileHandle: handle,
-        fileName: file.name,
-        fileSize: file.size,
-      };
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        throw new Error('USER_ABORTED');
+        return {
+          text,
+          fileHandle: handle,
+          fileName: file.name,
+          fileSize: file.size,
+        };
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          throw new Error('USER_ABORTED');
+        }
+        // Fall through
       }
-      throw err;
     }
+
+    // Standard cross-browser BibTeX input fallback
+    return new Promise<MountResult>((resolve, reject) => {
+      if (typeof document === 'undefined') {
+        reject(new Error('Window or Document not available.'));
+        return;
+      }
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.bib,.bibtex,.txt';
+      input.style.display = 'none';
+      document.body.appendChild(input);
+
+      input.onchange = async () => {
+        try {
+          const file = input.files?.[0];
+          if (!file) {
+            document.body.removeChild(input);
+            reject(new Error('USER_ABORTED'));
+            return;
+          }
+          const text = await file.text();
+          document.body.removeChild(input);
+          resolve({
+            text,
+            fileHandle: null,
+            fileName: file.name,
+            fileSize: file.size,
+          });
+        } catch (e) {
+          document.body.removeChild(input);
+          reject(e);
+        }
+      };
+
+      input.oncancel = () => {
+        document.body.removeChild(input);
+        reject(new Error('USER_ABORTED'));
+      };
+
+      input.click();
+    });
   }
 
   /**
    * Saves the provided content directly back to the local disk
-   * using the previously acquired native file handle.
+   * using the native file handle, or triggers a browser Blob download.
    */
-  static async saveFile(handle: any, content: string): Promise<void> {
-    if (!handle) {
-      throw new Error('No active file handle provided. Cannot save file.');
+  static async saveFile(handle: any, content: string, fallbackFileName = 'manuscript.tex'): Promise<void> {
+    if (handle && typeof handle === 'object' && 'createWritable' in handle) {
+      try {
+        const writable = await handle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        return;
+      } catch (err: any) {
+        console.warn('[FileSystemService] Native save failed, falling back to Blob download:', err);
+      }
     }
 
-    try {
-      const writable = await handle.createWritable();
-      await writable.write(content);
-      await writable.close();
-    } catch (err: any) {
-      throw new Error(`Failed to save file: ${err.message}`);
+    // Browser Blob download fallback
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fallbackFileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
   }
 }
